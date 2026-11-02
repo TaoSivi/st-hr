@@ -106,7 +106,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
             {MAIN_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}>{label}</button>)}
           </nav>
         ) : (
-          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 36, padding: '0 12px', background: 'transparent', color: '#fff', borderColor: '#1d5a56' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
+          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 36, padding: '0 12px' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
         )}
       </header>
       {page === 'clock' && <ClockTab />}
