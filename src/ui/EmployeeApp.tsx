@@ -464,7 +464,8 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
 
-  useEffect(() => () => stopCamera(stream.current), []);
+  const cancelled = useRef(false);
+  useEffect(() => () => { cancelled.current = true; stopCamera(stream.current); }, []);
 
   const start = async () => {
     setPhase('camera');
@@ -474,12 +475,13 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
       setMsg('ກຳລັງກຽມ…');
       await loadFaceModels();
       const samples: number[][] = [];
-      for (let tries = 0; samples.length < 3 && tries < 30; tries++) {
+      for (let tries = 0; samples.length < 3 && tries < 30 && !cancelled.current; tries++) {
         setMsg(`ຖືໃຫ້ນິ່ງໆ… ${samples.length}/3`);
         const d = await describeFace(video.current!);
         if (d) samples.push(d);
         await new Promise(r => setTimeout(r, 300));
       }
+      if (cancelled.current) return;
       if (samples.length < 3) throw new Error('ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
       const avg = samples[0].map((_, i) => samples.reduce((a, s) => a + s[i], 0) / samples.length);
       setPhase('saving');
@@ -513,10 +515,16 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
           <button className="btn block ghost" onClick={onCancel} style={{ background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }}>ຍົກເລີກ</button>
         </div>
       ) : (
-        <div className="check" style={{ maxWidth: 420 }}><span className="dot wait" />{phase === 'saving' ? 'ກຳລັງບັນທຶກ…' : msg}</div>
+        <span style={{ fontSize: 17, color: '#cdebe8', textAlign: 'center' }}>ຖືໂທລະສັບຫ່າງປະມານແຂນ<br />ໃຫ້ເຫັນໜ້າເຕັມວົງມົນ ຢູ່ບ່ອນແຈ້ງ</span>
       )}
       {/* one video element for the whole flow, so the ref is valid before the camera opens */}
       <div className="facering" style={{ display: phase === 'consent' ? 'none' : undefined }}><video ref={video} playsInline muted /></div>
+      {phase !== 'consent' && <>
+        <div className="check" style={{ maxWidth: 420 }}><span className="dot wait" />{phase === 'saving' ? 'ກຳລັງບັນທຶກ…' : msg}</div>
+        <div style={{ flex: 1 }} />
+        <button className="btn block ghost" style={{ background: 'transparent', color: '#fff', borderColor: 'var(--mint)', maxWidth: 420 }}
+          onClick={() => { stopCamera(stream.current); onCancel(); }} disabled={phase === 'saving'}>ຍົກເລີກ</button>
+      </>}
     </div>
   );
 }

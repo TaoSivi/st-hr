@@ -97,7 +97,7 @@ table.t td.num, table.t th.num { text-align: right; }
 .bigbtn.in { background: var(--primary); box-shadow: 0 0 0 18px rgba(10,186,181,.22), 0 18px 40px rgba(6,47,45,.25); }
 .bigbtn.out { background: var(--out); box-shadow: 0 0 0 18px rgba(249,115,22,.22), 0 18px 40px rgba(6,47,45,.25); }
 
-.fullscreen { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); gap: 16px; overflow-y: auto; }
+.fullscreen { position: fixed; inset: 0; z-index: 3000; display: flex; flex-direction: column; padding: 24px 20px calc(24px + env(safe-area-inset-bottom)); gap: 16px; overflow-y: auto; }
 .fullscreen.scan { background: var(--dark); color: #fff; align-items: center; }
 .facering { position: relative; width: min(290px, 78vw); aspect-ratio: 1; border-radius: 50%; overflow: hidden; background: var(--dark-2); box-shadow: 0 0 0 8px rgba(95,217,210,.25); }
 .facering.ok { box-shadow: 0 0 0 8px var(--mint); }
@@ -128,7 +128,7 @@ table.t td.num, table.t th.num { text-align: right; }
 .subtabs { display: flex; background: var(--dark-2); position: sticky; top: 108px; z-index: 19; }
 .subtabs button { flex: 1; min-height: 50px; border: none; background: transparent; color: #9fc7c2; font-weight: 600; border-bottom: 3px solid transparent; }
 .subtabs button[aria-selected='true'] { color: #fff; font-weight: 800; border-bottom-color: #fff; }
-.drawer-back, .sheet-back { position: fixed; inset: 0; z-index: 60; background: rgba(6,47,45,.45); }
+.drawer-back, .sheet-back { position: fixed; inset: 0; z-index: 2000; background: rgba(6,47,45,.45); }
 .drawer { position: absolute; top: 0; bottom: 0; left: 0; width: min(300px, 82vw); background: var(--dark); color: #cdebe8; padding: 18px 12px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 4px; }
 .drawer button { min-height: 48px; border: none; background: transparent; color: inherit; text-align: left; padding: 0 12px; border-radius: 12px; font-weight: 600; font-size: 16px; }
 .drawer button:hover { background: rgba(255,255,255,.08); }
@@ -147,7 +147,8 @@ table.t td.num, table.t th.num { text-align: right; }
 .fab { position: fixed; right: max(18px, calc(50% - 222px)); bottom: calc(22px + env(safe-area-inset-bottom)); width: 64px; height: 64px; border-radius: 50%; border: none; background: var(--dark); color: #fff; font-size: 36px; line-height: 1; box-shadow: 0 10px 24px rgba(6,47,45,.35); z-index: 15; }
 
 /* ---------- clock tab ---------- */
-.mapcard { position: relative; height: 270px; border-radius: var(--r); overflow: hidden; background: #dbe9e7; border: 1px solid var(--line); }
+/* isolation keeps Leaflet's internal z-indexes (400–1000) inside the card, so overlays stay on top */
+.mapcard { position: relative; height: 270px; border-radius: var(--r); overflow: hidden; background: #dbe9e7; border: 1px solid var(--line); isolation: isolate; z-index: 0; }
 .mapcard-map { position: absolute; inset: 0; }
 .mapcard-overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; padding: 18px 12px 10px; text-align: center; background: linear-gradient(transparent, rgba(255,255,255,.92) 30%); pointer-events: none; }
 .clock-big { font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1; color: var(--dark); }
