@@ -13,7 +13,9 @@ export interface Notification {
   link?: string; // page id to open
 }
 import { LocalStore, uid } from '../data/store';
-import { COMPANY, seed, shifts } from '../data/seed';
+import { seed, shifts } from '../data/seed';
+import { DEMO_COMPANY_ID, getCompany, meKey, storePrefix } from '../data/companies';
+import type { Company } from '../domain/company';
 import { purgeExpiredPhotos } from '../domain/attendance';
 import { defaultSettings } from '../domain/defaults';
 import { syncOfflineScans } from './offlineSync';
@@ -46,6 +48,8 @@ export interface HRData {
 }
 
 interface Ctx extends HRData {
+  companyId: string;
+  company: Company;
   notify: (userIds: string[], text: string, link?: string) => Promise<void>;
   ready: boolean;
   me: Employee | null;
@@ -62,11 +66,12 @@ export const useHR = () => {
   return c;
 };
 
-export function HRProvider({ children }: { children: ReactNode }) {
-  const store = useMemo(() => new LocalStore(COMPANY), []);
+export function HRProvider({ companyId, children }: { companyId: string; children: ReactNode }) {
+  const store = useMemo(() => new LocalStore(companyId, storePrefix(companyId)), [companyId]);
+  const company = getCompany(companyId);
   const [data, setData] = useState<HRData | null>(null);
   const [meId, setMeId] = useState<string | null>(() => {
-    try { return localStorage.getItem('sthr-me'); } catch { return null; }
+    try { return localStorage.getItem(meKey(companyId)); } catch { return null; }
   });
 
   const load = useCallback(async () => {
@@ -78,11 +83,12 @@ export function HRProvider({ children }: { children: ReactNode }) {
       store.list<PayItem>('payItems')
     ]);
     // defaults first, so settings saved before a new field existed still get a valid value for it
-    const settings = { ...defaultSettings(COMPANY), ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
+    const settings = { ...defaultSettings(companyId), ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
     setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, payItems, shifts: shiftRows.length ? shiftRows : shifts, settings });
   }, [store]);
 
-  useEffect(() => { seed(store).then(load); }, [store, load]);
+  // only the demo company is seeded with sample people here; every other company was seeded when it was created
+  useEffect(() => { (companyId === DEMO_COMPANY_ID ? seed(store) : Promise.resolve()).then(load); }, [store, load, companyId]);
 
   // Offline scans get their server time and a fresh clock check once the phone reaches the server.
   useEffect(() => {
@@ -110,7 +116,7 @@ export function HRProvider({ children }: { children: ReactNode }) {
   const noticed = useRef(new Set<string>());
   useEffect(() => {
     if (!data) return;
-    const fresh = missedOutNotices(data, new Date(), COMPANY).filter(n => !noticed.current.has(n.id));
+    const fresh = missedOutNotices(data, new Date(), companyId).filter(n => !noticed.current.has(n.id));
     if (!fresh.length) return;
     fresh.forEach(n => noticed.current.add(n.id));
     Promise.all(fresh.map(n => store.put<Notification>('notifications', n, 'system', 'missed-clock-out'))).then(load);
@@ -121,23 +127,27 @@ export function HRProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx | null = data && {
     ...data,
+    companyId,
+    company: company!,
     ready: true,
     me,
     setMe: id => {
       setMeId(id);
-      try { id ? localStorage.setItem('sthr-me', id) : localStorage.removeItem('sthr-me'); } catch { /* private mode */ }
+      try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }
     },
     save: async (collection, item, action) => { await store.put(collection, item, by, action); await load(); },
     notify: async (userIds, text, link) => {
       for (const userId of new Set(userIds)) {
-        await store.put<Notification>('notifications', { id: uid(), companyId: COMPANY, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');
+        await store.put<Notification>('notifications', { id: uid(), companyId, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');
       }
       await load();
     },
     store,
-    resetDemo: () => { store.reset(); seed(store).then(load); }
+    // wipes only this company's own keys; refused for any company but the demo, whose sample people it re-creates
+    resetDemo: () => { if (companyId !== DEMO_COMPANY_ID) return; store.reset(); seed(store).then(load); }
   };
 
+  if (!company) return <div className="empty">ບໍ່ພົບບໍລິສັດນີ້</div>;
   if (!value) return <div className="empty">ກຳລັງໂຫຼດ…</div>;
   return <HRContext.Provider value={value}>{children}</HRContext.Provider>;
 }

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useHR } from '../app/state';
 import { buildAttendance } from '../domain/attendanceReport';
 import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/exportAttendance';
+import { featureBlock } from '../domain/company';
 import { effectiveShift, type HRRequest } from '../domain/requests';
 import MapCard, { type MapMark } from './MapCard';
 import { MyRequests } from './RequestsUI';
@@ -90,6 +91,8 @@ export function Reports({ team }: { team: boolean }) {
   const me = rows.find(r => r.employee.id === hr.me!.id);
   const tile = (k: string, v: string | number) => <div className="card" style={{ padding: '12px 14px' }}><span className="muted small">{k}</span><div className="big-num" style={{ fontSize: 26 }}>{v}</div></div>;
   const doExport = async () => {
+    const gate = featureBlock(hr.company, 'excelExport', ymd(new Date()));
+    if (gate) return setNote(gate);
     setExporting(true);
     setNote('');
     try {

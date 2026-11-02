@@ -14,6 +14,8 @@ import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, valid
 import { lateStartOn, monthKey, summarize } from '../app/payrun';
 import { leaveSpan } from '../domain/leavePart';
 import { planSettlement, settlementItem } from '../app/settlement';
+import { branchBlock, countedEmployees, featureBlock, hireBlock } from '../domain/company';
+import { PlanCard } from './PlanCard';
 import { commissionAmount, initialPayItemStatus, PAY_ITEM_LABEL, payItemDecisionBlock, pendingPayItemsBlock, validatePayItem, type PayItem, type PayItemKind } from '../domain/payItems';
 import { closesAtFor } from '../domain/missedOut';
 import { activeSession, scansOn, toSessions } from '../domain/sessions';
@@ -373,14 +375,14 @@ function Staff() {
   const [endDate, setEndDate] = useState(ymd(new Date()));
   const [payout, setPayout] = useState(true);
   const today = ymd(new Date());
-  const startHire = () => { setEdit(null); setMsg(''); setHire({ id: uid(), companyId: me.companyId, code: nextEmployeeCode(hr.employees), name: '', dept: '', position: '', roles: ['employee'], homeBranchId: hr.branches[0]?.id ?? '', shiftId: hr.shifts[0]?.id ?? '', dayOff: [0], startDate: today, baseSalary: 0, allowance: 0, payMethod: 'bank', bankName: 'LDB', bankAccount: '' }); };
+  const startHire = () => { const lim = hireBlock(hr.company, countedEmployees(hr.employees, today), today); if (lim) return setMsg(lim); setEdit(null); setMsg(''); setHire({ id: uid(), companyId: me.companyId, code: nextEmployeeCode(hr.employees), name: '', dept: '', position: '', roles: ['employee'], homeBranchId: hr.branches[0]?.id ?? '', shiftId: hr.shifts[0]?.id ?? '', dayOff: [0], startDate: today, baseSalary: 0, allowance: 0, payMethod: 'bank', bankName: 'LDB', bankAccount: '' }); };
   const setH = (patch: Partial<Employee>) => setHire(h => (h ? { ...h, ...patch } : h));
   const notifyOwners = (text: string) => hr.notify(hr.employees.filter(x => x.roles.includes('owner') && !x.endDate && x.id !== me.id).map(x => x.id), text, 'profile');
   const request = (employeeId: string, field: ChangeRequest['field'], from: string, to: string): ChangeRequest => ({ id: uid(), companyId: me.companyId, employeeId, field, from, to, by: me.id, at: new Date().toISOString(), status: 'pending' });
   const submitHire = async () => {
     if (!hire) return;
     const clean: Employee = { ...hire, name: hire.name.trim(), code: hire.code.trim(), dept: hire.dept.trim(), position: hire.position.trim(), bankName: hire.payMethod === 'bank' ? hire.bankName : undefined, bankAccount: hire.payMethod === 'bank' ? hire.bankAccount?.trim() : undefined };
-    const errs = validateNewEmployee(clean, hr.employees, hr.shifts, hr.branches);
+    const errs = [...validateNewEmployee(clean, hr.employees, hr.shifts, hr.branches), ...(hireBlock(hr.company, countedEmployees(hr.employees, today), today) ?? [])];
     if (errs.length) return setMsg(errs.join(' · '));
     if (changeNeedsSecondPerson(hr.settings)) {
       await hr.save('changes', request(clean.id, 'hire', '', JSON.stringify(clean)), 'change-request');
@@ -457,7 +459,7 @@ function Staff() {
         // re-check at approval time: the roster may have changed since the request was made
         if (c.field === 'hire') {
           const emp = JSON.parse(c.to) as Employee;
-          const errs = validateNewEmployee(emp, hr.employees, hr.shifts, hr.branches);
+          const errs = [...validateNewEmployee(emp, hr.employees, hr.shifts, hr.branches), ...(hireBlock(hr.company, countedEmployees(hr.employees, ymd(new Date())), ymd(new Date())) ?? [])];
           if (errs.length) return setMsg(`ອະນຸມັດບໍ່ໄດ້: ${errs.join(' · ')}`);
           await hr.save('employees', emp, 'apply-hire');
           await notifyOwners(`ເພີ່ມພະນັກງານໃໝ່: ${emp.name} (${emp.code}) ເລີ່ມ ${emp.startDate}`);
@@ -571,12 +573,14 @@ function Payroll() {
   const canPrepare = canDo(me.roles, 'payroll.prepare');
   const canLock = canDo(me.roles, 'payroll.lock');
   const canConfirmLate = canDo(me.roles, 'payroll.confirmLate');
+  const itemsGate = featureBlock(hr.company, 'payItems', ymd(now));
   const canItems = canDo(me.roles, 'payroll.items') && !locked;
   const canDecideItems = canDo(me.roles, 'payroll.items.decide') && !locked;
   const monthItems = (hr.payItems ?? []).filter(i => i.month === key);
   const piAmount = pi ? (pi.kind === 'commission' && pi.base && pi.rate ? commissionAmount(Number(pi.base), Number(pi.rate)) : Number(pi.amount.replace(/\D/g, ''))) : 0;
   const addItem = async () => {
     if (!pi) return;
+    if (itemsGate) return setPiMsg(itemsGate);
     const target = hr.employees.find(e => e.id === pi.employeeId);
     const item: PayItem = {
       id: uid(), companyId: me.companyId, employeeId: pi.employeeId, month: key, kind: pi.kind, label: pi.label.trim(), amount: piAmount, taxable: pi.taxable,
@@ -607,6 +611,8 @@ function Payroll() {
     }
   };
   const exportXlsx = async () => {
+    const gate = featureBlock(hr.company, 'excelExport', ymd(new Date()));
+    if (gate) return setMsg(gate);
     setExporting(true);
     try { const r = await exportPayrollXlsx(hr, rows, key, run); setMsg(`ດາວໂຫຼດແລ້ວ: ${r.fileName} (${r.employees} ຄົນ)`); }
     catch (e: any) { setMsg('Export ບໍ່ສຳເລັດ: ' + (e?.message || 'ລອງໃໝ່')); }
@@ -629,7 +635,7 @@ function Payroll() {
         {canLock && run.status === 'prepared' && <button className="btn" onClick={lock}>ອະນຸມັດ & ລັອກງວດ</button>}
       </div>
       {msg && <div className="error" role="alert">{msg}</div>}
-      <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' })}>+ ເພີ່ມລາຍການ</button>}</div>
+      <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => itemsGate ? setPiMsg(itemsGate) : setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' })}>+ ເພີ່ມລາຍການ</button>}</div>
         {piMsg && <span className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{piMsg}</span>}
         {monthItems.length === 0 && !pi && <span className="muted small">ຍັງບໍ່ມີ. ເບ້ຍລ້ຽງຕາມກະ (ຕັ້ງໃນ ຕັ້ງຄ່າ → ກະວຽກ) ຖືກຄິດໃຫ້ເອງຈາກກະທີ່ເຮັດ.</span>}
         {monthItems.map(i => (
@@ -675,7 +681,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const [msg, setMsg] = useState('');
   const [nb, setNb] = useState<{ name: string; lat: string; lng: string; radiusM: string } | null>(null);
   const nbBranch = (): Branch | null => (nb ? { id: 'b-' + uid().slice(0, 8), companyId: me.companyId, name: nb.name.trim(), lat: nb.lat.trim() === '' ? NaN : Number(nb.lat), lng: nb.lng.trim() === '' ? NaN : Number(nb.lng), radiusM: nb.radiusM.trim() === '' ? NaN : Number(nb.radiusM) } : null);
-  const nbErrors = (() => { const b = nbBranch(); return b ? validateBranch(b, hr.branches) : []; })();
+  const nbErrors = (() => { const b = nbBranch(); return b ? [...validateBranch(b, hr.branches), ...(branchBlock(hr.company, hr.branches.length, ymd(new Date())) ?? [])] : []; })();
   const fillHere = async () => {
     const p = await getPosition();
     if (!p) return setMsg('ອ່ານ GPS ບໍ່ໄດ້ (ກວດສິດຕຳແໜ່ງ) — ໃສ່ພິກັດເອງໄດ້');
@@ -685,7 +691,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const addBranch = async () => {
     const b = nbBranch();
     if (!b || !canDo(me.roles, 'settings.edit')) return;
-    const errs = validateBranch(b, hr.branches);
+    const errs = [...validateBranch(b, hr.branches), ...(branchBlock(hr.company, hr.branches.length, ymd(new Date())) ?? [])];
     if (errs.length) return setMsg(errs.join(' · '));
     await hr.save('branches', b, 'branch-add');
     setMsg(`ເພີ່ມສາຂາ ${b.name} ແລ້ວ`);
@@ -731,6 +737,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   return (
     <>
       <h1>ຕັ້ງຄ່າ</h1>
+      <PlanCard />
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       <div className="card col"><h2>ສາຂາ & GPS</h2>
         {hr.branches.map(b => <div key={b.id} className="row wrap"><b className="grow">{b.name}</b><span className="muted small">{b.lat.toFixed(5)}, {b.lng.toFixed(5)}</span>
@@ -795,7 +802,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       {!readOnly && errors.length > 0 && <div className="error" role="alert"><b>ບັນທຶກບໍ່ໄດ້ — ກະລຸນາແກ້:</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{errors.map(e => <li key={e}>{e}</li>)}</ul></div>}
       {!readOnly && <div className="row"><button className="btn" disabled={errors.length > 0 || !dirty} onClick={saveAll}>ບັນທຶກການຕັ້ງຄ່າ</button>
         {dirty && <span className="pill warn">ມີການແກ້ໄຂທີ່ຍັງບໍ່ບັນທຶກ</span>}
-        <button className="btn danger" onClick={() => { if (confirm('ລ້າງຂໍ້ມູນສາທິດທັງໝົດ?')) hr.resetDemo(); }}>ລ້າງຂໍ້ມູນສາທິດ</button></div>}
+        {hr.companyId === 'demo-co' && <button className="btn danger" onClick={() => { if (confirm('ລ້າງຂໍ້ມູນສາທິດທັງໝົດ?')) hr.resetDemo(); }}>ລ້າງຂໍ້ມູນສາທິດ</button>}</div>}
     </>
   );
 }
