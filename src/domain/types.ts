@@ -60,6 +60,7 @@ export interface ScanRecord {
   distanceM?: number;
   faceScore?: number; // 0..100
   photo?: string; // data URL in demo; object storage key in production
+  manual?: boolean; // branch chosen by hand, so branchId is the employee's claim, not GPS
   status: ScanStatus;
   reasons: string[];
   reviewedBy?: string;

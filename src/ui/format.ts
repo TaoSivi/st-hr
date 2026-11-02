@@ -19,3 +19,6 @@ export function downloadText(filename: string, text: string, type = 'text/csv;ch
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
+
+/** 365 → "1 ປີ", 90 → "90 ມື້": the retention period as Admin set it. */
+export const retentionLabel = (days: number) => (days % 365 === 0 ? `${days / 365} ປີ` : `${days} ມື້`);

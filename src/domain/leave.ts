@@ -69,3 +69,26 @@ export function leaveDays(from: string, to: string, weeklyOff: number[], holiday
   }
   return n;
 }
+
+export interface LeaveBalance { earned: number; carried: number; used: number; left: number }
+
+/**
+ * Annual leave left on `asOf`: this year's accrual, plus unused days brought over from last year
+ * (capped by Settings → leaveCarryOverMax, chained year by year), minus days already booked.
+ */
+export function annualLeaveBalance(a: {
+  startDate: string; asOf: string;
+  s: Pick<Settings, 'leaveAccrual' | 'leaveDaysPerYear' | 'leaveCarryOverMax'>;
+  usedInYear: (year: number) => number;
+}): LeaveBalance {
+  const { startDate, asOf, s } = a;
+  const firstYear = new Date(startDate + 'T00:00:00').getFullYear();
+  const year = new Date(asOf + 'T00:00:00').getFullYear();
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const carriedInto = (y: number): number => (y <= firstYear ? 0 : Math.min(s.leaveCarryOverMax, Math.max(0, endOfYear(y - 1))));
+  const endOfYear = (y: number): number => accruedLeave(s.leaveAccrual, startDate, `${y}-12-31`, s.leaveDaysPerYear) + carriedInto(y) - a.usedInYear(y);
+  const earned = accruedLeave(s.leaveAccrual, startDate, asOf, s.leaveDaysPerYear);
+  const carried = carriedInto(year);
+  const used = a.usedInYear(year);
+  return { earned: round(earned), carried: round(carried), used: round(used), left: round(earned + carried - used) };
+}

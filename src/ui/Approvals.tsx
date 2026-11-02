@@ -1,43 +1,47 @@
 import { useState } from 'react';
 import { useHR } from '../app/state';
 import { decideAndApply } from '../app/workflow';
-import { requestBlock, requestEscalated, REQUEST_LABEL, type HRRequest, type RequestKind, type RequestPayloads } from '../domain/requests';
+import { requestBlock, requestEscalated, REQUEST_LABEL, type HRRequest, type RequestPayloads } from '../domain/requests';
+import { APPROVAL_SECTIONS, approvalAccess, canDo, SECTION_KINDS, type ApprovalSection } from '../domain/permissions';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
 import type { LeaveRequest, ScanRecord } from '../domain/types';
 import { describeRequest, statusPill } from './RequestsUI';
 import { KIND_LABEL } from './labels';
 import { hhmm, initials, LEAVE_TYPES, laoDate } from './format';
 
-export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel';
+export type { ApprovalSection };
 
 export const SECTION_LABEL: Record<ApprovalSection, string> = {
   scan: 'ອະນຸມັດລົງເວລາ', leave: 'ອະນຸມັດການລາ', shift: 'ອະນຸມັດສະລັບກະ ແລະ ວັນພັກ', schedule: 'ອະນຸມັດຕາຕະລາງວຽກ',
   ot: 'ອະນຸມັດລ່ວງເວລາ', expense: 'ອະນຸມັດຄ່າໃຊ້ຈ່າຍ', certificate: 'ອະນຸມັດໜັງສືຮັບຮອງ', leaveCancel: 'ອະນຸມັດຍົກເລີກການລາ'
 };
 
-const SECTION_KINDS: Record<ApprovalSection, RequestKind[]> = {
-  scan: ['clockFix'], leave: [], shift: ['shiftSwap', 'dayOffSwap'], schedule: ['schedule'], ot: ['ot'],
-  expense: ['expense'], certificate: ['certificate'], leaveCancel: ['leaveCancel']
-};
-
 /** Items in a section that this user can act on right now (used for menu badges). */
 export function actionableCount(hr: ReturnType<typeof useHR>, section: ApprovalSection): number {
   const me = hr.me!;
+  if (approvalAccess(me.roles, section, hr.settings) !== 'act') return 0;
   const now = new Date();
   const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && !requestBlock(r, me, hr.settings, now)).length;
   if (section === 'leave') return hr.leaves.filter(l => !approvalBlock(l, me, hr.settings, now)).length;
-  if (section === 'scan' && me.roles.some(r => r === 'head' || r === 'owner')) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id).length;
+  if (section === 'scan' && canDo(me.roles, 'scan.review')) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id).length;
   return reqs;
 }
 
-export function canApproveAnything(roles: string[]) {
-  return roles.some(r => r === 'head' || r === 'owner' || r === 'accountant');
+/** Sections this user may open, as act or view. */
+export function visibleSections(hr: ReturnType<typeof useHR>): ApprovalSection[] {
+  return APPROVAL_SECTIONS.filter(s => approvalAccess(hr.me!.roles, s, hr.settings) !== 'none');
 }
 
-export default function Approvals({ section, readOnly = false }: { section: ApprovalSection; readOnly?: boolean }) {
+export function NoAccess() {
+  return <div className="screen"><div className="card empty" role="alert"><b style={{ color: 'var(--ink)' }}>ບໍ່ມີສິດເຂົ້າເຖິງໜ້ານີ້</b><br /><span className="small">ຕິດຕໍ່ HR ຖ້າຕ້ອງການສິດເພີ່ມ</span></div></div>;
+}
+
+export default function Approvals({ section, readOnly: forcedReadOnly = false }: { section: ApprovalSection; readOnly?: boolean }) {
   const hr = useHR();
   const me = hr.me!;
   const now = new Date();
+  const access = approvalAccess(me.roles, section, hr.settings);
+  const readOnly = forcedReadOnly || access !== 'act';
   const [tab, setTab] = useState<'pending' | 'done'>('pending');
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [err, setErr] = useState('');
@@ -74,6 +78,7 @@ export default function Approvals({ section, readOnly = false }: { section: Appr
   const leaves: LeaveRequest[] = section === 'leave' ? hr.leaves.filter(l => tab === 'pending' ? l.status === 'pending' : l.status !== 'pending').reverse() : [];
   const empty = reqs.length + scans.length + leaves.length === 0;
 
+  if (access === 'none') return <NoAccess />;
   return (
     <div className="screen">
       <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
@@ -88,7 +93,7 @@ export default function Approvals({ section, readOnly = false }: { section: Appr
           {head(s.employeeId, `${KIND_LABEL[s.kind]} · ${hhmm(s.deviceTime)}`, laoDate(new Date(s.deviceTime)), s.status === 'pending' ? null : statusPill(s.status === 'approved' ? 'approved' : 'rejected'))}
           {s.photo && <img src={s.photo} alt="ຮູບຕອນສະແກນ" style={{ width: 120, borderRadius: 12 }} />}
           <div className="row wrap">{s.reasons.map(r => <span key={r} className="pill warn">{r}</span>)}</div>
-          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !me.roles.some(r => r === 'head' || r === 'owner') ? 'ບໍ່ມີສິດ' : null,
+          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDo(me.roles, 'scan.review') ? 'ບໍ່ມີສິດ' : null,
             () => hr.save('scans', { ...s, status: 'approved', reviewedBy: me.id }, 'scan-approve'),
             async note => { if (!note.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອບໍ່ອະນຸມັດ'); await hr.save('scans', { ...s, status: 'rejected', reviewedBy: me.id, reviewNote: note }, 'scan-reject'); })}
         </div>

@@ -24,6 +24,7 @@ const emp = (id: string, code: string, name: string, dept: string, position: str
 export const employees: Employee[] = [
   emp('e-owner', 'ST-001', 'Admin', 'ບໍລິຫານ', 'ເຈົ້າຂອງຮ້ານ', ['owner', 'employee'], 'morning', '2020-01-01', 0, 0, 'bank', 'LDB'),
   emp('e-acc', 'ST-002', 'ແສງດາວ ພົມມະວົງ', 'ບໍລິຫານ', 'ບັນຊີ', ['accountant', 'employee'], 'morning', '2021-03-01', 5_000_000, 300_000, 'bank', 'JDB'),
+  emp('e-aud', 'ST-004', 'ສຸພາ ໄຊຍະ', 'ບໍລິຫານ', 'ຜູ້ກວດສອບພາຍໃນ', ['auditor', 'employee'], 'morning', '2022-02-01', 4_500_000, 200_000, 'bank', 'LDB'),
   emp('e-head', 'ST-003', 'ສົມພອນ ແກ້ວມະນີ', 'ບໍລິຫານ', 'ຜູ້ຈັດການຮ້ານ', ['head', 'employee'], 'morning', '2021-03-01', 8_500_000, 500_000, 'bank', 'LDB'),
   emp('e-noy', 'ST-007', 'ນ້ອຍ ວົງສາ', 'ເສີບ', 'ຫົວໜ້າພະນັກງານເສີບ', ['head', 'employee'], 'evening', '2022-06-15', 4_800_000, 300_000, 'bank', 'ST Bank'),
   emp('e-kl', 'ST-012', 'ຄຳຫຼ້າ ອິນທະວົງ', 'ຄົວ', 'ພໍ່ຄົວໃຫຍ່', ['employee'], 'morning', '2022-01-02', 6_240_000, 300_000, 'bank', 'LDB'),

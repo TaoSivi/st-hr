@@ -13,7 +13,8 @@ export interface Notification {
 }
 import { LocalStore, uid } from '../data/store';
 import { COMPANY, seed, shifts } from '../data/seed';
-import { evaluateScan } from '../domain/attendance';
+import { purgeExpiredPhotos } from '../domain/attendance';
+import { syncOfflineScans } from './offlineSync';
 
 export interface PayrollRun {
   id: string; // YYYY-MM
@@ -77,23 +78,26 @@ export function HRProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { seed(store).then(load); }, [store, load]);
 
-  // Offline scans get their server time (and the clock-skew check) once the phone is back online.
+  // Offline scans get their server time and a fresh clock check once the phone reaches the server.
   useEffect(() => {
     if (!data) return;
-    const sync = async () => {
-      const waiting = data.scans.filter(s => s.offline && !s.serverTime);
-      for (const s of waiting) {
-        const serverTime = new Date();
-        const v = evaluateScan({ gps: s.lat != null ? { lat: s.lat, lng: s.lng! } : null, faceScore: s.faceScore ?? null,
-          deviceTime: new Date(s.deviceTime), serverTime }, data.branches, data.settings);
-        await store.put('scans', { ...s, serverTime: serverTime.toISOString(), status: v.ok ? 'ok' : 'pending', reasons: v.reasons }, s.employeeId, 'sync-offline-scan');
-      }
-      if (waiting.length) load();
+    const sync = () => {
+      if (!data.scans.some(s => s.offline && !s.serverTime)) return;
+      syncOfflineScans(store, data.branches, data.settings).then(n => { if (n) load(); }).catch(() => { /* stays queued, retried on the next trigger */ });
     };
     if (navigator.onLine) sync();
     window.addEventListener('online', sync);
     return () => window.removeEventListener('online', sync);
   }, [data, store, load]);
+
+  // Photos are deleted once they pass the retention period set by Admin (one pass per load, one audit entry each).
+  useEffect(() => {
+    if (!data) return;
+    const { scans, purged } = purgeExpiredPhotos(data.scans, data.settings.photoRetentionDays, new Date());
+    if (!purged) return;
+    const changed = scans.filter((s, i) => s !== data.scans[i]);
+    Promise.all(changed.map(s => store.put('scans', s, 'system', 'photo-purge'))).then(load);
+  }, [data?.settings.photoRetentionDays, data?.scans.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const me = data?.employees.find(e => e.id === meId) ?? null;
   const by = me?.id ?? 'anonymous';

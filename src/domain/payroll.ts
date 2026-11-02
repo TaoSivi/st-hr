@@ -74,3 +74,11 @@ export function bankCsv(rows: { code: string; name: string; bank: string; accoun
   for (const r of rows) lines.push([r.code, r.name, r.bank, r.account, r.amount].map(esc).join(','));
   return '﻿' + lines.join('\r\n');
 }
+
+/** The person who prepared a payroll run may not be the one who locks it, unless Admin turned the two-person rule off. */
+export function payrollLockBlock(preparedBy: string | undefined, approverId: string, s: Pick<Settings, 'makerChecker'>): string | null {
+  return s.makerChecker && preparedBy === approverId ? 'ຄົນກະກຽມ ອະນຸມັດເອງບໍ່ໄດ້ (ກວດ 2 ຄົນ)' : null;
+}
+
+/** Whether a salary or bank-account change must be confirmed by a second person before it takes effect. */
+export const changeNeedsSecondPerson = (s: Pick<Settings, 'makerChecker'>) => s.makerChecker;

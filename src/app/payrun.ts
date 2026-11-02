@@ -1,8 +1,8 @@
 import type { HRData } from './state';
 import type { Employee } from '../domain/types';
-import { lateMinutes } from '../domain/attendance';
+import { isSettled, lateMinutes } from '../domain/attendance';
 import { computePayslip, lateDeductionAmount, type Payslip } from '../domain/payroll';
-import { accruedLeave } from '../domain/leave';
+import { annualLeaveBalance, type LeaveBalance } from '../domain/leave';
 import { effectiveShift, type RequestPayloads } from '../domain/requests';
 import { shifts } from '../data/seed';
 import { ymd } from '../ui/format';
@@ -30,7 +30,8 @@ export function shiftStartOn(data: HRData, e: Employee, date: string): string | 
 
 export function summarize(data: HRData, e: Employee, key: string, lateConfirmed: boolean): MonthSummary {
   const s = data.settings;
-  const ins = data.scans.filter(x => x.employeeId === e.id && x.kind === 'in' && inMonth(x.deviceTime, key) && (x.status === 'ok' || x.status === 'approved'));
+  // an offline scan whose clock has not been checked by the server yet does not count toward pay
+  const ins = data.scans.filter(x => x.employeeId === e.id && x.kind === 'in' && inMonth(x.deviceTime, key) && (x.status === 'ok' || x.status === 'approved') && isSettled(x));
   let lateMin = 0, lateCount = 0;
   for (const x of ins) {
     const start = shiftStartOn(data, e, ymd(new Date(x.deviceTime)));
@@ -51,10 +52,10 @@ export function summarize(data: HRData, e: Employee, key: string, lateConfirmed:
   return { employee: e, lateMin, lateCount, otMin, unpaidDays, advance, lateConfirmed, slip };
 }
 
-export function leaveBalance(data: HRData, e: Employee, asOf: string): { earned: number; used: number; left: number } {
-  const earned = accruedLeave(data.settings.leaveAccrual, e.startDate, asOf, data.settings.leaveDaysPerYear);
-  const year = asOf.slice(0, 4);
-  const used = data.leaves.filter(l => l.employeeId === e.id && l.type === 'annual' && (l.status === 'pending' || l.status === 'approved') && l.from.startsWith(year))
-    .reduce((a, l) => a + l.days, 0);
-  return { earned, used, left: Math.round((earned - used) * 100) / 100 };
+export function leaveBalance(data: HRData, e: Employee, asOf: string): LeaveBalance {
+  return annualLeaveBalance({
+    startDate: e.startDate, asOf, s: data.settings,
+    usedInYear: y => data.leaves.filter(l => l.employeeId === e.id && l.type === 'annual' && (l.status === 'pending' || l.status === 'approved') && l.from.startsWith(String(y)))
+      .reduce((a, l) => a + l.days, 0)
+  });
 }

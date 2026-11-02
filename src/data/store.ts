@@ -17,14 +17,22 @@ export class LocalStore implements DataStore {
   constructor(private companyId: string, private prefix = 'sthr:') {}
 
   private read<T>(collection: string): T[] {
+    const key = this.prefix + collection;
+    const raw = localStorage.getItem(key);
     try {
-      return JSON.parse(localStorage.getItem(this.prefix + collection) || '[]');
+      return JSON.parse(raw || '[]');
     } catch {
+      // never let the next write silently replace unreadable data: keep a copy to recover from
+      try { localStorage.setItem(key + ':corrupt', raw ?? ''); } catch { /* storage full */ }
       return [];
     }
   }
   private write(collection: string, rows: unknown[]) {
-    localStorage.setItem(this.prefix + collection, JSON.stringify(rows));
+    try {
+      localStorage.setItem(this.prefix + collection, JSON.stringify(rows));
+    } catch (e: any) {
+      throw new Error(e?.name === 'QuotaExceededError' ? 'ໜ່ວຍຄວາມຈຳໃນເຄື່ອງເຕັມ ບັນທຶກບໍ່ໄດ້' : 'ບັນທຶກບໍ່ໄດ້');
+    }
   }
 
   async list<T>(collection: string): Promise<T[]> {
@@ -37,13 +45,21 @@ export class LocalStore implements DataStore {
     const rows = this.read<T>(collection);
     const i = rows.findIndex(r => r.id === item.id);
     const before = i >= 0 ? rows[i] : undefined;
+    const previousRows = rows.slice();
     if (i >= 0) rows[i] = item;
     else rows.push(item);
     this.write(collection, rows);
-    // append-only: entries are never edited or removed
-    const log = this.read<AuditEntry>('audit');
-    log.push({ id: uid(), companyId: this.companyId, at: new Date().toISOString(), by, action, entity: collection, entityId: item.id, before, after: item });
-    this.write('audit', log);
+    // append-only audit. Photos are left out: they are large and already live on the record itself.
+    const strip = (v: unknown) => (v && typeof v === 'object' && (v as any).photo ? { ...(v as any), photo: '[ຮູບ]' } : v);
+    try {
+      const log = this.read<AuditEntry>('audit');
+      log.push({ id: uid(), companyId: this.companyId, at: new Date().toISOString(), by, action, entity: collection, entityId: item.id, before: strip(before), after: strip(item) });
+      this.write('audit', log);
+    } catch (e) {
+      // a change must never exist without its audit entry: undo the data write, then report the failure
+      this.write(collection, previousRows);
+      throw e;
+    }
     return item;
   }
   async audit(): Promise<AuditEntry[]> {

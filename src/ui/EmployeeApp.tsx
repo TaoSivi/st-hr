@@ -14,9 +14,10 @@ import MapCard from './MapCard';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
 import { MyRequests } from './RequestsUI';
-import Approvals, { actionableCount, canApproveAnything, SECTION_LABEL, type ApprovalSection } from './Approvals';
+import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
+import { canViewPage, isManager } from '../domain/permissions';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
-import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, sameDay, ymd } from './format';
+import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, sameDay, ymd } from './format';
 
 const Tick = ({ color = 'currentColor', size = 18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 
@@ -72,7 +73,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
   const isMain = MAIN_TABS.some(([id]) => id === page);
   const notifOn = (() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } })();
   const unread = notifOn ? hr.notifications.filter(n => n.userId === me.id && !n.read).length : 0;
-  const approver = canApproveAnything(me.roles);
+  const sections = visibleSections(hr);
   const title = page.startsWith('approve:') ? SECTION_LABEL[page.slice(8) as ApprovalSection] : TITLES[page];
   const openLink = (link?: string) => {
     if (link === 'approvals') return go('approve:scan');
@@ -116,7 +117,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       {page === 'ot' && <MyRequests kinds={['ot']} />}
       {page === 'expense' && <MyRequests kinds={['expense']} />}
       {page === 'certificate' && <MyRequests kinds={['certificate']} onPrint={setCert} />}
-      {page === 'map' && <TeamMap />}
+      {page === 'map' && (canViewPage(me.roles, 'map') ? <TeamMap /> : <NoAccess />)}
       {page === 'about' && <About />}
       {page === 'privacy' && <Privacy />}
       {page === 'settings' && <EmpSettings onLogout={onSwitch} />}
@@ -131,13 +132,11 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
             {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico d={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
-            {!approver && onManagerView && <><div className="drawer-sec">ກວດສອບ</div>
-              <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button></>}
-            {approver && <>
+            {isManager(me.roles) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
               {onManagerView && <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
-              {APPROVALS.map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico d={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
-              <button onClick={() => go('map')}><Ico d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14" /><span className="grow">ແຜນທີ່</span></button>
+              {APPROVALS.filter(([sec]) => sections.includes(sec)).map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico d={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
+              {canViewPage(me.roles, 'map') && <button onClick={() => go('map')}><Ico d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14" /><span className="grow">ແຜນທີ່</span></button>}
             </>}
             <div className="drawer-sec" />
             {OTHER.map(([id, label, d]) => <button key={id} onClick={() => go(id)}><Ico d={d} /><span className="grow">{label}</span></button>)}
@@ -170,6 +169,8 @@ function ClockTab() {
   const locate = async () => { setLocating(true); setPos(await getPosition()); setLocating(false); };
   useEffect(() => {
     locate();
+    // load the face models while there is internet, so a scan still works if the connection drops later
+    if (navigator.onLine) loadFaceModels().catch(() => { /* retried at scan time */ });
     const t = setInterval(() => setNow(new Date()), 1000);
     const g = setInterval(locate, 60000);
     return () => { clearInterval(t); clearInterval(g); };
@@ -368,14 +369,14 @@ function LeaveTab() {
 }
 
 function LeaveForm({ left, onClose }: { left: number; onClose: () => void }) {
-  const { me, save } = useHR();
+  const { me, save, settings } = useHR();
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
-  const days = from && to && to >= from ? leaveDays(from, to, me!.dayOff ?? [0], []) : 0;
+  const days = from && to && to >= from ? leaveDays(from, to, me!.dayOff ?? [0], settings.holidays) : 0;
   const submit = async () => {
     setErr('');
     if (days <= 0) return setErr('ວັນທີບໍ່ຖືກຕ້ອງ');
@@ -459,7 +460,7 @@ function Pay() {
 
 /** Consent + 3 captures averaged into the enrolled descriptor. */
 function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () => void; onCancel: () => void }) {
-  const { me, save } = useHR();
+  const { me, save, settings } = useHR();
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [agreed, setAgreed] = useState(false);
@@ -505,7 +506,7 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
         <div className="col" style={{ maxWidth: 420, width: '100%' }}>
           <p style={{ fontSize: 17, color: '#cdebe8', margin: 0 }}>ເຮັດເທື່ອດຽວ. ແອັບຈະຈື່ໜ້າຂອງເຈົ້າ ເພື່ອໃຊ້ລົງເວລາເຂົ້າ-ອອກວຽກເທົ່ານັ້ນ.</p>
           <div className="card" style={{ background: 'rgba(255,255,255,.07)', color: '#fff', fontSize: 14 }}>
-            • ເກັບຮູບຕອນສະແກນໄວ້ 1 ປີ ແລ້ວລຶບອັດຕະໂນມັດ<br />• ໃຊ້ສະເພາະການລົງເວລາ, ບໍ່ສົ່ງໃຫ້ຄົນນອກ<br />• ຖອນຄວາມຍິນຍອມໄດ້ທຸກເວລາ ໂດຍແຈ້ງ HR
+            • ເກັບຮູບຕອນສະແກນໄວ້ {retentionLabel(settings.photoRetentionDays)} ແລ້ວລຶບອັດຕະໂນມັດ<br />• ໃຊ້ສະເພາະການລົງເວລາ, ບໍ່ສົ່ງໃຫ້ຄົນນອກ<br />• ຖອນຄວາມຍິນຍອມໄດ້ທຸກເວລາ ໃນເມນູ ຕັ້ງຄ່າ
           </div>
           <label className="row" style={{ fontSize: 17, minHeight: 48 }}>
             <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ width: 26, height: 26 }} />
@@ -574,8 +575,8 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       const pos = await posP;
       if (self.cancelled) return;
       const offline = !navigator.onLine;
-      const v = evaluateScan({ gps: pos, faceScore: score, deviceTime, serverTime: offline ? deviceTime : new Date() }, branches, settings);
-      if (manualBranch) { v.reasons.push(`ເລືອກສາຂາເອງ: ${manualBranch.name}`); v.ok = false; v.branchId = manualBranch.id; }
+      // offline: the server cannot confirm the clock yet, so the check is repeated when the scan is synced
+      const v = evaluateScan({ gps: pos, faceScore: score, deviceTime, serverTime: offline ? deviceTime : new Date(), manualBranch }, branches, settings);
       const branch = branches.find(b => b.id === v.branchId);
       const gpsBad = !!manualBranch || v.reasons.some(r => r.startsWith('ຢູ່ໄກ') || r.startsWith('ບໍ່ມີ GPS'));
       setGps(gpsBad ? 'no' : 'ok');
@@ -583,13 +584,41 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       const rec: ScanRecord = {
         id: uid(), companyId: me!.companyId, employeeId: me!.id, kind, deviceTime: deviceTime.toISOString(),
         serverTime: offline ? undefined : new Date().toISOString(), branchId: v.branchId, lat: pos?.lat, lng: pos?.lng,
-        distanceM: v.distanceM, faceScore: score ?? undefined, photo, status: v.ok ? 'ok' : 'pending', reasons: v.reasons, offline
+        distanceM: v.distanceM, faceScore: score ?? undefined, photo, status: v.ok ? 'ok' : 'pending', reasons: v.reasons, offline, manual: !!manualBranch
       };
-      await save('scans', rec, 'clock-' + kind);
-      setTimeout(() => !self.cancelled && setResult(rec), 600);
+      pending.current = rec;
+      await commit(rec, self);
     })();
     return () => { self.cancelled = true; stopCamera(self.stream); };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The scan must never vanish silently: if saving fails (storage full…), keep it in memory and let the user retry.
+  const pending = useRef<ScanRecord | null>(null);
+  const [saveErr, setSaveErr] = useState('');
+  const commit = async (rec: ScanRecord, self: { cancelled: boolean }) => {
+    try {
+      await save('scans', rec, 'clock-' + kind);
+      setSaveErr('');
+      setTimeout(() => !self.cancelled && setResult(rec), 600);
+    } catch (e: any) {
+      setSaveErr(e?.message || 'ບັນທຶກບໍ່ໄດ້');
+    }
+  };
+
+  if (saveErr) {
+    return (
+      <div className="fullscreen result" style={{ background: '#fee2e2', color: '#7f1d1d' }}>
+        <div className="col grow result">
+          <span className="circle" style={{ background: '#dc2626', boxShadow: '0 0 0 16px rgba(220,38,38,.2)', color: '#fff', fontSize: 72, fontWeight: 800 }}>!</span>
+          <span className="t1" role="alert" style={{ marginTop: 18 }}>ບັນທຶກບໍ່ສຳເລັດ</span>
+          <span style={{ fontSize: 18 }}>{saveErr}</span>
+          <span style={{ fontSize: 16 }}>ເວລາ {pending.current ? hhmm(pending.current.deviceTime) : ''} ຍັງຢູ່ໃນແອັບ — ກົດລອງໃໝ່</span>
+        </div>
+        <button className="btn block" style={{ background: '#dc2626' }} onClick={() => pending.current && commit(pending.current, run.current)}>ລອງບັນທຶກໃໝ່</button>
+        <button className="btn block ghost" style={{ color: '#7f1d1d', borderColor: '#7f1d1d' }} onClick={onClose}>ປິດ (ບໍ່ບັນທຶກ)</button>
+      </div>
+    );
+  }
 
   if (result) {
     if (result.status === 'ok') {
@@ -600,6 +629,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
             <span className="t1" role="status" style={{ marginTop: 18 }}>{KIND_LABEL[kind]}ແລ້ວ!</span>
             <span className="t2">{hhmm(result.deviceTime)}</span>
             <span style={{ fontSize: 18 }}>{kind === 'in' ? 'ສູ້ໆ ມື້ນີ້!' : kind === 'out' ? 'ພັກຜ່ອນໃຫ້ດີ ພົບກັນມື້ອື່ນ' : ''}</span>
+            {result.offline && <span className="pill" style={{ background: 'rgba(255,255,255,.2)', color: '#fff', height: 'auto', padding: '8px 14px', whiteSpace: 'normal', fontSize: 15 }}>ບໍ່ມີເນັດ — ບັນທຶກໄວ້ໃນເຄື່ອງແລ້ວ ຈະສົ່ງເມື່ອມີເນັດ</span>}
           </div>
           <button className="btn block" style={{ background: '#fff', color }} onClick={onClose}>ຕົກລົງ</button>
         </div>
@@ -615,6 +645,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
           <b style={{ fontSize: 22 }}>ລໍຫົວໜ້າກວດ</b>
           <div className="row wrap" style={{ justifyContent: 'center' }}>{result.reasons.map(r => <span key={r} className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 36, fontSize: 15 }}>{r}</span>)}</div>
           <span style={{ fontSize: 18 }}>ບໍ່ຕ້ອງເປັນຫ່ວງ<br />ເວລາ {hhmm(result.deviceTime)} ຂອງເຈົ້າຖືກບັນທຶກໄວ້ແລ້ວ</span>
+          {result.offline && <span className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 'auto', padding: '8px 14px', whiteSpace: 'normal', fontSize: 15 }}>ບໍ່ມີເນັດ — ຈະສົ່ງເມື່ອມີເນັດ</span>}
         </div>
         <button className="btn block" style={{ background: 'var(--warn)' }} onClick={onClose}>ຕົກລົງ</button>
       </div>

@@ -1,4 +1,4 @@
-import type { Branch, Settings } from './types';
+import type { Branch, ScanRecord, Settings } from './types';
 
 /** Great-circle distance in metres (haversine). */
 export function distanceMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -40,6 +40,7 @@ export interface ScanInput {
   faceScore?: number | null; // null = face not found
   deviceTime: Date;
   serverTime: Date;
+  manualBranch?: Branch | null; // employee picked the branch by hand instead of relying on GPS
 }
 
 export interface ScanVerdict {
@@ -74,8 +75,36 @@ export function evaluateScan(input: ScanInput, branches: Branch[], s: Settings):
   const skew = Math.abs(input.serverTime.getTime() - input.deviceTime.getTime()) / 60000;
   if (skew > s.maxClockSkewMin) reasons.push(`ໂມງໂທລະສັບຕ່າງ ${Math.round(skew)} ນທ`);
 
+  if (input.manualBranch) {
+    reasons.push(`ເລືອກສາຂາເອງ: ${input.manualBranch.name}`);
+    branchId = input.manualBranch.id;
+  }
+
   return { ok: reasons.length === 0, reasons, branchId, distanceM };
 }
+
+/**
+ * Re-check a scan that was saved while offline, once the phone reaches the server.
+ * The clock check compares the phone's clock NOW with the server's clock NOW: comparing the scan's
+ * old timestamp with the sync time would flag every scan that simply waited for a connection.
+ * A scan stamped later than the server's current time cannot be genuine.
+ */
+export function reevaluateOfflineScan(scan: ScanRecord, branches: Branch[], s: Settings, ctx: { serverNow: Date; deviceNow: Date }): ScanVerdict {
+  const manualBranch = scan.manual ? branches.find(b => b.id === scan.branchId) ?? null : null;
+  const v = evaluateScan({
+    gps: scan.lat != null && scan.lng != null ? { lat: scan.lat, lng: scan.lng } : null,
+    faceScore: scan.faceScore ?? null, deviceTime: ctx.deviceNow, serverTime: ctx.serverNow, manualBranch
+  }, branches, s);
+  const ahead = (new Date(scan.deviceTime).getTime() - ctx.serverNow.getTime()) / 60000;
+  if (ahead > s.maxClockSkewMin) {
+    v.reasons.push(`ເວລາສະແກນຢູ່ໃນອະນາຄົດ ${Math.round(ahead)} ນທ`);
+    v.ok = false;
+  }
+  return v;
+}
+
+/** Offline scans wait for the server before they count toward pay: their clock has not been checked yet. */
+export const isSettled = (s: Pick<ScanRecord, 'offline' | 'serverTime'>) => !s.offline || !!s.serverTime;
 
 /** Pick `n` distinct items with a seeded PRNG so the daily sample is reproducible for auditors. */
 export function dailySample<T>(items: T[], n: number, seed: string): T[] {
@@ -92,4 +121,17 @@ export function dailySample<T>(items: T[], n: number, seed: string): T[] {
   const out: T[] = [];
   while (out.length < n && pool.length) out.push(pool.splice(Math.floor(rand() * pool.length), 1)[0]);
   return out;
+}
+
+/** Remove scan photos older than the retention period (face descriptors stay on the employee, not on scans). */
+export function purgeExpiredPhotos(scans: ScanRecord[], retentionDays: number, now: Date): { scans: ScanRecord[]; purged: number } {
+  const cutoff = now.getTime() - retentionDays * 86400000;
+  let purged = 0;
+  const out = scans.map(s => {
+    if (!s.photo || new Date(s.deviceTime).getTime() >= cutoff) return s;
+    purged++;
+    const { photo: _drop, ...rest } = s;
+    return rest as ScanRecord;
+  });
+  return { scans: out, purged };
 }

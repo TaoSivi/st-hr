@@ -7,7 +7,7 @@ import type { Employee } from '../domain/types';
 import MapCard, { type MapMark } from './MapCard';
 import { MyRequests } from './RequestsUI';
 import { KIND_LABEL } from './labels';
-import { hhmm, initials, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
+import { hhmm, initials, laoDate, laoMonth, money, retentionLabel, ROLE_NAMES, sameDay, ymd } from './format';
 
 export const APP_VERSION = '0.3.0';
 
@@ -214,6 +214,7 @@ export function About() {
 }
 
 export function Privacy() {
+  const { settings } = useHR();
   return (
     <div className="screen">
       <article className="card col privacy">
@@ -224,7 +225,7 @@ export function Privacy() {
         <b>2. ຈຸດປະສົງ</b>
         <span>ໃຊ້ສະເພາະການບັນທຶກເວລາເຮັດວຽກ, ການຄິດເງິນເດືອນ ແລະ ການກວດສອບພາຍໃນ. ບໍ່ຂາຍ ແລະ ບໍ່ສົ່ງໃຫ້ບຸກຄົນພາຍນອກ ນອກຈາກທີ່ກົດໝາຍກຳນົດ.</span>
         <b>3. ໄລຍະເວລາເກັບ</b>
-        <span>ຮູບຕອນສະແກນເກັບ 1 ປີ ແລ້ວລຶບອັດຕະໂນມັດ, ຍົກເວັ້ນຮູບທີ່ຖືກໝາຍວ່າກ່ຽວຂ້ອງກັບການສືບສວນ. ຂໍ້ມູນເງິນເດືອນເກັບຕາມທີ່ກົດໝາຍບັນຊີກຳນົດ.</span>
+        <span>ຮູບຕອນສະແກນເກັບ {retentionLabel(settings.photoRetentionDays)} ແລ້ວລຶບອັດຕະໂນມັດ. ຂໍ້ມູນເງິນເດືອນເກັບຕາມທີ່ກົດໝາຍບັນຊີກຳນົດ.</span>
         <b>4. ໃຜເຂົ້າເຖິງໄດ້</b>
         <span>ທ່ານເຫັນຂໍ້ມູນຂອງຕົນເອງ. ຫົວໜ້າເຫັນເວລາ ແລະ ຮູບສະແກນຂອງທີມ. ເງິນເດືອນເຫັນໄດ້ແຕ່ HR, ບັນຊີ ແລະ ຜູ້ກວດສອບ. ທຸກການເຂົ້າແກ້ໄຂຖືກບັນທຶກໃນ audit log.</span>
         <b>5. ສິດຂອງທ່ານ</b>
