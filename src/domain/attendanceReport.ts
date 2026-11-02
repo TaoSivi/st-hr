@@ -4,6 +4,7 @@ import { effectiveShift, type ShiftOverride } from './requests';
 import { isSettled, lateMinutes } from './attendance';
 import type { Cell, Sheet } from './xlsx';
 import { closesAtFor, isMissedClockOut } from './missedOut';
+import { scansOn, toSessions } from './sessions';
 
 export const STATUS_LABEL: Record<DayStatus, string> = {
   ok: 'ປົກກະຕິ', late: 'ມາຊ້າ', absent: 'ຂາດ', leave: 'ລາ', pending: 'ລໍກວດ', dayoff: 'ວັນພັກ', holiday: 'ວັນພັກລັດຖະການ', future: '', 'before-hire': ''
@@ -55,14 +56,16 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
     const sum: SummaryRow = { employee: e, workedDays: 0, lateDays: 0, lateMin: 0, absentDays: 0, leaveDays: 0, dayOffDays: 0, holidayDays: 0, holidayWorkedDays: 0, pendingDays: 0, missedOutDays: 0, hours: 0, otMin: 0 };
     const mine = inp.scans.filter(x => x.employeeId === e.id && x.status !== 'rejected');
     const myLeaves = inp.leaves.filter(l => l.employeeId === e.id);
+    const shiftOn = (date: string) => { const id = effectiveShift(e, date, inp.overrides); return id ? inp.shifts.find(x => x.id === id) : undefined; };
+    // a night shift's clock-out after midnight belongs to the day the shift started
+    const sessions = toSessions(mine, date => closesAtFor(date, shiftOn(date)));
 
     for (let d = 1; d <= lastDay; d++) {
       const date = `${prefix}-${pad(d)}`;
       if (date > inp.today || date < e.startDate || (e.endDate && date > e.endDate)) continue;
-      const shiftId = effectiveShift(e, date, inp.overrides);
-      const shift = shiftId ? inp.shifts.find(x => x.id === shiftId) : undefined;
+      const shift = shiftOn(date);
       const dow = new Date(`${date}T12:00:00`).getDay();
-      const scans = mine.filter(x => ymd(new Date(x.deviceTime)) === date).sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+      const scans = scansOn(sessions, date);
       const status = dayStatus({ date, today: inp.today, startDate: e.startDate, shiftStart: shift?.start ?? '00:00', graceMinutes: s.graceMinutes,
         dayOff: shift ? [] : [dow], holidays: s.holidays, scans, leaves: myLeaves });
       if (status === 'future' || status === 'before-hire') continue;
@@ -92,7 +95,7 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
 
       days.push({
         date, employee: e, shiftName: shift?.name ?? '—', shiftTime: shift ? `${shift.start}–${shift.end}` : '',
-        in: firstIn && hhmm(t(firstIn)!), breakStart: bs && hhmm(t(bs)!), breakEnd: be && hhmm(t(be)!), out: lastOut && hhmm(t(lastOut)!),
+        in: firstIn && hhmm(t(firstIn)!), breakStart: bs && hhmm(t(bs)!), breakEnd: be && hhmm(t(be)!), out: lastOut && hhmm(t(lastOut)!) + (ymd(t(lastOut)!) > date ? ' (+1)' : ''),
         workedMin, lateMin, status, branch: (firstIn?.branchId && branchName.get(firstIn.branchId)) || '', note: [...new Set(notes)].join(' · ')
       });
 

@@ -1,4 +1,5 @@
 import type { ScanKind, ScanStatus } from './types';
+import { toSessions } from './sessions';
 
 /** How long after the shift ends before an unclosed day counts as a forgotten clock-out (people finish up, queue at the door). */
 export const MISSED_OUT_GRACE_MIN = 60;
@@ -17,20 +18,28 @@ export function isMissedClockOut(scans: DayScan[], closesAt: Date, now: Date, gr
   return now.getTime() >= closesAt.getTime() + graceMin * 60000;
 }
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-
-/** Dates in [from, to] (YYYY-MM-DD, inclusive) on which the person forgot to clock out, oldest first. */
+/**
+ * Work dates in [from, to] (YYYY-MM-DD, inclusive) with a session that was never clocked out, oldest first.
+ * A session is judged on its own, so an overnight shift's clock-out after midnight closes the day it started.
+ */
 export function missedClockOutDates(p: {
-  scans: (DayScan & { employeeId?: string })[]; from: string; to: string; now: Date;
+  scans: DayScan[]; from: string; to: string; now: Date;
   closesAt: (date: string) => Date; graceMin?: number;
 }): string[] {
-  const byDate = new Map<string, DayScan[]>();
-  for (const s of p.scans) { const d = ymd(new Date(s.deviceTime)); if (d >= p.from && d <= p.to) byDate.set(d, [...(byDate.get(d) ?? []), s]); }
-  return [...byDate.keys()].sort().filter(d => isMissedClockOut(byDate.get(d)!, p.closesAt(d), p.now, p.graceMin));
+  const dates = toSessions(p.scans, p.closesAt)
+    .filter(s => s.workDate >= p.from && s.workDate <= p.to && s.scans.some(x => x.kind === 'in') && !s.closed
+      && isMissedClockOut(s.scans, p.closesAt(s.workDate), p.now, p.graceMin))
+    .map(s => s.workDate);
+  return [...new Set(dates)].sort();
 }
 
-/** When the day's work is due to be over: the shift's end, or midnight for a day without a shift (someone who came in on a day off). */
-export function closesAtFor(date: string, shift?: { end: string }): Date {
-  return shift ? new Date(`${date}T${shift.end}:00`) : new Date(`${date}T23:59:59`);
+/**
+ * When the work of `date` is due to be over: the shift's end, which is the next day for an overnight shift (end before start),
+ * or the end of the day when there is no shift (someone who came in on a day off).
+ */
+export function closesAtFor(date: string, shift?: { start: string; end: string }): Date {
+  if (!shift) return new Date(`${date}T23:59:59`);
+  const end = new Date(`${date}T${shift.end}:00`);
+  if (shift.end <= shift.start) end.setDate(end.getDate() + 1);
+  return end;
 }

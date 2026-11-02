@@ -11,7 +11,10 @@ import { validateBranch } from '../domain/branches';
 import { exportPayrollXlsx } from '../app/exportPayroll';
 import { PayslipView, type PayslipData } from './PayslipView';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
-import { monthKey, summarize } from '../app/payrun';
+import { monthKey, shiftStartOn, summarize } from '../app/payrun';
+import { closesAtFor } from '../domain/missedOut';
+import { activeSession, scansOn, toSessions } from '../domain/sessions';
+import { effectiveShift } from '../domain/requests';
 import { getPosition } from '../device/geo';
 import { uid } from '../data/store';
 import { KIND_LABEL } from './labels';
@@ -75,17 +78,28 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   );
 }
 
+/** One employee's current work day: the calendar day, or the day an unfinished night shift began. */
+function workDayOf(hr: ReturnType<typeof useHR>, e: Employee, now: Date) {
+  const closesOf = (date: string) => closesAtFor(date, hr.shifts.find(x => x.id === effectiveShift(e, date, hr.overrides)));
+  const sessions = toSessions(hr.scans.filter(s => s.employeeId === e.id), closesOf);
+  const date = activeSession(sessions, now, closesOf)?.workDate ?? ymd(now);
+  return { date, scans: scansOn(sessions, date) };
+}
+
 function Overview() {
   const hr = useHR();
   const now = new Date();
   const today = hr.scans.filter(s => sameDay(s.deviceTime, now));
-  const present = new Set(today.filter(s => s.kind === 'in').map(s => s.employeeId));
   const staff = hr.employees.filter(e => isActiveOn(e, ymd(now)) && e.baseSalary > 0);
+  // someone still on a night shift that began yesterday is present today too
+  const present = new Set(staff.filter(e => workDayOf(hr, e, now).scans.some(s => s.kind === 'in')).map(e => e.id));
   const onLeave = hr.leaves.filter(l => l.status === 'approved' && l.from <= ymd(now) && l.to >= ymd(now)).length;
   let late = 0;
-  for (const s of today.filter(s => s.kind === 'in')) {
-    const e = hr.employees.find(x => x.id === s.employeeId);
-    if (e && lateMinutes(e.shiftId === 'evening' ? '14:00' : '06:00', new Date(s.deviceTime), hr.settings.graceMinutes) > 0) late++;
+  for (const e of staff) {
+    const wd = workDayOf(hr, e, now);
+    const first = wd.scans.find(s => s.kind === 'in');
+    const start = first && shiftStartOn(hr, e, wd.date);
+    if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) late++;
   }
   const k = (label: string, v: number | string, tone = '') => <div className={`card ${tone}`}><span className={tone ? 'small' : 'muted small'} style={tone ? { color: '#9fd8d4' } : undefined}>{label}</span><div className="big-num">{v}</div></div>;
   return (
@@ -232,10 +246,11 @@ function TimeToday() {
       <div className="col" style={{ gap: 0 }}><span className="muted">{laoDate(now)}</span><h1>ລົງເວລາມື້ນີ້</h1></div>
       <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th>ກະ</th><th>ເຂົ້າ</th><th>ອອກ</th><th>ມາຊ້າ</th><th>ສະຖານະ</th></tr></thead><tbody>
         {hr.employees.filter(e => e.baseSalary > 0 && isActiveOn(e, ymd(now))).map(e => {
-          const mine = hr.scans.filter(s => s.employeeId === e.id && sameDay(s.deviceTime, now)).sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+          const wd = workDayOf(hr, e, now);
+          const mine = wd.scans;
           const fin = mine.find(s => s.kind === 'in');
           const fout = [...mine].reverse().find(s => s.kind === 'out');
-          const shift = hr.shifts.find(s => s.id === e.shiftId)!;
+          const shift = hr.shifts.find(s => s.id === (effectiveShift(e, wd.date, hr.overrides) ?? e.shiftId))!;
           const late = fin ? lateMinutes(shift.start, new Date(fin.deviceTime), hr.settings.graceMinutes) : 0;
           const leave = hr.leaves.find(l => l.employeeId === e.id && l.status === 'approved' && l.from <= ymd(now) && l.to >= ymd(now));
           return <tr key={e.id}><td><b>{e.name}</b><div className="muted small">{e.dept}</div></td><td>{shift.name}</td><td>{fin ? hhmm(fin.deviceTime) : '—'}</td><td>{fout ? hhmm(fout.deviceTime) : '—'}</td>
@@ -669,13 +684,14 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </div>)}
       </div>
       <div className="card col"><h2>ກະວຽກ</h2>
-        <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ</span>
+        <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ</span>
         {shiftRows.map(sh => (
           <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
             <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
             {([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
               <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
           </div>))}
+        {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
       </div>
       <div className="card col"><h2>ເວລາ & ສະແກນ</h2><div className="grid">
         {num('graceMinutes', 'ຜ່ອນຜັນມາຊ້າ (ນາທີ)')}{num('lateDeductPerMinute', 'ຫັກມາຊ້າ (ກີບ/ນາທີ)', 100)}{num('otRate', 'ອັດຕາ OT (ເທົ່າ)', 0.1)}

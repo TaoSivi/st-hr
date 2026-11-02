@@ -246,7 +246,7 @@ describe('validateShifts', () => {
   it('accepts a sound shift', () => expect(validateShifts([ok])).toEqual([]));
   it('rejects bad times, reversed times and a break outside the shift', () => {
     expect(validateShifts([{ ...ok, start: '25:00' }]).join()).toMatch('ເວລາບໍ່ຖືກຕ້ອງ');
-    expect(validateShifts([{ ...ok, start: '14:00', end: '06:00' }]).join()).toMatch('ກ່ອນເວລາເລີກ');
+    expect(validateShifts([{ ...ok, start: '06:00', end: '06:00' }]).join()).toMatch('ບໍ່ເທົ່າກັນ');
     expect(validateShifts([{ ...ok, breakStart: '05:00' }]).join()).toMatch('ເວລາພັກ');
     expect(validateShifts([{ ...ok, breakStart: '11:00', breakEnd: '10:00' }]).join()).toMatch('ເວລາພັກ');
     expect(validateShifts([{ ...ok, breakEnd: '15:00' }]).join()).toMatch('ເວລາພັກ');

@@ -3,7 +3,7 @@ import { useHR } from '../app/state';
 import { uid } from '../data/store';
 import type { Advance, Branch, LeaveRequest, LeaveType, ScanKind, ScanRecord } from '../domain/types';
 import { evaluateScan, nearestBranch } from '../domain/attendance';
-import { allowedActions, dayStatus, monthGrid, type DayStatus } from '../domain/day';
+import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
 import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
 import { describeFace, loadFaceModels, matchScore, openFrontCamera, snapshot, stopCamera } from '../device/face';
@@ -18,8 +18,10 @@ import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, t
 import { canViewPage, isManager } from '../domain/permissions';
 import { PayslipView } from './PayslipView';
 import { missedDatesFor } from '../app/missedOut';
+import { closesAtFor } from '../domain/missedOut';
+import { activeSession, actionsNow, scansOn, toSessions } from '../domain/sessions';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
-import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, sameDay, ymd } from './format';
+import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, ymd } from './format';
 
 const Tick = ({ color = 'currentColor', size = 18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 
@@ -152,9 +154,22 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
 
 /* ------------------------------ ລົງເວລາ ------------------------------ */
 
-function useTodayScans(date: Date) {
-  const { me, scans } = useHR();
-  return useMemo(() => scans.filter(s => s.employeeId === me!.id && sameDay(s.deviceTime, date)).sort((a, b) => a.deviceTime.localeCompare(b.deviceTime)), [scans, me, date]);
+/**
+ * What "today" means for the clock screen. Normally the calendar day; but while a night shift that began yesterday is still open,
+ * its work day (and its scans) is shown instead, and the buttons continue that session.
+ */
+function useWorkDay(now: Date) {
+  const { me, scans, shifts, overrides } = useHR();
+  const minute = Math.floor(now.getTime() / 60000);
+  return useMemo(() => {
+    const mine = scans.filter(s => s.employeeId === me!.id);
+    const closesOf = (date: string) => closesAtFor(date, shifts.find(x => x.id === effectiveShift(me!, date, overrides)));
+    const sessions = toSessions(mine, closesOf);
+    const date = activeSession(sessions, now, closesOf)?.workDate ?? ymd(now);
+    // rejected scans are not in any session but still show on their own day
+    const shown = [...scansOn(sessions, date), ...mine.filter(s => s.status === 'rejected' && ymd(new Date(s.deviceTime)) === date)].sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+    return { date, scans: shown, allowed: actionsNow(mine, now, closesOf) };
+  }, [scans, me, shifts, overrides, minute]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 function ClockTab() {
@@ -165,8 +180,8 @@ function ClockTab() {
   const [manual, setManual] = useState<Branch | null>(null);
   const [picking, setPicking] = useState(false);
   const [flow, setFlow] = useState<null | { kind: ScanKind; enroll: boolean }>(null);
-  const today = useMemo(() => new Date(), []);
-  const todays = useTodayScans(today);
+  const workDay = useWorkDay(now);
+  const todays = workDay.scans;
   const hrAll = useHR();
   const missed = useMemo(() => missedDatesFor(hrAll, me!, now), [hrAll.scans, hrAll.shifts, hrAll.overrides, now.getMinutes()]); // eslint-disable-line react-hooks/exhaustive-deps
   const [fixing, setFixing] = useState<string | null>(null);
@@ -183,8 +198,8 @@ function ClockTab() {
 
   const near = pos ? nearestBranch(pos.lat, pos.lng, branches) : null;
   const inside = near && near.distanceM <= near.branch.radiusM;
-  const allowed = allowedActions(todays);
-  const todaysShift = effectiveShift(me!, ymd(today), overrides);
+  const allowed = workDay.allowed;
+  const todaysShift = effectiveShift(me!, workDay.date, overrides);
   const shift = shifts.find(s => s.id === (todaysShift ?? me!.shiftId))!;
   const start = (kind: ScanKind) => setFlow({ kind, enroll: kind === 'in' && !me!.faceEnrolled });
 
@@ -232,7 +247,7 @@ function ClockTab() {
       </div>
       {todays.some(s => s.status === 'pending') && <div className="pill warn" style={{ height: 'auto', padding: '8px 12px', whiteSpace: 'normal' }}>ມີການລົງເວລາທີ່ລໍຫົວໜ້າກວດ</div>}
       <h2 style={{ marginTop: 6 }}>ເວລາເຂົ້າ-ອອກວຽກ {todaysShift ? <span className="pill ok">{shift.name}</span> : <span className="pill info">ມື້ນີ້ເປັນວັນພັກ</span>}</h2>
-      <TimeCard date={today} scans={todays} shift={shift} />
+      <TimeCard date={new Date(workDay.date + 'T12:00:00')} scans={todays} shift={shift} />
       {flow?.enroll && <Enroll onDone={() => setFlow({ kind: flow.kind, enroll: false })} onSkip={() => setFlow({ kind: flow.kind, enroll: false })} onCancel={() => setFlow(null)} />}
       {flow && !flow.enroll && <ScanFlow kind={flow.kind} manualBranch={manual} onClose={() => setFlow(null)} />}
     </div>
@@ -286,17 +301,19 @@ function CalendarTab() {
   const shift = shifts.find(s => s.id === me!.shiftId)!;
   const mine = scans.filter(s => s.employeeId === me!.id);
   const myLeaves = leaves.filter(l => l.employeeId === me!.id);
+  // a night shift's after-midnight scans belong to the day it started
+  const sessions = toSessions(mine, date => closesAtFor(date, shifts.find(x => x.id === effectiveShift(me!, date, hr.overrides))));
   const statusOf = (date: string) => {
     const start = shiftStartOn(hr, me!, date);
     return dayStatus({
       date, today: ymd(now), startDate: me!.startDate, shiftStart: start ?? shift.start, graceMinutes: settings.graceMinutes,
-      dayOff: start ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: mine.filter(s => ymd(new Date(s.deviceTime)) === date), leaves: myLeaves
+      dayOff: start ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: scansOn(sessions, date), leaves: myLeaves
     });
   };
   const grid = monthGrid(ym.y, ym.m);
   const move = (d: number) => setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; });
   const selDate = new Date(sel + 'T12:00:00');
-  const selScans = mine.filter(s => ymd(new Date(s.deviceTime)) === sel).sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+  const selScans = [...scansOn(sessions, sel), ...mine.filter(s => s.status === 'rejected' && ymd(new Date(s.deviceTime)) === sel)].sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
   const counts = grid.filter(c => c.inMonth).reduce((a, c) => { const s = statusOf(c.date); a[s] = (a[s] ?? 0) + 1; return a; }, {} as Record<string, number>);
 
   return (
