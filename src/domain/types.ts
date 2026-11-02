@@ -16,6 +16,8 @@ export interface Shift {
   name: string;
   start: string; // 'HH:MM'
   end: string;
+  breakStart: string;
+  breakEnd: string;
 }
 
 export type PayMethod = 'bank' | 'cash';
@@ -30,6 +32,7 @@ export interface Employee {
   roles: Role[];
   homeBranchId: string;
   shiftId: string;
+  dayOff?: number[]; // weekly days off, 0 = Sunday; default [0]
   startDate: string; // YYYY-MM-DD
   endDate?: string;
   baseSalary: number;
@@ -41,7 +44,7 @@ export interface Employee {
   faceConsentAt?: string;
 }
 
-export type ScanKind = 'in' | 'out';
+export type ScanKind = 'in' | 'breakStart' | 'breakEnd' | 'out';
 export type ScanStatus = 'ok' | 'pending' | 'approved' | 'rejected';
 
 export interface ScanRecord {
@@ -130,6 +133,7 @@ export interface Settings {
   advanceMaxPctOfEarned: number;
   photoRetentionDays: number;
   randomSamplePerDay: number;
+  holidays: string[]; // YYYY-MM-DD public holidays, entered by HR each year
 }
 
 export interface AuditEntry {

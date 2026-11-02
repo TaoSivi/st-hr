@@ -6,8 +6,8 @@ export const COMPANY = 'demo-co';
 
 // Sample people and numbers for the demo only.
 export const shifts: Shift[] = [
-  { id: 'morning', name: 'ກະເຊົ້າ', start: '06:00', end: '14:00' },
-  { id: 'evening', name: 'ກະແລງ', start: '14:00', end: '22:00' }
+  { id: 'morning', name: 'ກະເຊົ້າ', start: '06:00', end: '14:00', breakStart: '10:00', breakEnd: '10:30' },
+  { id: 'evening', name: 'ກະແລງ', start: '14:00', end: '22:00', breakStart: '18:00', breakEnd: '18:30' }
 ];
 
 export const branches: Branch[] = [

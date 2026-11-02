@@ -7,7 +7,8 @@ import { bankCsv } from '../domain/payroll';
 import { monthKey, summarize } from '../app/payrun';
 import { getPosition } from '../device/geo';
 import { uid } from '../data/store';
-import { downloadText, hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
+import { KIND_LABEL } from './EmployeeApp';
+import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
 type Page = 'overview' | 'review' | 'time' | 'leave' | 'staff' | 'pay' | 'settings' | 'audit';
 const PAGES: { id: Page; label: string; roles: Role[] }[] = [
@@ -88,7 +89,7 @@ function Overview() {
         <h2>ການລົງເວລາລ່າສຸດ</h2>
         {today.length === 0 ? <div className="empty">ມື້ນີ້ຍັງບໍ່ມີໃຜສະແກນ</div> :
           <div className="scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ພະນັກງານ</th><th>ປະເພດ</th><th>ສະຖານະ</th></tr></thead><tbody>
-            {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{s.kind === 'in' ? 'ເຂົ້າ' : 'ອອກ'}</td><td><StatusPill s={s} /></td></tr>)}
+            {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
           </tbody></table></div>}
       </div>
     </>
@@ -136,7 +137,7 @@ function Review({ readOnly }: { readOnly: boolean }) {
             {list.map(s => (
               <button key={s.id} className="card row" onClick={() => setSelId(s.id)} style={{ border: `2px solid ${sel?.id === s.id ? 'var(--accent)' : 'transparent'}`, textAlign: 'left' }}>
                 {s.photo ? <img src={s.photo} alt="" width={52} height={52} style={{ borderRadius: 14, objectFit: 'cover' }} /> : <span className="logo" style={{ width: 52, height: 52 }}>?</span>}
-                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b><span className="muted small">{s.kind === 'in' ? 'ເຂົ້າ' : 'ອອກ'} · {hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
+                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b><span className="muted small">{KIND_LABEL[s.kind]} · {hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
                 <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>{s.reasons.length ? s.reasons.map(r => <span key={r} className="pill warn">{r}</span>) : <span className="pill info">ສຸ່ມກວດ</span>}</div>
               </button>
             ))}
