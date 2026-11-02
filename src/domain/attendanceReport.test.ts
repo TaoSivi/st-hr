@@ -71,14 +71,14 @@ describe('what is and is not counted', () => {
     const withOut = buildAttendance(input({ scans: [scan('e-kl', 'in', at(2, 6, 0)), scan('e-kl', 'out', at(2, 18, 0), { status: 'rejected' })] }));
     expect(day(withOut, '2026-11-02')).toMatchObject({ in: '06:00', workedMin: 0 }); // a rejected clock-out never creates hours
     expect(day(withOut, '2026-11-02').out).toBeUndefined();
-    expect(day(r, '2026-11-03')).toMatchObject({ status: 'pending', note: 'ບໍ່ມີ GPS' });
+    expect(day(r, '2026-11-03')).toMatchObject({ status: 'pending', note: 'ບໍ່ມີ GPS · ລືມລົງເວລາອອກ' }); // the open day is also a forgotten clock-out
     expect(r.summary[0].pendingDays).toBe(1);
     expect(r.summary[0].workedDays).toBe(1); // pending still shows up as attendance to be confirmed
   });
   it('an offline scan not yet confirmed by the server is flagged, a confirmed one is not', () => {
     const open = buildAttendance(input({ scans: [scan('e-kl', 'in', at(2, 6, 0), { offline: true, serverTime: undefined })] }));
     expect(day(open, '2026-11-02').note).toMatch('ບໍ່ມີເນັດ');
-    const done = buildAttendance(input({ scans: [scan('e-kl', 'in', at(2, 6, 0), { offline: true, serverTime: at(2, 9, 0) })] }));
+    const done = buildAttendance(input({ scans: [scan('e-kl', 'in', at(2, 6, 0), { offline: true, serverTime: at(2, 9, 0) }), scan('e-kl', 'out', at(2, 14, 0))] }));
     expect(day(done, '2026-11-02').note).toBe('');
   });
   it('a head-approved scan says so', () => {
@@ -258,5 +258,29 @@ describe('the .xlsx file', () => {
     const bytes = buildXlsx(attendanceSheets(input({ employees: people, today: '2026-11-30' }), { by: 'x', generatedAt: 'y', scopeNote: 'z' }));
     expect(Date.now() - t0).toBeLessThan(2000);
     expect(bytes.length).toBeLessThan(200_000);
+  });
+});
+
+describe('forgotten clock-out in the report', () => {
+  it('a past day with a clock-in and no clock-out is flagged, counted, and has no hours', () => {
+    const r = buildAttendance(input({ scans: [scan('e-kl', 'in', at(2, 6, 0)), scan('e-kl', 'in', at(3, 6, 0)), scan('e-kl', 'out', at(3, 14, 0))] }));
+    expect(day(r, '2026-11-02').note).toMatch('ລືມລົງເວລາອອກ');
+    expect(day(r, '2026-11-02').workedMin).toBe(0);
+    expect(day(r, '2026-11-03').note).not.toMatch('ລືມ');
+    expect(r.summary[0].missedOutDays).toBe(1);
+  });
+  it('today is only flagged once the shift (06:00–14:00 + 60 min) is over', () => {
+    const scans = [scan('e-kl', 'in', at(6, 6, 0))];
+    const during = buildAttendance(input({ scans, today: '2026-11-06', now: new Date(2026, 10, 6, 14, 30) }));
+    expect(day(during, '2026-11-06').note).not.toMatch('ລືມ');
+    const after = buildAttendance(input({ scans, today: '2026-11-06', now: new Date(2026, 10, 6, 15, 0) }));
+    expect(day(after, '2026-11-06').note).toMatch('ລືມ');
+  });
+  it('the Excel summary carries the new column with the same number', () => {
+    const inp = input({ scans: [scan('e-kl', 'in', at(2, 6, 0))] });
+    const sheets = attendanceSheets(inp, { by: 'x', generatedAt: 'now', scopeNote: 'all' });
+    const col = sheets[0].columns.findIndex(c => c.header.startsWith('ລືມລົງເວລາອອກ'));
+    expect(col).toBeGreaterThan(-1);
+    expect(sheets[0].rows[0][col]).toBe(buildAttendance(inp).summary[0].missedOutDays);
   });
 });

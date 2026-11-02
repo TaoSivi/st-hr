@@ -21,7 +21,7 @@ export function reportEmployees(hr: HR, team: boolean, year: number, month: numb
 }
 
 export function reportInput(hr: HR, employees: Employee[], year: number, month: number): ReportInput {
-  return { employees, scans: hr.scans, leaves: hr.leaves, ots: hr.ots, overrides: hr.overrides, shifts: hr.shifts, branches: hr.branches, settings: hr.settings, year, month, today: ymd(new Date()) };
+  return { employees, scans: hr.scans, leaves: hr.leaves, ots: hr.ots, overrides: hr.overrides, shifts: hr.shifts, branches: hr.branches, settings: hr.settings, year, month, today: ymd(new Date()), now: new Date() };
 }
 
 export function scopeNote(hr: HR, team: boolean, employees: Employee[], year: number, month: number): string {

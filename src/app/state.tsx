@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Advance, Branch, Employee, LeaveRequest, OtRequest, ScanRecord, Settings, Shift } from '../domain/types';
 import type { HRRequest, ShiftOverride } from '../domain/requests';
 
@@ -15,6 +15,7 @@ import { LocalStore, uid } from '../data/store';
 import { COMPANY, seed, shifts } from '../data/seed';
 import { purgeExpiredPhotos } from '../domain/attendance';
 import { syncOfflineScans } from './offlineSync';
+import { missedOutNotices } from './missedOut';
 
 export interface PayrollRun {
   id: string; // YYYY-MM
@@ -98,6 +99,17 @@ export function HRProvider({ children }: { children: ReactNode }) {
     const changed = scans.filter((s, i) => s !== data.scans[i]);
     Promise.all(changed.map(s => store.put('scans', s, 'system', 'photo-purge'))).then(load);
   }, [data?.settings.photoRetentionDays, data?.scans.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Forgotten clock-outs: tell the employee and their head, once per person per day (deterministic ids).
+  // In the demo this runs on whichever device is open; with a real server it becomes a scheduled job.
+  const noticed = useRef(new Set<string>());
+  useEffect(() => {
+    if (!data) return;
+    const fresh = missedOutNotices(data, new Date(), COMPANY).filter(n => !noticed.current.has(n.id));
+    if (!fresh.length) return;
+    fresh.forEach(n => noticed.current.add(n.id));
+    Promise.all(fresh.map(n => store.put<Notification>('notifications', n, 'system', 'missed-clock-out'))).then(load);
+  }, [data?.scans, data?.employees, data?.shifts, data?.overrides]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const me = data?.employees.find(e => e.id === meId) ?? null;
   const by = me?.id ?? 'anonymous';

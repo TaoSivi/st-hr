@@ -13,10 +13,11 @@ import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
-import { MyRequests } from './RequestsUI';
+import { MyRequests, RequestSheet } from './RequestsUI';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { canViewPage, isManager } from '../domain/permissions';
 import { PayslipView } from './PayslipView';
+import { missedDatesFor } from '../app/missedOut';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
 import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, sameDay, ymd } from './format';
 
@@ -166,6 +167,9 @@ function ClockTab() {
   const [flow, setFlow] = useState<null | { kind: ScanKind; enroll: boolean }>(null);
   const today = useMemo(() => new Date(), []);
   const todays = useTodayScans(today);
+  const hrAll = useHR();
+  const missed = useMemo(() => missedDatesFor(hrAll, me!, now), [hrAll.scans, hrAll.shifts, hrAll.overrides, now.getMinutes()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [fixing, setFixing] = useState<string | null>(null);
 
   const locate = async () => { setLocating(true); setPos(await getPosition()); setLocating(false); };
   useEffect(() => {
@@ -191,6 +195,16 @@ function ClockTab() {
 
   return (
     <div className="screen" style={{ paddingTop: 14 }}>
+      {missed.length > 0 && (
+        <div className="card col" role="alert" style={{ borderColor: '#f4b740', background: '#fff8e6' }}>
+          <b>ເຈົ້າລືມລົງເວລາອອກ</b>
+          {missed.map(d => (
+            <div key={d} className="row"><span className="grow">ວັນທີ {d.split('-').reverse().join('/')}</span>
+              {hrAll.requests.some(r => r.employeeId === me!.id && r.kind === 'clockFix' && r.status === 'pending' && (r.payload as { date: string; kind: string }).date === d && (r.payload as { kind: string }).kind === 'out')
+                ? <span className="muted small">ສົ່ງຄຳຂໍແລ້ວ ລໍຫົວໜ້າ</span>
+                : <button className="btn ghost" onClick={() => setFixing(d)}>ຂໍແກ້ເວລາອອກ</button>}</div>))}
+        </div>)}
+      {fixing && <RequestSheet kind="clockFix" initial={{ date: fixing, scanKind: 'out', time: shifts.find(s => s.id === (effectiveShift(me!, fixing, overrides) ?? me!.shiftId))?.end }} onClose={() => setFixing(null)} />}
       <MapCard branches={branches} pos={pos}>
         <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
         <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>

@@ -3,6 +3,7 @@ import { dayStatus, type DayStatus } from './day';
 import { effectiveShift, type ShiftOverride } from './requests';
 import { isSettled, lateMinutes } from './attendance';
 import type { Cell, Sheet } from './xlsx';
+import { closesAtFor, isMissedClockOut } from './missedOut';
 
 export const STATUS_LABEL: Record<DayStatus, string> = {
   ok: 'ປົກກະຕິ', late: 'ມາຊ້າ', absent: 'ຂາດ', leave: 'ລາ', pending: 'ລໍກວດ', dayoff: 'ວັນພັກ', holiday: 'ວັນພັກລັດຖະການ', future: '', 'before-hire': ''
@@ -28,6 +29,7 @@ export interface ReportInput {
   year: number;
   month: number; // 0-based
   today: string; // YYYY-MM-DD, days after it are not reported
+  now?: Date; // decides whether today's open day is already a forgotten clock-out; defaults to the end of `today`
 }
 
 export interface DayRow {
@@ -38,7 +40,7 @@ export interface DayRow {
 
 export interface SummaryRow {
   employee: Employee; workedDays: number; lateDays: number; lateMin: number; absentDays: number; leaveDays: number;
-  dayOffDays: number; holidayDays: number; holidayWorkedDays: number; pendingDays: number; hours: number; otMin: number;
+  dayOffDays: number; holidayDays: number; holidayWorkedDays: number; pendingDays: number; missedOutDays: number; hours: number; otMin: number;
 }
 
 export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: SummaryRow[] } {
@@ -50,7 +52,7 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
   const summary: SummaryRow[] = [];
 
   for (const e of inp.employees) {
-    const sum: SummaryRow = { employee: e, workedDays: 0, lateDays: 0, lateMin: 0, absentDays: 0, leaveDays: 0, dayOffDays: 0, holidayDays: 0, holidayWorkedDays: 0, pendingDays: 0, hours: 0, otMin: 0 };
+    const sum: SummaryRow = { employee: e, workedDays: 0, lateDays: 0, lateMin: 0, absentDays: 0, leaveDays: 0, dayOffDays: 0, holidayDays: 0, holidayWorkedDays: 0, pendingDays: 0, missedOutDays: 0, hours: 0, otMin: 0 };
     const mine = inp.scans.filter(x => x.employeeId === e.id && x.status !== 'rejected');
     const myLeaves = inp.leaves.filter(l => l.employeeId === e.id);
 
@@ -81,6 +83,10 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       // a holiday or leave day on which the person still clocked in must not look like a plain day off: it is often paid differently
       const workedOnOff = !!firstIn && (status === 'holiday' || status === 'leave');
       if (workedOnOff) notes.push(status === 'holiday' ? 'ມາເຮັດວຽກໃນວັນພັກລັດຖະການ' : 'ມີການລົງເວລາໃນວັນລາ');
+      // clocked in, never clocked out: the hours cannot be counted until someone fixes it
+      const closesAt = closesAtFor(date, shift);
+      const missedOut = isMissedClockOut(scans, closesAt, inp.now ?? new Date(`${inp.today}T23:59:59`));
+      if (missedOut) notes.push('ລືມລົງເວລາອອກ');
       if (scans.some(x => !isSettled(x))) notes.push('ສະແກນຕອນບໍ່ມີເນັດ ຍັງບໍ່ຢືນຢັນ');
       if (scans.some(x => x.status === 'approved' && x.reasons.length)) notes.push('ຫົວໜ້າຢືນຢັນແລ້ວ');
 
@@ -93,6 +99,7 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       if (status === 'ok' || status === 'late' || status === 'pending') sum.workedDays++;
       if (status === 'late') { sum.lateDays++; sum.lateMin += lateMin; }
       if (status === 'pending') sum.pendingDays++;
+      if (missedOut) sum.missedOutDays++;
       if (status === 'absent') sum.absentDays++;
       if (status === 'leave') sum.leaveDays++;
       if (status === 'dayoff') sum.dayOffDays++;
@@ -116,10 +123,10 @@ export function attendanceSheets(inp: ReportInput, meta: { by: string; generated
       { header: 'ລະຫັດ', width: 10 }, { header: 'ຊື່', width: 26 }, { header: 'ພະແນກ', width: 14 },
       { header: 'ມື້ມາວຽກ', width: 11, format: 'int' }, { header: 'ມາຊ້າ (ມື້)', width: 11, format: 'int' }, { header: 'ມາຊ້າ (ນາທີ)', width: 12, format: 'int' },
       { header: 'ຂາດ (ມື້)', width: 10, format: 'int' }, { header: 'ລາ (ມື້)', width: 10, format: 'int' }, { header: 'ວັນພັກ (ມື້)', width: 12, format: 'int' },
-      { header: 'ວັນພັກລັດຖະການ', width: 15, format: 'int' }, { header: 'ເຮັດວຽກວັນພັກລັດຖະການ', width: 22, format: 'int' }, { header: 'ລໍກວດ (ມື້)', width: 11, format: 'int' },
+      { header: 'ວັນພັກລັດຖະການ', width: 15, format: 'int' }, { header: 'ເຮັດວຽກວັນພັກລັດຖະການ', width: 22, format: 'int' }, { header: 'ລໍກວດ (ມື້)', width: 11, format: 'int' }, { header: 'ລືມລົງເວລາອອກ (ມື້)', width: 18, format: 'int' },
       { header: 'ຊົ່ວໂມງເຮັດວຽກ', width: 15, format: 'decimal' }, { header: 'OT (ນາທີ)', width: 11, format: 'int' }
     ],
-    rows: summary.map(r => [r.employee.code, r.employee.name, r.employee.dept, r.workedDays, r.lateDays, r.lateMin, r.absentDays, r.leaveDays, r.dayOffDays, r.holidayDays, r.holidayWorkedDays, r.pendingDays, r.hours, r.otMin])
+    rows: summary.map(r => [r.employee.code, r.employee.name, r.employee.dept, r.workedDays, r.lateDays, r.lateMin, r.absentDays, r.leaveDays, r.dayOffDays, r.holidayDays, r.holidayWorkedDays, r.pendingDays, r.missedOutDays, r.hours, r.otMin])
   };
   const dailySheet: Sheet = {
     name: 'ລາຍລະອຽດລາຍມື້',
