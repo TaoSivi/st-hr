@@ -13,6 +13,7 @@ import { PayslipView, type PayslipData } from './PayslipView';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
 import { lateStartOn, monthKey, summarize } from '../app/payrun';
 import { leaveSpan } from '../domain/leavePart';
+import { planSettlement, settlementItem } from '../app/settlement';
 import { commissionAmount, initialPayItemStatus, PAY_ITEM_LABEL, payItemDecisionBlock, pendingPayItemsBlock, validatePayItem, type PayItem, type PayItemKind } from '../domain/payItems';
 import { closesAtFor } from '../domain/missedOut';
 import { activeSession, scansOn, toSessions } from '../domain/sessions';
@@ -346,7 +347,7 @@ interface ChangeRequest { id: string; companyId: string; employeeId: string; fie
 
 function changeText(c: ChangeRequest, emps: Employee[]) {
   if (c.field === 'hire') { const e = JSON.parse(c.to) as Employee; return <><b>ຈ້າງໃໝ່: {e.name}</b> ({e.code}) · {e.dept} · ເລີ່ມ {e.startDate} · {money(e.baseSalary)} ₭</>; }
-  if (c.field === 'terminate') return <><b>{nameOf(emps, c.employeeId)}</b> · ປິດບັນຊີ / ລາອອກ ວັນທີ {c.to}</>;
+  if (c.field === 'terminate') return <><b>{nameOf(emps, c.employeeId)}</b> · ປິດບັນຊີ / ລາອອກ ວັນທີ {c.to}{c.from === 'payout' ? ' · ຈ່າຍວັນລາພັກຄ້າງ' : ''}</>;
   return <><b>{nameOf(emps, c.employeeId)}</b> · {c.field === 'baseSalary' ? 'ເງິນເດືອນ' : 'ເລກບັນຊີ'}: {c.field === 'baseSalary' ? `${money(+c.from)} → ${money(+c.to)}` : `${c.from || '—'} → ${c.to}`}</>;
 }
 
@@ -370,6 +371,7 @@ function Staff() {
   const canRoles = canGrantRoles(me.roles);
   const [hire, setHire] = useState<Employee | null>(null);
   const [endDate, setEndDate] = useState(ymd(new Date()));
+  const [payout, setPayout] = useState(true);
   const today = ymd(new Date());
   const startHire = () => { setEdit(null); setMsg(''); setHire({ id: uid(), companyId: me.companyId, code: nextEmployeeCode(hr.employees), name: '', dept: '', position: '', roles: ['employee'], homeBranchId: hr.branches[0]?.id ?? '', shiftId: hr.shifts[0]?.id ?? '', dayOff: [0], startDate: today, baseSalary: 0, allowance: 0, payMethod: 'bank', bankName: 'LDB', bankAccount: '' }); };
   const setH = (patch: Partial<Employee>) => setHire(h => (h ? { ...h, ...patch } : h));
@@ -395,12 +397,15 @@ function Staff() {
     const block = terminationBlock(edit, hr.employees, endDate, me.id);
     if (block) return setMsg(block);
     if (changeNeedsSecondPerson(hr.settings)) {
-      await hr.save('changes', request(edit.id, 'terminate', '', endDate), 'change-request');
+      // 'from' carries whether to pay out unused leave; the amount is worked out again when the second person approves
+      await hr.save('changes', request(edit.id, 'terminate', payout ? 'payout' : '', endDate), 'change-request');
       setMsg(`ສົ່ງການປິດບັນຊີ ${edit.name} ໃຫ້ອີກຄົນອະນຸມັດແລ້ວ`);
     } else {
+      const item = payout ? settlementItem(hr, edit, planSettlement(hr, edit, endDate, new Date()), me.id, new Date()) : null;
       await hr.save('employees', { ...edit, endDate }, 'employee-terminate');
+      if (item) await hr.save('payItems', item, 'pay-item-settlement');
       await notifyOwners(`${edit.name} ສິ້ນສຸດການເຮັດວຽກວັນທີ ${endDate}`);
-      setMsg(`ປິດບັນຊີ ${edit.name} ວັນທີ ${endDate} ແລ້ວ`);
+      setMsg(`ປິດບັນຊີ ${edit.name} ວັນທີ ${endDate} ແລ້ວ${item ? ` · ຈ່າຍວັນລາພັກຄ້າງ ${money(item.amount)} ₭ ໃນເງິນເດືອນ ${item.month}` : ''}`);
     }
     setEdit(null);
   };
@@ -460,7 +465,10 @@ function Staff() {
           const t = hr.employees.find(x => x.id === c.employeeId);
           const block = t ? terminationBlock(t, hr.employees, c.to, c.by) : 'ບໍ່ພົບພະນັກງານ';
           if (block) return setMsg(`ອະນຸມັດບໍ່ໄດ້: ${block}`);
+          // settlement first: its leave balance is measured while the person is still on the roster
+          const item = c.from === 'payout' ? settlementItem(hr, t!, planSettlement(hr, t!, c.to, new Date()), c.by, new Date()) : null;
           await hr.save('employees', { ...t!, endDate: c.to }, 'apply-terminate');
+          if (item) await hr.save('payItems', item, 'pay-item-settlement');
           await notifyOwners(`${t!.name} ສິ້ນສຸດການເຮັດວຽກວັນທີ ${c.to}`);
         }
       }
@@ -509,7 +517,17 @@ function Staff() {
           {!edit.endDate && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ລາອອກ / ປິດບັນຊີ</legend>
             <div className="row wrap"><label className="field grow">ວັນສຸດທ້າຍຂອງການເຮັດວຽກ<input className="input" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></label>
               <button className="btn danger" onClick={submitTerminate}>ປິດບັນຊີ</button></div>
-            <span className="muted small">ເງິນເດືອນເດືອນສຸດທ້າຍຄິດຕາມສັດສ່ວນວັນ · ປະຫວັດການລົງເວລາຍັງຢູ່ຄົບ</span></fieldset>}
+            {(() => {
+              const plan = planSettlement(hr, edit, endDate, new Date());
+              const days = plan.annualDays + plan.compDays;
+              return <>
+                <label className="row" style={{ minHeight: 44 }}><input type="checkbox" checked={payout} disabled={!hr.settings.leavePayoutOnExit || plan.amount <= 0} onChange={e => setPayout(e.target.checked)} />
+                  ຈ່າຍວັນລາພັກຄ້າງ: {days} ມື້ × {money(plan.dailyRate)} = <b>{money(plan.amount)} ₭</b></label>
+                {!hr.settings.leavePayoutOnExit && days > 0 && <span className="muted small">ຕັ້ງຄ່າປິດການຈ່າຍວັນລາພັກຄ້າງໄວ້ ({days} ມື້ບໍ່ຖືກຈ່າຍ)</span>}
+                {plan.amount > 0 && !plan.month && <span className="small" style={{ color: 'var(--bad, #c0392b)' }}>ງວດທີ່ກ່ຽວຂ້ອງລັອກແລ້ວ: ຕ້ອງໃສ່ເປັນລາຍການເອງຫຼັງເປີດງວດ</span>}
+              </>;
+            })()}
+            <span className="muted small">ເງິນເດືອນເດືອນສຸດທ້າຍຄິດຕາມສັດສ່ວນວັນ · ປະຫວັດການລົງເວລາຍັງຢູ່ຄົບ · ຍອດວັນລາພັກຄ້າງເປັນລາຍການ "ອື່ນໆ" ທີ່ຜ່ານການກວດ 2 ຄົນ</span></fieldset>}
         </div>)}
       {hire && (
         <div className="card col" style={{ maxWidth: 480 }}>
@@ -546,7 +564,7 @@ function Payroll() {
   const [pi, setPi] = useState<typeof blankItem | null>(null);
   const [piMsg, setPiMsg] = useState('');
   const [exporting, setExporting] = useState(false);
-  const staff = hr.employees.filter(e => e.baseSalary > 0 && employedFraction(e, now.getFullYear(), now.getMonth()) > 0);
+  const staff = hr.employees.filter(e => e.baseSalary > 0 && (employedFraction(e, now.getFullYear(), now.getMonth()) > 0 || (hr.payItems ?? []).some(i => i.employeeId === e.id && i.month === key && i.status === 'approved')));
   const rows = staff.map(e => summarize(hr, e, key, run.lateConfirmed.includes(e.id)));
   const total = rows.reduce((a, r) => a + r.slip.net, 0);
   const locked = run.status === 'locked';
@@ -749,7 +767,8 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
         {num('faceMinScore', 'ໃບໜ້າຂັ້ນຕ່ຳ (%)')}{num('maxClockSkewMin', 'ໂມງຕ່າງໄດ້ສູງສຸດ (ນາທີ)')}{num('randomSamplePerDay', 'ສຸ່ມກວດຕໍ່ມື້')}{num('photoRetentionDays', 'ເກັບຮູບ (ມື້)')}
       </div></div>
       <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
-        {num('leaveDaysPerYear', 'ມື້ລາພັກ/ປີ')}{num('leaveCarryOverMax', 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)')}{num('compLeaveExpiryDays', 'ວັນພັກຊົດເຊີຍໝົດອາຍຸ (ມື້, 0 = ບໍ່ໝົດ)')}{num('escalateAfterHours', 'ສົ່ງຫາເຈົ້າຂອງຫຼັງ (ຊົ່ວໂມງ)')}
+        {num('leaveDaysPerYear', 'ມື້ລາພັກ/ປີ')}{num('leaveCarryOverMax', 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)')}{num('compLeaveExpiryDays', 'ວັນພັກຊົດເຊີຍໝົດອາຍຸ (ມື້, 0 = ບໍ່ໝົດ)')}
+        <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={s.leavePayoutOnExit} onChange={e => setS({ ...s, leavePayoutOnExit: e.target.checked })} />ຈ່າຍວັນລາພັກຄ້າງ ເມື່ອພະນັກງານອອກ (leavePayoutOnExit)</label>{num('escalateAfterHours', 'ສົ່ງຫາເຈົ້າຂອງຫຼັງ (ຊົ່ວໂມງ)')}
         <label className="field">ວິທີໄດ້ສິດລາ<select className="input" disabled={readOnly} value={s.leaveAccrual} onChange={e => setS({ ...s, leaveAccrual: e.target.value as Settings['leaveAccrual'] })}>
           <option value="monthly">ສະສົມເປັນເດືອນ</option><option value="yearStart">ໄດ້ເຕັມຕົ້ນປີ</option><option value="anniversary">ຕາມວັນຄົບຮອບ</option></select></label>
         <label className="field">ຕ້ອງອະນຸມັດຈັກຄົນ<select className="input" disabled={readOnly} value={s.leaveApproversRequired} onChange={e => setS({ ...s, leaveApproversRequired: Number(e.target.value) as 1 | 2 })}><option value={1}>1 ຄົນ</option><option value={2}>2 ຄົນ</option></select></label>

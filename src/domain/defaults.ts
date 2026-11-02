@@ -30,5 +30,6 @@ export const defaultSettings = (companyId: string): Settings => ({
   photoRetentionDays: 365,
   randomSamplePerDay: 5,
   holidays: [],
+  leavePayoutOnExit: true,
   compLeaveExpiryDays: 90
 });

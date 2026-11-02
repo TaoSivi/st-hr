@@ -139,6 +139,7 @@ export interface Settings {
   photoRetentionDays: number;
   randomSamplePerDay: number;
   holidays: string[]; // YYYY-MM-DD public holidays, entered by HR each year
+  leavePayoutOnExit: boolean; // pay unused annual / compensatory leave days when someone leaves
   compLeaveExpiryDays: number; // compensatory days off expire this long after the holiday worked; 0 = never
 }
 

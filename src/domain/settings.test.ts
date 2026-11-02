@@ -7,6 +7,7 @@ import { changeNeedsSecondPerson, computePayslip, lateDeductionAmount, maxAdvanc
 import { accruedLeave, annualLeaveBalance, approvalBlock, decide, isEscalated, leaveDays } from './leave';
 import { dayStatus } from './day';
 import { compBalance } from './comp';
+import { finalSettlement } from './settlement';
 import { approvalAccess, canViewPage } from './permissions';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings } from './settingsCheck';
 import { seed } from '../data/seed';
@@ -140,6 +141,11 @@ const EFFECT: Record<Key, () => void> = {
     expect(dayStatus({ ...base, holidays: ['2026-11-03'] })).toBe('holiday');
     expect(leaveDays('2026-11-02', '2026-11-06', [0], [])).toBe(5);
     expect(leaveDays('2026-11-02', '2026-11-06', [0], ['2026-11-04'])).toBe(4);
+  },
+  leavePayoutOnExit: () => {
+    const run = (payOut: boolean) => finalSettlement({ baseSalary: 2_600_000, annualLeft: 5, compLeft: 0, workingDaysInMonth: 26, payOut }).amount;
+    expect(run(true)).toBe(500_000);
+    expect(run(false)).toBe(0);
   },
   compLeaveExpiryDays: () => {
     const earned = [{ date: '2026-08-01', days: 1 }];

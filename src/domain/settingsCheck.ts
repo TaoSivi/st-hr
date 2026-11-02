@@ -20,6 +20,7 @@ export function validateSettings(s: Settings): string[] {
   if (!num(s.advanceMaxPctOfEarned, 0, 1)) e.push('ເບີກສູງສຸດ ຕ້ອງຢູ່ລະຫວ່າງ 0–100% ຂອງເງິນທີ່ໄດ້ແລ້ວ');
   if (!num(s.photoRetentionDays, 1, 3650)) e.push('ເກັບຮູບ ຕ້ອງຢູ່ລະຫວ່າງ 1–3650 ມື້');
   if (!num(s.randomSamplePerDay, 0, 100)) e.push('ສຸ່ມກວດຕໍ່ມື້ ຕ້ອງຢູ່ລະຫວ່າງ 0–100');
+  if (typeof s.leavePayoutOnExit !== 'boolean') e.push('ການຈ່າຍວັນລາພັກຄ້າງເມື່ອອອກ ຕ້ອງເລືອກ ເປີດ ຫຼື ປິດ');
   if (!num(s.compLeaveExpiryDays, 0, 3650)) e.push('ວັນພັກຊົດເຊີຍໝົດອາຍຸ ຕ້ອງຢູ່ລະຫວ່າງ 0–3650 ມື້ (0 = ບໍ່ໝົດ)');
   if (s.leaveApproversRequired !== 1 && s.leaveApproversRequired !== 2) e.push('ຈຳນວນຄົນອະນຸມັດ ຕ້ອງເປັນ 1 ຫຼື 2');
   if (!s.leaveApproverRoles.length) e.push('ຕ້ອງເລືອກຜູ້ອະນຸມັດການລາຢ່າງໜ້ອຍ 1 ບົດບາດ');
