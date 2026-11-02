@@ -4,7 +4,7 @@ import { isSettled, lateMinutes } from '../domain/attendance';
 import { computePayslip, lateDeductionAmount, type Payslip } from '../domain/payroll';
 import { annualLeaveBalance, type LeaveBalance } from '../domain/leave';
 import { effectiveShift, type RequestPayloads } from '../domain/requests';
-import { shifts } from '../data/seed';
+
 import { ymd } from '../ui/format';
 
 export const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -25,7 +25,7 @@ export interface MonthSummary {
 /** Shift start for one employee on one date, after approved swaps; null on a day off. */
 export function shiftStartOn(data: HRData, e: Employee, date: string): string | null {
   const id = effectiveShift(e, date, data.overrides);
-  return id ? shifts.find(s => s.id === id)?.start ?? null : null;
+  return id ? data.shifts.find(s => s.id === id)?.start ?? null : null;
 }
 
 export function summarize(data: HRData, e: Employee, key: string, lateConfirmed: boolean): MonthSummary {

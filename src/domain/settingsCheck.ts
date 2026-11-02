@@ -42,3 +42,21 @@ export function validateSettings(s: Settings): string[] {
   if (new Set(s.holidays).size !== s.holidays.length) e.push('ວັນພັກລັດຖະການ ມີວັນທີຊ້ຳກັນ');
   return e;
 }
+
+const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3);
+
+/** Shift definitions: valid times, start before end (no overnight shifts yet), and the break inside the shift. */
+export function validateShifts(shifts: { id: string; name: string; start: string; end: string; breakStart: string; breakEnd: string }[]): string[] {
+  const e: string[] = [];
+  if (!shifts.length) e.push('ຕ້ອງມີຢ່າງໜ້ອຍ 1 ກະ');
+  for (const s of shifts) {
+    const label = s.name?.trim() || s.id;
+    if (!s.name?.trim()) e.push(`ກະ ${s.id}: ຕ້ອງມີຊື່`);
+    if (![s.start, s.end, s.breakStart, s.breakEnd].every(t => HHMM.test(t))) { e.push(`ກະ ${label}: ເວລາບໍ່ຖືກຕ້ອງ`); continue; }
+    if (mins(s.start) >= mins(s.end)) e.push(`ກະ ${label}: ເວລາເລີ່ມຕ້ອງກ່ອນເວລາເລີກ (ຍັງບໍ່ຮອງຮັບກະຂ້າມຄືນ)`);
+    else if (mins(s.breakStart) < mins(s.start) || mins(s.breakEnd) > mins(s.end) || mins(s.breakStart) >= mins(s.breakEnd)) e.push(`ກະ ${label}: ເວລາພັກຕ້ອງຢູ່ໃນກະ`);
+  }
+  if (new Set(shifts.map(s => s.name?.trim())).size !== shifts.length) e.push('ຊື່ກະຊ້ຳກັນ');
+  return e;
+}

@@ -1,4 +1,5 @@
 import type { Employee, Role, ScanKind, Settings } from './types';
+import { scopeBlock } from './scope';
 
 /** Every "ask a manager" flow except leave shares this shape and the same approval rules. */
 export type RequestKind = 'clockFix' | 'ot' | 'shiftSwap' | 'dayOffSwap' | 'schedule' | 'expense' | 'certificate' | 'leaveCancel';
@@ -48,18 +49,19 @@ export function requestEscalated(r: HRRequest, s: Settings, now: Date): boolean 
   return now.getTime() - new Date(r.createdAt).getTime() >= s.escalateAfterHours * 3600000;
 }
 
-export function requestBlock(r: HRRequest, approver: Pick<Employee, 'id' | 'roles'>, s: Settings, now: Date): string | null {
+export function requestBlock(r: HRRequest, approver: Pick<Employee, 'id' | 'roles'> & Partial<Pick<Employee, 'dept' | 'headOf'>>, s: Settings, now: Date, targetDept?: string): string | null {
   if (r.status !== 'pending') return 'ຄຳຂໍນີ້ຕັດສິນແລ້ວ';
   if (r.employeeId === approver.id) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
   if (r.kind === 'shiftSwap' && (r.payload as RequestPayloads['shiftSwap']).withEmployeeId === approver.id) return 'ທ່ານເປັນຄູ່ສະລັບ ອະນຸມັດບໍ່ໄດ້';
   if (r.approvals.some(a => a.by === approver.id)) return 'ທ່ານອະນຸມັດຄຳຂໍນີ້ແລ້ວ';
   const roles: Role[] = requestEscalated(r, s, now) ? [...APPROVER_ROLES[r.kind], 'owner'] : APPROVER_ROLES[r.kind];
   if (!approver.roles.some(x => roles.includes(x))) return 'ບໍ່ມີສິດອະນຸມັດ';
+  if (approver.dept !== undefined) return scopeBlock({ roles: approver.roles, dept: approver.dept, headOf: approver.headOf }, targetDept, roles);
   return null;
 }
 
-export function decideRequest<K extends RequestKind>(r: HRRequest<K>, approver: Pick<Employee, 'id' | 'roles'>, decision: 'approve' | 'reject', s: Settings, now: Date, note?: string): HRRequest<K> {
-  const block = requestBlock(r, approver, s, now);
+export function decideRequest<K extends RequestKind>(r: HRRequest<K>, approver: Pick<Employee, 'id' | 'roles'> & Partial<Pick<Employee, 'dept' | 'headOf'>>, decision: 'approve' | 'reject', s: Settings, now: Date, note?: string, targetDept?: string): HRRequest<K> {
+  const block = requestBlock(r, approver, s, now, targetDept);
   if (block) throw new Error(block);
   if (decision === 'reject' && !note?.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອປະຕິເສດ');
   const approvals = [...r.approvals, { by: approver.id, at: now.toISOString(), decision, note: note?.trim() || undefined }];

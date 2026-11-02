@@ -33,6 +33,7 @@ export interface Employee {
   homeBranchId: string;
   shiftId: string;
   dayOff?: number[]; // weekly days off, 0 = Sunday; default [0]
+  headOf?: string[]; // departments a head manages ('*' = all); default: own department
   startDate: string; // YYYY-MM-DD
   endDate?: string;
   baseSalary: number;

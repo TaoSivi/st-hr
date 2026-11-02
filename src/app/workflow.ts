@@ -1,12 +1,14 @@
 import type { useHR } from './state';
 import { uid } from '../data/store';
+import { inMyScope } from './scope';
 import { APPROVER_ROLES, decideRequest, overridesFor, REQUEST_LABEL, type HRRequest, type RequestKind, type RequestPayloads } from '../domain/requests';
 import type { ScanRecord } from '../domain/types';
 
 type HR = ReturnType<typeof useHR>;
 
-const approversOf = (hr: HR, kind: RequestKind, exclude: string) =>
-  hr.employees.filter(e => e.id !== exclude && e.roles.some(r => APPROVER_ROLES[kind].includes(r))).map(e => e.id);
+// only people who could actually decide it: right role, and (for heads) the requester's department
+const approversOf = (hr: HR, kind: RequestKind, requesterId: string) =>
+  hr.employees.filter(e => e.id !== requesterId && e.roles.some(r => APPROVER_ROLES[kind].includes(r)) && inMyScope(e, hr.employees, requesterId, APPROVER_ROLES[kind])).map(e => e.id);
 
 export async function submitRequest<K extends RequestKind>(hr: HR, kind: K, payload: RequestPayloads[K], reason: string) {
   const me = hr.me!;
@@ -19,7 +21,7 @@ export async function submitRequest<K extends RequestKind>(hr: HR, kind: K, payl
 export async function decideAndApply(hr: HR, r: HRRequest, decision: 'approve' | 'reject', note?: string) {
   const me = hr.me!;
   const now = new Date();
-  const next = decideRequest(r, me, decision, hr.settings, now, note);
+  const next = decideRequest(r, me, decision, hr.settings, now, note, hr.employees.find(e => e.id === r.employeeId)?.dept);
   if (next.status === 'approved' && !next.appliedAt) {
     await applyEffect(hr, next);
     next.appliedAt = now.toISOString();

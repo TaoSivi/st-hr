@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useHR, type PayrollRun } from '../app/state';
-import type { Advance, Employee, LeaveRequest, Role, ScanRecord, Settings, TaxBracket } from '../domain/types';
-import { ASSIGNABLE_APPROVER_ROLES, validateSettings } from '../domain/settingsCheck';
-import { approvalAccess, canDo, canViewPage, isReadOnly, type ManagerPage } from '../domain/permissions';
+import type { Advance, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
+import { ASSIGNABLE_APPROVER_ROLES, validateSettings, validateShifts } from '../domain/settingsCheck';
+import { ACTION_ROLES, approvalAccess, canDo, canGrantRoles, canViewPage, isReadOnly, roleChangeBlock, scopeBlock, type ManagerPage } from '../domain/permissions';
+import { deptOf, inMyScope } from '../app/scope';
 import { dailySample, lateMinutes } from '../domain/attendance';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
 import { bankCsv, changeNeedsSecondPerson, payrollLockBlock } from '../domain/payroll';
@@ -29,8 +30,10 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const pages = PAGE_ORDER.filter(p => canViewPage(me.roles, p, hr.settings));
   const [page, setPage] = useState<Page>(pages[0]);
   const readOnly = isReadOnly(me.roles);
-  const pendingScans = hr.scans.filter(s => s.status === 'pending').length + hr.ots.filter(o => o.status === 'pending').length;
-  const pendingLeave = hr.leaves.filter(l => l.status === 'pending').length + hr.advances.filter(a => a.status === 'pending').length;
+  // badges count only what this person could decide: a head's own departments
+  const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
+  const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, ACTION_ROLES['scan.review'])).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, ACTION_ROLES['scan.review'])).length;
+  const pendingLeave = hr.leaves.filter(l => l.status === 'pending' && inScope(l.employeeId, hr.settings.leaveApproverRoles)).length + hr.advances.filter(a => a.status === 'pending' && inScope(a.employeeId, ACTION_ROLES['advance.decide'])).length;
   const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
@@ -132,12 +135,15 @@ function Review({ readOnly }: { readOnly: boolean }) {
   const [err, setErr] = useState('');
   const todayKey = ymd(new Date());
   const sample = useMemo(() => dailySample(hr.scans.filter(s => s.status === 'ok' && sameDay(s.deviceTime, new Date())), hr.settings.randomSamplePerDay, todayKey), [hr.scans, hr.settings.randomSamplePerDay, todayKey]);
-  const list = tab === 'pending' ? hr.scans.filter(s => s.status === 'pending') : tab === 'sample' ? sample : [];
+  const mine = (id: string) => inMyScope(me, hr.employees, id, ACTION_ROLES['scan.review']);
+  const list = tab === 'pending' ? hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)) : tab === 'sample' ? sample.filter(s => mine(s.employeeId)) : [];
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find(s => s.id === selId) ?? list[0];
 
   const decideScan = async (s: ScanRecord, ok: boolean) => {
     setErr('');
+    const sb = scopeBlock(me, deptOf(hr.employees, s.employeeId), ACTION_ROLES['scan.review']);
+    if (sb) return setErr(sb);
     if (s.employeeId === me.id) return setErr('ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້');
     if (!ok && !note.trim()) return setErr('ຕ້ອງໃສ່ໝາຍເຫດເມື່ອປະຕິເສດ');
     await hr.save('scans', { ...s, status: ok ? 'approved' : 'rejected', reviewedBy: me.id, reviewNote: note.trim() || undefined }, ok ? 'scan-approve' : 'scan-reject');
@@ -148,7 +154,7 @@ function Review({ readOnly }: { readOnly: boolean }) {
     <>
       <div className="row wrap"><div className="col grow" style={{ gap: 0 }}><span className="muted">ລາຍການທີ່ລະບົບບໍ່ແນ່ໃຈ · ຫົວໜ້າເປັນຄົນຢືນຢັນ</span><h1>ກວດການລົງເວລາ</h1></div>
         <div className="tabs" role="tablist">
-          <button role="tab" aria-selected={tab === 'pending'} onClick={() => setTab('pending')}>ລໍກວດ ({hr.scans.filter(s => s.status === 'pending').length})</button>
+          <button role="tab" aria-selected={tab === 'pending'} onClick={() => setTab('pending')}>ລໍກວດ ({hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)).length})</button>
           <button role="tab" aria-selected={tab === 'sample'} onClick={() => setTab('sample')}>ສຸ່ມກວດມື້ນີ້ ({sample.length})</button>
           <button role="tab" aria-selected={tab === 'ot'} onClick={() => setTab('ot')}>OT ({hr.ots.filter(o => o.status === 'pending').length})</button>
         </div></div>
@@ -191,14 +197,15 @@ function Review({ readOnly }: { readOnly: boolean }) {
 function OtList({ readOnly }: { readOnly: boolean }) {
   const hr = useHR();
   const me = hr.me!;
-  const [emp, setEmp] = useState(hr.employees[0]?.id ?? '');
+  const mine = hr.employees.filter(e => inMyScope(me, hr.employees, e.id, ACTION_ROLES['ot.preapprove']));
+  const [emp, setEmp] = useState(mine[0]?.id ?? '');
   const [mins, setMins] = useState('60');
-  const pending = hr.ots.filter(o => o.status === 'pending');
+  const pending = hr.ots.filter(o => o.status === 'pending' && mine.some(e => e.id === o.employeeId));
   return (
     <div className="card col">
       {!readOnly && (
         <div className="row wrap" style={{ alignItems: 'flex-end' }}>
-          <label className="field grow">ສັ່ງ OT ໃຫ້<select className="input" value={emp} onChange={e => setEmp(e.target.value)}>{hr.employees.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
+          <label className="field grow">ສັ່ງ OT ໃຫ້<select className="input" value={emp} onChange={e => setEmp(e.target.value)}>{mine.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}</select></label>
           <label className="field" style={{ width: 120 }}>ນາທີ<input className="input" inputMode="numeric" value={mins} onChange={e => setMins(e.target.value.replace(/\D/g, ''))} /></label>
           <button className="btn" disabled={emp === me.id} onClick={() => hr.save('ots', { id: uid(), companyId: me.companyId, employeeId: emp, date: ymd(new Date()), minutes: Number(mins) || 0, status: 'approved', reviewedBy: me.id }, 'ot-preapprove')}>ອະນຸມັດລ່ວງໜ້າ</button>
         </div>
@@ -248,7 +255,7 @@ function Leaves() {
   const act = async (l: LeaveRequest, d: 'approve' | 'reject') => {
     setErr('');
     try {
-      const n = decide(l, me, d, hr.settings, now, note[l.id]);
+      const n = decide(l, me, d, hr.settings, now, note[l.id], deptOf(hr.employees, l.employeeId));
       await hr.save('leaves', n, 'leave-' + d);
       if (n.status !== 'pending') await hr.notify([l.employeeId], n.status === 'approved' ? 'ການລາ — ອະນຸມັດແລ້ວ' : `ການລາ — ບໍ່ອະນຸມັດ: ${note[l.id]}`, 'leave');
     } catch (e: any) { setErr(e.message); }
@@ -256,6 +263,8 @@ function Leaves() {
   const actAdv = async (a: Advance, d: 'approve' | 'reject') => {
     setErr('');
     if (!canDo(me.roles, 'advance.decide')) return setErr('ບໍ່ມີສິດອະນຸມັດ');
+    const sb = scopeBlock(me, deptOf(hr.employees, a.employeeId), ACTION_ROLES['advance.decide']);
+    if (sb) return setErr(sb);
     if (a.employeeId === me.id) return setErr('ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້');
     if (a.approvals.some(x => x.by === me.id)) return setErr('ທ່ານອະນຸມັດແລ້ວ');
     if (d === 'reject' && !note[a.id]?.trim()) return setErr('ຕ້ອງໃສ່ເຫດຜົນເມື່ອປະຕິເສດ');
@@ -264,8 +273,9 @@ function Leaves() {
     await hr.save('advances', { ...a, approvals, status }, 'advance-' + d);
     if (status !== 'pending') await hr.notify([a.employeeId], status === 'approved' ? 'ເບີກເງິນລ່ວງໜ້າ — ອະນຸມັດແລ້ວ' : `ເບີກເງິນລ່ວງໜ້າ — ບໍ່ອະນຸມັດ: ${note[a.id]}`, 'advance');
   };
-  const pend = hr.leaves.filter(l => l.status === 'pending');
-  const done = hr.leaves.filter(l => l.status !== 'pending').slice(-10).reverse();
+  const seeMine = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
+  const pend = hr.leaves.filter(l => l.status === 'pending' && seeMine(l.employeeId, hr.settings.leaveApproverRoles));
+  const done = hr.leaves.filter(l => l.status !== 'pending' && seeMine(l.employeeId, hr.settings.leaveApproverRoles)).slice(-10).reverse();
   return (
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">ຕ້ອງອະນຸມັດ {hr.settings.leaveApproversRequired} ຄົນ · ສົ່ງຫາເຈົ້າຂອງຫຼັງ {hr.settings.escalateAfterHours} ຊມ</span><h1>ລາພັກ & ເບີກເງິນ</h1></div>
@@ -274,7 +284,7 @@ function Leaves() {
         <h2>ຄຳຂໍລາ ລໍອະນຸມັດ</h2>
         {pend.length === 0 && <div className="empty">ບໍ່ມີຄຳຂໍ</div>}
         {pend.map(l => {
-          const block = approvalBlock(l, me, hr.settings, now);
+          const block = approvalBlock(l, me, hr.settings, now, deptOf(hr.employees, l.employeeId));
           return (
             <div key={l.id} className="row wrap" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 10 }}>
               <div className="col grow" style={{ gap: 2 }}>
@@ -291,8 +301,8 @@ function Leaves() {
       </div>
       <div className="card col">
         <h2>ຄຳຂໍເບີກເງິນລ່ວງໜ້າ</h2>
-        {hr.advances.filter(a => a.status === 'pending').length === 0 && <div className="empty">ບໍ່ມີຄຳຂໍ</div>}
-        {hr.advances.filter(a => a.status === 'pending').map(a => (
+        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, ACTION_ROLES['advance.decide'])).length === 0 && <div className="empty">ບໍ່ມີຄຳຂໍ</div>}
+        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, ACTION_ROLES['advance.decide'])).map(a => (
           <div key={a.id} className="row wrap"><span className="grow"><b>{nameOf(hr.employees, a.employeeId)}</b> · {money(a.amount)} ₭ · {a.createdAt.slice(0, 10)}</span>
             {!advReadOnly && a.employeeId !== me.id && <>
               <input className="input" style={{ width: 180 }} placeholder="ເຫດຜົນ (ຖ້າປະຕິເສດ)" value={note[a.id] ?? ''} onChange={e => setNote({ ...note, [a.id]: e.target.value })} aria-label="ເຫດຜົນ" />
@@ -325,23 +335,54 @@ function Staff() {
   const canEdit = canDo(me.roles, 'staff.edit');
   const canDecideChange = canDo(me.roles, 'staff.change.decide');
 
-  const open = (e: Employee) => { setEdit(e); setSalary(String(e.baseSalary)); setAcct(e.bankAccount ?? ''); setMsg(''); };
+  const [shiftSel, setShiftSel] = useState('');
+  const [dayOffSel, setDayOffSel] = useState<number[]>([0]);
+  const [rolesSel, setRolesSel] = useState<Role[]>(['employee']);
+  const [headSel, setHeadSel] = useState<string[]>([]);
+  const depts = [...new Set(hr.employees.map(e => e.dept))];
+  const canRoles = canGrantRoles(me.roles);
+  const open = (e: Employee) => { setEdit(e); setSalary(String(e.baseSalary)); setAcct(e.bankAccount ?? ''); setShiftSel(e.shiftId); setDayOffSel(e.dayOff ?? [0]); setRolesSel(e.roles); setHeadSel(e.headOf ?? [e.dept]); setMsg(''); };
+  const sameSet = (a: unknown[], b: unknown[]) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
   const submit = async () => {
     if (!edit) return;
+    // schedule and roles are not pay data, so they apply at once (audited); salary and bank account may need a second person
+    const direct: Partial<Employee> = {};
+    if (shiftSel !== edit.shiftId) direct.shiftId = shiftSel;
+    if (!sameSet(dayOffSel, edit.dayOff ?? [0])) direct.dayOff = dayOffSel;
+    if (canRoles && !sameSet(rolesSel, edit.roles)) {
+      const block = roleChangeBlock(hr.employees, edit.id, rolesSel, me.id);
+      if (block) return setMsg(block);
+      direct.roles = rolesSel;
+    }
+    if (canRoles && rolesSel.includes('head') && !sameSet(headSel, edit.headOf ?? [edit.dept])) direct.headOf = headSel.includes('*') ? ['*'] : headSel;
     const reqs: ChangeRequest[] = [];
     if (Number(salary) !== edit.baseSalary) reqs.push({ id: uid(), companyId: me.companyId, employeeId: edit.id, field: 'baseSalary', from: String(edit.baseSalary), to: String(Number(salary)), by: me.id, at: new Date().toISOString(), status: 'pending' });
     if (acct !== (edit.bankAccount ?? '')) reqs.push({ id: uid(), companyId: me.companyId, employeeId: edit.id, field: 'bankAccount', from: edit.bankAccount ?? '', to: acct, by: me.id, at: new Date().toISOString(), status: 'pending' });
-    if (!reqs.length) return setMsg('ບໍ່ມີການປ່ຽນແປງ');
-    if (changeNeedsSecondPerson(hr.settings)) {
-      for (const r of reqs) await hr.save('changes', r, 'change-request');
-      setMsg('ສົ່ງໃຫ້ອີກຄົນອະນຸມັດແລ້ວ (ກວດ 2 ຄົນ)');
-    } else {
-      await hr.save('employees', { ...edit, baseSalary: Number(salary), bankAccount: acct }, 'employee-update');
-      setMsg('ບັນທຶກແລ້ວ');
+    if (!reqs.length && !Object.keys(direct).length) return setMsg('ບໍ່ມີການປ່ຽນແປງ');
+    const notes: string[] = [];
+    if (Object.keys(direct).length) {
+      await hr.save('employees', { ...edit, ...direct }, direct.roles ? 'employee-roles' : 'employee-schedule');
+      notes.push('ບັນທຶກກະ / ວັນພັກ / ບົດບາດແລ້ວ');
+      if (direct.roles) {
+        const owners = hr.employees.filter(x => x.roles.includes('owner') && x.id !== me.id).map(x => x.id);
+        await hr.notify([edit.id, ...owners], `ບົດບາດຂອງ ${edit.name} ຖືກປ່ຽນເປັນ: ${direct.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ') || 'ພະນັກງານ'}`, 'profile');
+      }
     }
+    if (reqs.length) {
+      if (changeNeedsSecondPerson(hr.settings)) {
+        for (const r of reqs) await hr.save('changes', r, 'change-request');
+        notes.push('ສົ່ງເງິນເດືອນ / ເລກບັນຊີ ໃຫ້ອີກຄົນອະນຸມັດແລ້ວ (ກວດ 2 ຄົນ)');
+      } else {
+        const current = hr.employees.find(x => x.id === edit.id)!; // includes the schedule change just saved
+        await hr.save('employees', { ...current, ...direct, baseSalary: Number(salary), bankAccount: acct }, 'employee-update');
+        notes.push('ບັນທຶກເງິນເດືອນ / ເລກບັນຊີແລ້ວ');
+      }
+    }
+    setMsg(notes.join(' · '));
     setEdit(null);
   };
   const decideChange = async (c: ChangeRequest, ok: boolean) => {
+    if (!canDecideChange) return setMsg('ບໍ່ມີສິດອະນຸມັດ');
     if (c.by === me.id) return setMsg('ຄົນສ້າງຄຳຂໍ ອະນຸມັດເອງບໍ່ໄດ້');
     const e = hr.employees.find(x => x.id === c.employeeId)!;
     if (ok) await hr.save('employees', { ...e, [c.field]: c.field === 'baseSalary' ? Number(c.to) : c.to }, `apply-${c.field}`);
@@ -372,6 +413,15 @@ function Staff() {
           <h2>ແກ້ໄຂ: {edit.name}</h2>
           <label className="field">ເງິນເດືອນພື້ນຖານ<input className="input" inputMode="numeric" value={salary} onChange={e => setSalary(e.target.value.replace(/\D/g, ''))} /></label>
           <label className="field">ເລກບັນຊີທະນາຄານ<input className="input" value={acct} onChange={e => setAcct(e.target.value)} /></label>
+          <label className="field">ກະປະຈຳ<select className="input" value={shiftSel} onChange={e => setShiftSel(e.target.value)}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {s.start}–{s.end}</option>)}</select></label>
+          <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ວັນພັກປະຈຳອາທິດ</legend>
+            <div className="row wrap">{['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'].map((d, i) => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={dayOffSel.includes(i)} onChange={() => setDayOffSel(dayOffSel.includes(i) ? dayOffSel.filter(x => x !== i) : [...dayOffSel, i])} />{d}</label>)}</div></fieldset>
+          {canRoles && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ບົດບາດ (ສະເພາະເຈົ້າຂອງ ກຳນົດໄດ້ · ມີຜົນທັນທີ ແລະ ເກັບໃນ audit log)</legend>
+            <div className="row wrap">{(['head', 'accountant', 'owner', 'auditor'] as Role[]).map(r => <label key={r} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={edit.id === me.id} checked={rolesSel.includes(r)} onChange={() => setRolesSel(rolesSel.includes(r) ? rolesSel.filter(x => x !== r) : [...rolesSel, r])} />{ROLE_NAMES[r]}</label>)}</div>
+            {edit.id === me.id && <span className="muted small">ແກ້ບົດບາດຂອງຕົນເອງບໍ່ໄດ້</span>}</fieldset>}
+          {canRoles && rolesSel.includes('head') && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ຫົວໜ້າດູແລພະແນກ (ອະນຸມັດໄດ້ສະເພາະພະແນກເຫຼົ່ານີ້)</legend>
+            <div className="row wrap"><label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={headSel.includes('*')} onChange={() => setHeadSel(headSel.includes('*') ? [edit.dept] : ['*'])} />ທຸກພະແນກ</label>
+              {depts.map(d => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={headSel.includes('*')} checked={headSel.includes('*') || headSel.includes(d)} onChange={() => setHeadSel(headSel.includes(d) ? headSel.filter(x => x !== d) : [...headSel, d])} />{d}</label>)}</div></fieldset>}
           <div className="row"><button className="btn ghost" onClick={() => setEdit(null)}>ຍົກເລີກ</button><button className="btn" onClick={submit}>{changeNeedsSecondPerson(hr.settings) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
         </div>)}
     </>
@@ -438,16 +488,19 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const me = hr.me!;
   const [s, setS] = useState<Settings>(hr.settings);
   const [radii, setRadii] = useState<Record<string, number>>(() => Object.fromEntries(hr.branches.map(b => [b.id, b.radiusM])));
+  const [shiftRows, setShiftRows] = useState<Shift[]>(hr.shifts);
   const [newHoliday, setNewHoliday] = useState('');
   const [msg, setMsg] = useState('');
   // follow the stored values when they change underneath (saved, or demo data reset), but not on every reload
-  const stored = JSON.stringify([hr.settings, hr.branches.map(b => b.radiusM)]);
-  useEffect(() => { setS(hr.settings); setRadii(Object.fromEntries(hr.branches.map(b => [b.id, b.radiusM]))); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const stored = JSON.stringify([hr.settings, hr.branches.map(b => b.radiusM), hr.shifts]);
+  useEffect(() => { setS(hr.settings); setShiftRows(hr.shifts); setRadii(Object.fromEntries(hr.branches.map(b => [b.id, b.radiusM]))); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setShift = (id: string, patch: Partial<Shift>) => setShiftRows(rows => rows.map(r => r.id === id ? { ...r, ...patch } : r));
   const errors = [
     ...validateSettings(s),
+    ...validateShifts(shiftRows),
     ...hr.branches.filter(b => !(Number.isInteger(radii[b.id]) && radii[b.id] >= 10 && radii[b.id] <= 2000)).map(b => `ລັດສະໝີ ${b.name} ຕ້ອງເປັນເລກເຕັມ 10–2000 ແມັດ`)
   ];
-  const dirty = JSON.stringify(s) !== JSON.stringify(hr.settings) || hr.branches.some(b => radii[b.id] !== b.radiusM);
+  const dirty = JSON.stringify(s) !== JSON.stringify(hr.settings) || hr.branches.some(b => radii[b.id] !== b.radiusM) || JSON.stringify(shiftRows) !== JSON.stringify(hr.shifts);
   // show 0.07×100 as 7, not 7.000000000000001
   const shown = (v: number, scale: number) => (Number.isFinite(v) ? Math.round(v * scale * 1e6) / 1e6 : '');
   const num = (k: keyof Settings, label: string, step = 1, scale = 1) => (
@@ -472,6 +525,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
     if (!canDo(me.roles, 'settings.edit') || errors.length) return;
     await hr.save('settings', { ...s, id: s.companyId }, 'settings-update');
     for (const b of hr.branches) if (radii[b.id] !== b.radiusM) await hr.save('branches', { ...b, radiusM: radii[b.id] }, 'branch-radius');
+    for (const sh of shiftRows) if (JSON.stringify(sh) !== JSON.stringify(hr.shifts.find(x => x.id === sh.id))) await hr.save('shifts', sh, 'shift-update');
     setMsg('ບັນທຶກການຕັ້ງຄ່າແລ້ວ');
   };
   return (
@@ -483,6 +537,15 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           <label className="row small">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
             onChange={e => setRadii({ ...radii, [b.id]: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
           {!readOnly && <button className="btn ghost" onClick={() => useHere(b.id)}>ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>}</div>)}
+      </div>
+      <div className="card col"><h2>ກະວຽກ</h2>
+        <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ</span>
+        {shiftRows.map(sh => (
+          <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
+            <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
+            {([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
+              <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
+          </div>))}
       </div>
       <div className="card col"><h2>ເວລາ & ສະແກນ</h2><div className="grid">
         {num('graceMinutes', 'ຜ່ອນຜັນມາຊ້າ (ນາທີ)')}{num('lateDeductPerMinute', 'ຫັກມາຊ້າ (ກີບ/ນາທີ)', 100)}{num('otRate', 'ອັດຕາ OT (ເທົ່າ)', 0.1)}

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { Advance, Branch, Employee, LeaveRequest, OtRequest, ScanRecord, Settings } from '../domain/types';
+import type { Advance, Branch, Employee, LeaveRequest, OtRequest, ScanRecord, Settings, Shift } from '../domain/types';
 import type { HRRequest, ShiftOverride } from '../domain/requests';
 
 export interface Notification {
@@ -36,6 +36,7 @@ export interface HRData {
   payrollRuns: PayrollRun[];
   requests: HRRequest[];
   overrides: ShiftOverride[];
+  shifts: Shift[];
   notifications: Notification[];
   settings: Settings;
 }
@@ -47,7 +48,6 @@ interface Ctx extends HRData {
   setMe: (id: string | null) => void;
   save: <T extends { id: string }>(collection: string, item: T, action: string) => Promise<void>;
   store: LocalStore;
-  shifts: typeof shifts;
   resetDemo: () => void;
 }
 
@@ -66,14 +66,14 @@ export function HRProvider({ children }: { children: ReactNode }) {
   });
 
   const load = useCallback(async () => {
-    const [employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, settingsRows] = await Promise.all([
+    const [employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, shiftRows, settingsRows] = await Promise.all([
       store.list<Employee>('employees'), store.list<Branch>('branches'), store.list<ScanRecord>('scans'),
       store.list<LeaveRequest>('leaves'), store.list<OtRequest>('ots'), store.list<Advance>('advances'),
       store.list<PayrollRun>('payrollRuns'), store.list<HRRequest>('requests'), store.list<ShiftOverride>('overrides'),
-      store.list<Notification>('notifications'), store.list<Settings & { id: string }>('settings')
+      store.list<Notification>('notifications'), store.list<Shift>('shifts'), store.list<Settings & { id: string }>('settings')
     ]);
     const settings = { ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
-    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, settings });
+    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, shifts: shiftRows.length ? shiftRows : shifts, settings });
   }, [store]);
 
   useEffect(() => { seed(store).then(load); }, [store, load]);
@@ -118,7 +118,6 @@ export function HRProvider({ children }: { children: ReactNode }) {
       await load();
     },
     store,
-    shifts,
     resetDemo: () => { store.reset(); seed(store).then(load); }
   };
 

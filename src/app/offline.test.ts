@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { LocalStore } from '../data/store';
-import { branches as seedBranches, employees as seedEmployees } from '../data/seed';
+import { branches as seedBranches, employees as seedEmployees, shifts } from '../data/seed';
 import { defaultSettings } from '../domain/defaults';
 import { evaluateScan, isSettled, reevaluateOfflineScan } from '../domain/attendance';
 import { syncOfflineScans } from './offlineSync';
@@ -189,7 +189,7 @@ describe('saving while the phone is nearly full', () => {
 describe('pay does not count an unchecked offline scan', () => {
   const emp = seedEmployees.find(e => e.id === 'e-kl')!; // morning shift, starts 06:00
   const data = (scans: ScanRecord[]): HRData => ({
-    employees: seedEmployees, branches: seedBranches, scans, leaves: [], ots: [], advances: [], payrollRuns: [], requests: [], overrides: [], notifications: [], settings: S
+    employees: seedEmployees, branches: seedBranches, scans, leaves: [], ots: [], advances: [], payrollRuns: [], requests: [], overrides: [], notifications: [], shifts, settings: S
   });
   const lateScan = (over: Partial<ScanRecord>) => scan('late', { deviceTime: '2026-11-03T06:30:00', ...over });
 

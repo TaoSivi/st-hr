@@ -5,6 +5,7 @@ import type { LocalStore } from './store';
 export const COMPANY = 'demo-co';
 
 // Sample people and numbers for the demo only.
+/** Default shifts for a fresh company; the live list is stored and editable by Admin. */
 export const shifts: Shift[] = [
   { id: 'morning', name: 'ກະເຊົ້າ', start: '06:00', end: '14:00', breakStart: '10:00', breakEnd: '10:30' },
   { id: 'evening', name: 'ກະແລງ', start: '14:00', end: '22:00', breakStart: '18:00', breakEnd: '18:30' }
@@ -25,7 +26,7 @@ export const employees: Employee[] = [
   emp('e-owner', 'ST-001', 'Admin', 'ບໍລິຫານ', 'ເຈົ້າຂອງຮ້ານ', ['owner', 'employee'], 'morning', '2020-01-01', 0, 0, 'bank', 'LDB'),
   emp('e-acc', 'ST-002', 'ແສງດາວ ພົມມະວົງ', 'ບໍລິຫານ', 'ບັນຊີ', ['accountant', 'employee'], 'morning', '2021-03-01', 5_000_000, 300_000, 'bank', 'JDB'),
   emp('e-aud', 'ST-004', 'ສຸພາ ໄຊຍະ', 'ບໍລິຫານ', 'ຜູ້ກວດສອບພາຍໃນ', ['auditor', 'employee'], 'morning', '2022-02-01', 4_500_000, 200_000, 'bank', 'LDB'),
-  emp('e-head', 'ST-003', 'ສົມພອນ ແກ້ວມະນີ', 'ບໍລິຫານ', 'ຜູ້ຈັດການຮ້ານ', ['head', 'employee'], 'morning', '2021-03-01', 8_500_000, 500_000, 'bank', 'LDB'),
+  { ...emp('e-head', 'ST-003', 'ສົມພອນ ແກ້ວມະນີ', 'ບໍລິຫານ', 'ຜູ້ຈັດການຮ້ານ', ['head', 'employee'], 'morning', '2021-03-01', 8_500_000, 500_000, 'bank', 'LDB'), headOf: ['*'] }, // the shop manager decides for every department
   emp('e-noy', 'ST-007', 'ນ້ອຍ ວົງສາ', 'ເສີບ', 'ຫົວໜ້າພະນັກງານເສີບ', ['head', 'employee'], 'evening', '2022-06-15', 4_800_000, 300_000, 'bank', 'ST Bank'),
   emp('e-kl', 'ST-012', 'ຄຳຫຼ້າ ອິນທະວົງ', 'ຄົວ', 'ພໍ່ຄົວໃຫຍ່', ['employee'], 'morning', '2022-01-02', 6_240_000, 300_000, 'bank', 'LDB'),
   emp('e-bm', 'ST-015', 'ບຸນມີ ສີສຸວັນ', 'ຄົວ', 'ຜູ້ຊ່ວຍພໍ່ຄົວ', ['employee'], 'morning', '2023-09-10', 3_600_000, 200_000, 'cash'),
@@ -46,6 +47,7 @@ export async function seed(store: LocalStore) {
   const by = 'system';
   for (const b of branches) await store.put('branches', b, by, 'seed');
   for (const e of employees) await store.put('employees', e, by, 'seed');
+  for (const sh of shifts) await store.put('shifts', sh, by, 'seed');
   for (const l of leaves) await store.put('leaves', l, by, 'seed');
   await store.put('settings', { id: COMPANY, ...defaultSettings(COMPANY) }, by, 'seed');
   store.markSeeded();

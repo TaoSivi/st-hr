@@ -73,3 +73,29 @@ export function approvalAccess(roles: Role[], section: ApprovalSection, s: Pick<
   if (roles.includes('owner') || intersects(roles, sectionActRoles(section, s))) return 'act';
   return roles.includes('auditor') ? 'view' : 'none';
 }
+
+export const ALL_ROLES: Role[] = ['employee', 'head', 'accountant', 'owner', 'auditor'];
+
+/** Who may grant roles at all: only the owner. Kept out of ACTION_ROLES' maker-checker flow on purpose (see roleChangeBlock). */
+export const canGrantRoles = (roles: Role[]) => roles.includes('owner');
+
+/**
+ * Why a role change is not allowed, or null.
+ * - nobody edits their own roles (no self-promotion, no accidental lock-out)
+ * - everyone keeps the plain employee role
+ * - the last owner cannot be demoted
+ * - an auditor must stay independent: no head / accountant / owner powers on the same person
+ */
+export function roleChangeBlock(employees: { id: string; roles: Role[] }[], targetId: string, next: Role[], actorId: string): string | null {
+  const target = employees.find(e => e.id === targetId);
+  if (!target) return 'ບໍ່ພົບພະນັກງານ';
+  if (targetId === actorId) return 'ແກ້ບົດບາດຂອງຕົນເອງບໍ່ໄດ້';
+  if (next.some(r => !ALL_ROLES.includes(r))) return 'ບົດບາດບໍ່ຖືກຕ້ອງ';
+  if (!next.includes('employee')) return 'ທຸກຄົນຕ້ອງມີບົດບາດພະນັກງານ';
+  if (next.includes('auditor') && next.some(r => r === 'head' || r === 'accountant' || r === 'owner')) return 'ຜູ້ກວດສອບຕ້ອງເປັນອິດສະຫຼະ ໃຫ້ບົດບາດອື່ນພ້ອມກັນບໍ່ໄດ້';
+  const owners = employees.filter(e => e.roles.includes('owner')).length;
+  if (target.roles.includes('owner') && !next.includes('owner') && owners <= 1) return 'ຕ້ອງມີເຈົ້າຂອງຢ່າງໜ້ອຍ 1 ຄົນ';
+  return null;
+}
+
+export { scopeBlock, type ScopedPerson } from './scope';

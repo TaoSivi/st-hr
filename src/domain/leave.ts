@@ -1,4 +1,5 @@
 import type { AccrualMethod, LeaveRequest, Role, Settings } from './types';
+import { scopeBlock } from './scope';
 
 const parse = (d: string) => new Date(d + 'T00:00:00');
 
@@ -32,16 +33,19 @@ export function accruedLeave(method: AccrualMethod, startDate: string, asOf: str
 export interface Approver {
   id: string;
   roles: Role[];
+  dept?: string;
+  headOf?: string[];
 }
 
 /** Why an approver may not act on a request, or null when they may. */
-export function approvalBlock(req: LeaveRequest, approver: Approver, s: Settings, now: Date): string | null {
+export function approvalBlock(req: LeaveRequest, approver: Approver, s: Settings, now: Date, targetDept?: string): string | null {
   if (req.status !== 'pending') return 'ຄຳຂໍນີ້ຕັດສິນແລ້ວ';
   if (req.employeeId === approver.id) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
   if (req.approvals.some(a => a.by === approver.id)) return 'ທ່ານອະນຸມັດຄຳຂໍນີ້ແລ້ວ';
   const escalated = isEscalated(req, s, now);
-  const allowed = escalated ? [...s.leaveApproverRoles, 'owner'] : s.leaveApproverRoles;
+  const allowed: Role[] = escalated ? [...s.leaveApproverRoles, 'owner'] : s.leaveApproverRoles;
   if (!approver.roles.some(r => allowed.includes(r))) return 'ບໍ່ມີສິດອະນຸມັດ';
+  if (approver.dept !== undefined) return scopeBlock({ roles: approver.roles, dept: approver.dept, headOf: approver.headOf }, targetDept, allowed);
   return null;
 }
 
@@ -50,8 +54,8 @@ export function isEscalated(req: LeaveRequest, s: Settings, now: Date): boolean 
 }
 
 /** Apply one decision; one rejection rejects, N distinct approvals approve. Returns a new object. */
-export function decide(req: LeaveRequest, approver: Approver, decision: 'approve' | 'reject', s: Settings, now: Date, note?: string): LeaveRequest {
-  const block = approvalBlock(req, approver, s, now);
+export function decide(req: LeaveRequest, approver: Approver, decision: 'approve' | 'reject', s: Settings, now: Date, note?: string, targetDept?: string): LeaveRequest {
+  const block = approvalBlock(req, approver, s, now, targetDept);
   if (block) throw new Error(block);
   if (decision === 'reject' && !note?.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອປະຕິເສດ');
   const approvals = [...req.approvals, { by: approver.id, at: now.toISOString(), decision, note }];
