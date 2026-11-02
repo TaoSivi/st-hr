@@ -1,0 +1,9 @@
+{
+  "name": "ST HR",
+  "short_name": "ST HR",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eaf4f3",
+  "theme_color": "#062f2d",
+  "lang": "lo"
+}

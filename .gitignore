@@ -1,0 +1,19 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+
+# ຫ້າມ commit ຂໍ້ມູນຈິງ: ຮູບໜ້າ, ເງິນເດືອນ, backup ຖານຂໍ້ມູນ
+uploads/
+photos/
+*.sql
+*.dump
+*.sqlite
+*.db
+data/real/
+
+# Capacitor native builds (generated)
+android/app/build/
+ios/App/Pods/

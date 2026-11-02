@@ -1,0 +1,145 @@
+// Every record carries companyId so one deployment can serve many companies later.
+
+export type Role = 'employee' | 'head' | 'accountant' | 'owner' | 'auditor';
+
+export interface Branch {
+  id: string;
+  companyId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  radiusM: number;
+}
+
+export interface Shift {
+  id: string;
+  name: string;
+  start: string; // 'HH:MM'
+  end: string;
+}
+
+export type PayMethod = 'bank' | 'cash';
+
+export interface Employee {
+  id: string;
+  companyId: string;
+  code: string; // ST-012
+  name: string;
+  dept: string;
+  position: string;
+  roles: Role[];
+  homeBranchId: string;
+  shiftId: string;
+  startDate: string; // YYYY-MM-DD
+  endDate?: string;
+  baseSalary: number;
+  allowance: number;
+  payMethod: PayMethod;
+  bankName?: string;
+  bankAccount?: string;
+  faceEnrolled?: number[]; // face descriptor (demo: stored locally only)
+  faceConsentAt?: string;
+}
+
+export type ScanKind = 'in' | 'out';
+export type ScanStatus = 'ok' | 'pending' | 'approved' | 'rejected';
+
+export interface ScanRecord {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  kind: ScanKind;
+  deviceTime: string; // ISO from phone
+  serverTime?: string; // ISO when the server received it (offline scans arrive later)
+  branchId?: string;
+  lat?: number;
+  lng?: number;
+  distanceM?: number;
+  faceScore?: number; // 0..100
+  photo?: string; // data URL in demo; object storage key in production
+  status: ScanStatus;
+  reasons: string[];
+  reviewedBy?: string;
+  reviewNote?: string;
+  offline?: boolean;
+}
+
+export type LeaveType = 'annual' | 'sick' | 'personal' | 'unpaid';
+
+export interface LeaveRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  type: LeaveType;
+  from: string; // YYYY-MM-DD
+  to: string;
+  days: number;
+  reason: string;
+  createdAt: string;
+  approvals: { by: string; at: string; decision: 'approve' | 'reject'; note?: string }[];
+  status: 'pending' | 'approved' | 'rejected';
+  escalatedAt?: string;
+}
+
+export interface OtRequest {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  date: string;
+  minutes: number;
+  status: 'pending' | 'approved' | 'rejected';
+  reviewedBy?: string;
+}
+
+export interface Advance {
+  id: string;
+  companyId: string;
+  employeeId: string;
+  amount: number;
+  installments: number;
+  remaining: number;
+  status: 'pending' | 'approved' | 'rejected';
+  approvals: { by: string; at: string; decision: 'approve' | 'reject' }[];
+  createdAt: string;
+}
+
+export interface TaxBracket {
+  upTo: number | null; // null = no upper limit
+  rate: number; // 0.05 = 5%
+}
+
+export type AccrualMethod = 'monthly' | 'yearStart' | 'anniversary';
+
+export interface Settings {
+  companyId: string;
+  graceMinutes: number;
+  lateDeductPerMinute: number; // ກີບ / ນາທີ
+  otRate: number; // multiplier on hourly wage
+  workHoursPerMonth: number;
+  ssRate: number; // employee social security, on base salary
+  taxBrackets: TaxBracket[];
+  maxClockSkewMin: number;
+  faceMinScore: number;
+  leaveDaysPerYear: number;
+  leaveAccrual: AccrualMethod;
+  leaveCarryOverMax: number;
+  leaveApproversRequired: 1 | 2;
+  leaveApproverRoles: Role[];
+  escalateAfterHours: number;
+  makerChecker: boolean;
+  advanceMaxPctOfEarned: number;
+  photoRetentionDays: number;
+  randomSamplePerDay: number;
+}
+
+export interface AuditEntry {
+  id: string;
+  companyId: string;
+  at: string;
+  by: string;
+  action: string;
+  entity: string;
+  entityId: string;
+  before?: unknown;
+  after?: unknown;
+}

@@ -1,0 +1,71 @@
+import type { AccrualMethod, LeaveRequest, Role, Settings } from './types';
+
+const parse = (d: string) => new Date(d + 'T00:00:00');
+
+function fullMonthsBetween(from: Date, to: Date): number {
+  let m = (to.getFullYear() - from.getFullYear()) * 12 + (to.getMonth() - from.getMonth());
+  if (to.getDate() < from.getDate()) m -= 1;
+  return Math.max(0, m);
+}
+
+/** Annual-leave days earned in the current leave year as of `asOf`. */
+export function accruedLeave(method: AccrualMethod, startDate: string, asOf: string, daysPerYear: number): number {
+  const start = parse(startDate);
+  const now = parse(asOf);
+  if (now < start) return 0;
+  const yearStart = new Date(now.getFullYear(), 0, 1);
+
+  if (method === 'monthly') {
+    const from = start > yearStart ? start : yearStart;
+    const months = fullMonthsBetween(from, now);
+    return Math.round(Math.min(daysPerYear, (months * daysPerYear) / 12) * 100) / 100;
+  }
+  if (method === 'yearStart') {
+    if (start <= yearStart) return daysPerYear;
+    const monthsLeft = 12 - start.getMonth();
+    return Math.round(((daysPerYear * monthsLeft) / 12) * 100) / 100;
+  }
+  // anniversary: nothing in the first year, the full amount after each completed year
+  return fullMonthsBetween(start, now) >= 12 ? daysPerYear : 0;
+}
+
+export interface Approver {
+  id: string;
+  roles: Role[];
+}
+
+/** Why an approver may not act on a request, or null when they may. */
+export function approvalBlock(req: LeaveRequest, approver: Approver, s: Settings, now: Date): string | null {
+  if (req.status !== 'pending') return 'ຄຳຂໍນີ້ຕັດສິນແລ້ວ';
+  if (req.employeeId === approver.id) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
+  if (req.approvals.some(a => a.by === approver.id)) return 'ທ່ານອະນຸມັດຄຳຂໍນີ້ແລ້ວ';
+  const escalated = isEscalated(req, s, now);
+  const allowed = escalated ? [...s.leaveApproverRoles, 'owner'] : s.leaveApproverRoles;
+  if (!approver.roles.some(r => allowed.includes(r))) return 'ບໍ່ມີສິດອະນຸມັດ';
+  return null;
+}
+
+export function isEscalated(req: LeaveRequest, s: Settings, now: Date): boolean {
+  return now.getTime() - new Date(req.createdAt).getTime() >= s.escalateAfterHours * 3600000;
+}
+
+/** Apply one decision; one rejection rejects, N distinct approvals approve. Returns a new object. */
+export function decide(req: LeaveRequest, approver: Approver, decision: 'approve' | 'reject', s: Settings, now: Date, note?: string): LeaveRequest {
+  const block = approvalBlock(req, approver, s, now);
+  if (block) throw new Error(block);
+  if (decision === 'reject' && !note?.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອປະຕິເສດ');
+  const approvals = [...req.approvals, { by: approver.id, at: now.toISOString(), decision, note }];
+  const approveCount = approvals.filter(a => a.decision === 'approve').length;
+  const status = decision === 'reject' ? 'rejected' : approveCount >= s.leaveApproversRequired ? 'approved' : 'pending';
+  return { ...req, approvals, status };
+}
+
+/** Working days between two dates inclusive, skipping the employee's weekly day off and holidays. */
+export function leaveDays(from: string, to: string, weeklyOff: number[], holidays: string[]): number {
+  let n = 0;
+  for (let d = parse(from); d <= parse(to); d.setDate(d.getDate() + 1)) {
+    const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    if (!weeklyOff.includes(d.getDay()) && !holidays.includes(iso)) n++;
+  }
+  return n;
+}
