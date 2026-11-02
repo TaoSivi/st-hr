@@ -317,3 +317,13 @@ describe('a head decides only for the departments they manage', () => {
     expect(requestBlock(req('ot'), { id: 'h', roles: ['head'] }, S, NOW)).toBeNull();
   });
 });
+
+describe('the owner is never limited by department, even when Settings does not list the owner', () => {
+  const owner = { id: 'o', roles: ['employee', 'owner'] as Role[], dept: 'ບໍລິຫານ' };
+  it('scopeBlock with an allowed list that excludes the owner', () => expect(scopeBlock(owner, 'ຄົວ', ['head'])).toBeNull());
+  it('leave: owner rescues a Kitchen request after escalation although only heads are leave approvers', () => {
+    const s = { ...defaultSettings('c1'), leaveApproverRoles: ['head' as const] };
+    const l: LeaveRequest = { id: 'l', companyId: 'c1', employeeId: 'x', type: 'annual', from: '2026-11-04', to: '2026-11-05', days: 2, reason: 'x', createdAt: '2026-11-02T09:00:00', approvals: [], status: 'pending' };
+    expect(approvalBlock(l, owner, s, new Date('2026-11-04T10:00:00'), 'ຄົວ')).toBeNull();
+  });
+});
