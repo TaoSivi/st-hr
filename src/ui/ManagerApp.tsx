@@ -34,6 +34,9 @@ const PAGE_LABEL: Record<Page, string> = {
 };
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
 
+/** A blocking message as a list, so it can be spread next to other messages (spreading the string itself would split it into letters). */
+const asList = (m: string | null) => (m ? [m] : []);
+
 const nameOf = (emps: Employee[], id?: string) => emps.find(e => e.id === id)?.name ?? id ?? '—';
 
 export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () => void; onEmployeeView: () => void }) {
@@ -382,7 +385,7 @@ function Staff() {
   const submitHire = async () => {
     if (!hire) return;
     const clean: Employee = { ...hire, name: hire.name.trim(), code: hire.code.trim(), dept: hire.dept.trim(), position: hire.position.trim(), bankName: hire.payMethod === 'bank' ? hire.bankName : undefined, bankAccount: hire.payMethod === 'bank' ? hire.bankAccount?.trim() : undefined };
-    const errs = [...validateNewEmployee(clean, hr.employees, hr.shifts, hr.branches), ...(hireBlock(hr.company, countedEmployees(hr.employees, today), today) ?? [])];
+    const errs = [...validateNewEmployee(clean, hr.employees, hr.shifts, hr.branches), ...asList(hireBlock(hr.company, countedEmployees(hr.employees, today), today))];
     if (errs.length) return setMsg(errs.join(' · '));
     if (changeNeedsSecondPerson(hr.settings)) {
       await hr.save('changes', request(clean.id, 'hire', '', JSON.stringify(clean)), 'change-request');
@@ -459,7 +462,7 @@ function Staff() {
         // re-check at approval time: the roster may have changed since the request was made
         if (c.field === 'hire') {
           const emp = JSON.parse(c.to) as Employee;
-          const errs = [...validateNewEmployee(emp, hr.employees, hr.shifts, hr.branches), ...(hireBlock(hr.company, countedEmployees(hr.employees, ymd(new Date())), ymd(new Date())) ?? [])];
+          const errs = [...validateNewEmployee(emp, hr.employees, hr.shifts, hr.branches), ...asList(hireBlock(hr.company, countedEmployees(hr.employees, ymd(new Date())), ymd(new Date())))];
           if (errs.length) return setMsg(`ອະນຸມັດບໍ່ໄດ້: ${errs.join(' · ')}`);
           await hr.save('employees', emp, 'apply-hire');
           await notifyOwners(`ເພີ່ມພະນັກງານໃໝ່: ${emp.name} (${emp.code}) ເລີ່ມ ${emp.startDate}`);
@@ -681,7 +684,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const [msg, setMsg] = useState('');
   const [nb, setNb] = useState<{ name: string; lat: string; lng: string; radiusM: string } | null>(null);
   const nbBranch = (): Branch | null => (nb ? { id: 'b-' + uid().slice(0, 8), companyId: me.companyId, name: nb.name.trim(), lat: nb.lat.trim() === '' ? NaN : Number(nb.lat), lng: nb.lng.trim() === '' ? NaN : Number(nb.lng), radiusM: nb.radiusM.trim() === '' ? NaN : Number(nb.radiusM) } : null);
-  const nbErrors = (() => { const b = nbBranch(); return b ? [...validateBranch(b, hr.branches), ...(branchBlock(hr.company, hr.branches.length, ymd(new Date())) ?? [])] : []; })();
+  const nbErrors = (() => { const b = nbBranch(); return b ? [...validateBranch(b, hr.branches), ...asList(branchBlock(hr.company, hr.branches.length, ymd(new Date())))] : []; })();
   const fillHere = async () => {
     const p = await getPosition();
     if (!p) return setMsg('ອ່ານ GPS ບໍ່ໄດ້ (ກວດສິດຕຳແໜ່ງ) — ໃສ່ພິກັດເອງໄດ້');
@@ -691,7 +694,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const addBranch = async () => {
     const b = nbBranch();
     if (!b || !canDo(me.roles, 'settings.edit')) return;
-    const errs = [...validateBranch(b, hr.branches), ...(branchBlock(hr.company, hr.branches.length, ymd(new Date())) ?? [])];
+    const errs = [...validateBranch(b, hr.branches), ...asList(branchBlock(hr.company, hr.branches.length, ymd(new Date())))];
     if (errs.length) return setMsg(errs.join(' · '));
     await hr.save('branches', b, 'branch-add');
     setMsg(`ເພີ່ມສາຂາ ${b.name} ແລ້ວ`);
