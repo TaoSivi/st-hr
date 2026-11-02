@@ -64,7 +64,7 @@ export function RequestSheet({ kind, onClose }: { kind: RequestKind; onClose: ()
     r.onload = () => setReceipt(String(r.result));
     r.readAsDataURL(f);
   };
-  const colleagues = hr.employees.filter(e => e.id !== me.id && e.baseSalary > 0);
+  const colleagues = hr.employees.filter(e => e.id !== me.id && e.baseSalary > 0 && !e.endDate);
   const myLeaves = hr.leaves.filter(l => l.employeeId === me.id && (l.status === 'approved' || l.status === 'pending') && l.to >= today);
 
   return (

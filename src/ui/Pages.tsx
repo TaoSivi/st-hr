@@ -84,7 +84,7 @@ export function Reports({ team }: { team: boolean }) {
   const [note, setNote] = useState('');
   const move = (d: number) => { setNote(''); setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; }); };
   // the screen and the Excel file are built from the same list and the same calculation
-  const people = reportEmployees(hr, team);
+  const people = reportEmployees(hr, team, ym.y, ym.m);
   const report = buildAttendance(reportInput(hr, people, ym.y, ym.m));
   const rows = report.summary;
   const me = rows.find(r => r.employee.id === hr.me!.id);

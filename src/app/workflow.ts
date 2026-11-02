@@ -8,7 +8,7 @@ type HR = ReturnType<typeof useHR>;
 
 // only people who could actually decide it: right role, and (for heads) the requester's department
 const approversOf = (hr: HR, kind: RequestKind, requesterId: string) =>
-  hr.employees.filter(e => e.id !== requesterId && e.roles.some(r => APPROVER_ROLES[kind].includes(r)) && inMyScope(e, hr.employees, requesterId, APPROVER_ROLES[kind])).map(e => e.id);
+  hr.employees.filter(e => !e.endDate && e.id !== requesterId && e.roles.some(r => APPROVER_ROLES[kind].includes(r)) && inMyScope(e, hr.employees, requesterId, APPROVER_ROLES[kind])).map(e => e.id);
 
 export async function submitRequest<K extends RequestKind>(hr: HR, kind: K, payload: RequestPayloads[K], reason: string) {
   const me = hr.me!;

@@ -23,9 +23,11 @@ export interface PayInput {
   adjustments: number; // + or − carried from locked periods
   workingDaysInMonth: number;
   reimbursement?: number; // approved expenses, paid with salary, not taxed
+  prorate?: number; // share of the month employed (hired or left mid-month); base pay and allowance scale by it
 }
 
 export interface Payslip {
+  prorate: number;
   base: number;
   allowance: number;
   ot: number;
@@ -42,17 +44,21 @@ export interface Payslip {
 }
 
 export function computePayslip(p: PayInput, s: Settings): Payslip {
+  const prorate = Math.min(1, Math.max(0, p.prorate ?? 1));
+  // hourly and daily rates come from the full monthly salary; only the fixed pay is cut for a part month
+  const base = Math.round(p.baseSalary * prorate);
+  const allowance = Math.round(p.allowance * prorate);
   const hourly = p.baseSalary / s.workHoursPerMonth;
   const ot = Math.round((p.otMinutesApproved / 60) * hourly * s.otRate);
   const unpaidLeave = Math.round((p.baseSalary / p.workingDaysInMonth) * p.unpaidLeaveDays);
-  const gross = p.baseSalary + p.allowance + ot - p.lateDeduction - unpaidLeave + p.adjustments;
-  const socialSecurity = Math.round(p.baseSalary * s.ssRate);
+  const gross = base + allowance + ot - p.lateDeduction - unpaidLeave + p.adjustments;
+  const socialSecurity = Math.round(base * s.ssRate);
   const taxable = Math.max(0, gross - socialSecurity);
   const tax = progressiveTax(taxable, s.taxBrackets);
   const reimbursement = p.reimbursement ?? 0;
   const net = gross - socialSecurity - tax - p.advanceInstallment + reimbursement;
   return {
-    base: p.baseSalary, allowance: p.allowance, ot, lateDeduction: p.lateDeduction, unpaidLeave,
+    prorate, base, allowance, ot, lateDeduction: p.lateDeduction, unpaidLeave,
     adjustments: p.adjustments, gross, socialSecurity, taxable, tax, advance: p.advanceInstallment, reimbursement, net
   };
 }

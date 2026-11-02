@@ -86,14 +86,14 @@ export const canGrantRoles = (roles: Role[]) => roles.includes('owner');
  * - the last owner cannot be demoted
  * - an auditor must stay independent: no head / accountant / owner powers on the same person
  */
-export function roleChangeBlock(employees: { id: string; roles: Role[] }[], targetId: string, next: Role[], actorId: string): string | null {
+export function roleChangeBlock(employees: { id: string; roles: Role[]; endDate?: string }[], targetId: string, next: Role[], actorId: string): string | null {
   const target = employees.find(e => e.id === targetId);
   if (!target) return 'ບໍ່ພົບພະນັກງານ';
   if (targetId === actorId) return 'ແກ້ບົດບາດຂອງຕົນເອງບໍ່ໄດ້';
   if (next.some(r => !ALL_ROLES.includes(r))) return 'ບົດບາດບໍ່ຖືກຕ້ອງ';
   if (!next.includes('employee')) return 'ທຸກຄົນຕ້ອງມີບົດບາດພະນັກງານ';
   if (next.includes('auditor') && next.some(r => r === 'head' || r === 'accountant' || r === 'owner')) return 'ຜູ້ກວດສອບຕ້ອງເປັນອິດສະຫຼະ ໃຫ້ບົດບາດອື່ນພ້ອມກັນບໍ່ໄດ້';
-  const owners = employees.filter(e => e.roles.includes('owner')).length;
+  const owners = employees.filter(e => e.roles.includes('owner') && !e.endDate).length;
   if (target.roles.includes('owner') && !next.includes('owner') && owners <= 1) return 'ຕ້ອງມີເຈົ້າຂອງຢ່າງໜ້ອຍ 1 ຄົນ';
   return null;
 }

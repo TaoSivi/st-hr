@@ -2,6 +2,7 @@ import type { HRData } from './state';
 import type { Employee } from '../domain/types';
 import { isSettled, lateMinutes } from '../domain/attendance';
 import { computePayslip, lateDeductionAmount, type Payslip } from '../domain/payroll';
+import { employedFraction } from '../domain/hiring';
 import { annualLeaveBalance, type LeaveBalance } from '../domain/leave';
 import { effectiveShift, type RequestPayloads } from '../domain/requests';
 
@@ -47,7 +48,7 @@ export function summarize(data: HRData, e: Employee, key: string, lateConfirmed:
   const slip = computePayslip({
     baseSalary: e.baseSalary, allowance: e.allowance, otMinutesApproved: otMin,
     lateDeduction: lateConfirmed ? lateDeductionAmount(lateMin, s) : 0,
-    unpaidLeaveDays: unpaidDays, advanceInstallment: advance, adjustments: 0, workingDaysInMonth: 26, reimbursement
+    unpaidLeaveDays: unpaidDays, advanceInstallment: advance, adjustments: 0, workingDaysInMonth: 26, reimbursement, prorate: employedFraction(e, +key.slice(0, 4), +key.slice(5) - 1)
   }, s);
   return { employee: e, lateMin, lateCount, otMin, unpaidDays, advance, lateConfirmed, slip };
 }
