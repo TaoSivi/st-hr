@@ -29,6 +29,10 @@ export function PayslipView({ data, monthLabel, final, onClose }: { data: Paysli
           {line('ເງິນເດືອນພື້ນຖານ', s.base, false, s.prorate < 1 ? `ຄິດ ${Math.round(s.prorate * 1000) / 10}% ຂອງເດືອນ` : undefined)}
           {line('ເບ້ຍລ້ຽງ', s.allowance)}
           {line('ຄ່າລ່ວງເວລາ (OT)', s.ot, false, data.otMin ? `${data.otMin} ນາທີ` : undefined)}
+          {s.shiftAllowance > 0 && line('ເບ້ຍລ້ຽງຕາມກະ', s.shiftAllowance)}
+          {s.bonus > 0 && line('ໂບນັດ', s.bonus)}
+          {s.commission > 0 && line('ຄອມມິດຊັນ', s.commission)}
+          {s.otherPay > 0 && line('ລາຍຮັບອື່ນໆ', s.otherPay)}
           {s.adjustments !== 0 && line('ປັບປຸງ', s.adjustments)}
           <tr><th colSpan={2} style={{ textAlign: 'left', borderBottom: '1px solid #999', paddingTop: 8 }}>ລາຍຫັກ</th></tr>
           {line('ມາຊ້າ', s.lateDeduction, true, s.lateDeduction ? `${data.lateMin} ນາທີ` : undefined)}
@@ -37,6 +41,7 @@ export function PayslipView({ data, monthLabel, final, onClose }: { data: Paysli
           {line('ອາກອນລາຍໄດ້', s.tax, true)}
           {line('ເບີກລ່ວງໜ້າ', s.advance, true)}
           {s.reimbursement > 0 && line('ຄືນຄ່າໃຊ້ຈ່າຍ', s.reimbursement)}
+          {s.extraNonTaxable > 0 && line('ລາຍຮັບອື່ນ (ບໍ່ເສຍພາສີ)', s.extraNonTaxable)}
           <tr><td style={{ borderTop: '2px solid #111', fontWeight: 700, fontSize: 18 }}>ຮັບສຸດທິ</td><td style={{ borderTop: '2px solid #111', textAlign: 'right', fontWeight: 700, fontSize: 18 }}>{money(s.net)} ກີບ</td></tr>
         </tbody></table>
         <p style={{ color: '#666', fontSize: 13, marginTop: 16 }}>ເອກະສານນີ້ອອກຈາກລະບົບ ST HR · ອັດຕາອາກອນ ແລະ ປະກັນສັງຄົມ ເປັນຄ່າຕົວຢ່າງ</p>

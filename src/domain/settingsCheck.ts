@@ -20,6 +20,7 @@ export function validateSettings(s: Settings): string[] {
   if (!num(s.advanceMaxPctOfEarned, 0, 1)) e.push('ເບີກສູງສຸດ ຕ້ອງຢູ່ລະຫວ່າງ 0–100% ຂອງເງິນທີ່ໄດ້ແລ້ວ');
   if (!num(s.photoRetentionDays, 1, 3650)) e.push('ເກັບຮູບ ຕ້ອງຢູ່ລະຫວ່າງ 1–3650 ມື້');
   if (!num(s.randomSamplePerDay, 0, 100)) e.push('ສຸ່ມກວດຕໍ່ມື້ ຕ້ອງຢູ່ລະຫວ່າງ 0–100');
+  if (!num(s.compLeaveExpiryDays, 0, 3650)) e.push('ວັນພັກຊົດເຊີຍໝົດອາຍຸ ຕ້ອງຢູ່ລະຫວ່າງ 0–3650 ມື້ (0 = ບໍ່ໝົດ)');
   if (s.leaveApproversRequired !== 1 && s.leaveApproversRequired !== 2) e.push('ຈຳນວນຄົນອະນຸມັດ ຕ້ອງເປັນ 1 ຫຼື 2');
   if (!s.leaveApproverRoles.length) e.push('ຕ້ອງເລືອກຜູ້ອະນຸມັດການລາຢ່າງໜ້ອຍ 1 ບົດບາດ');
   if (s.leaveApproverRoles.some(r => !ASSIGNABLE_APPROVER_ROLES.includes(r))) e.push('ຜູ້ກວດສອບ ແລະ ພະນັກງານທົ່ວໄປ ອະນຸມັດບໍ່ໄດ້');
@@ -50,13 +51,14 @@ const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3);
 export const MAX_SHIFT_MIN = 16 * 60;
 
 /** Shift definitions: valid times, a sensible length, and the break inside the shift. A shift whose end is before its start runs overnight (22:00–06:00). */
-export function validateShifts(shifts: { id: string; name: string; start: string; end: string; breakStart: string; breakEnd: string }[]): string[] {
+export function validateShifts(shifts: { id: string; name: string; start: string; end: string; breakStart: string; breakEnd: string; allowance?: number }[]): string[] {
   const e: string[] = [];
   if (!shifts.length) e.push('ຕ້ອງມີຢ່າງໜ້ອຍ 1 ກະ');
   for (const s of shifts) {
     const label = s.name?.trim() || s.id;
     if (!s.name?.trim()) e.push(`ກະ ${s.id}: ຕ້ອງມີຊື່`);
     if (![s.start, s.end, s.breakStart, s.breakEnd].every(t => HHMM.test(t))) { e.push(`ກະ ${label}: ເວລາບໍ່ຖືກຕ້ອງ`); continue; }
+    if (s.allowance !== undefined && (!Number.isInteger(s.allowance) || s.allowance < 0 || s.allowance > 10_000_000)) e.push(`ກະ ${label}: ເບ້ຍລ້ຽງຕໍ່ກະຕ້ອງເປັນເລກເຕັມ 0–10,000,000`);
     // minutes since the shift started, wrapping past midnight
     const rel = (t: string) => (mins(t) - mins(s.start) + 1440) % 1440;
     const span = rel(s.end);

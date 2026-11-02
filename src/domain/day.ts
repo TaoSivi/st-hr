@@ -25,13 +25,14 @@ export interface DayInput {
   dayOff: number[];
   holidays: string[];
   scans: Pick<ScanRecord, 'kind' | 'status' | 'deviceTime'>[]; // that day's scans for the employee
-  leaves: Pick<LeaveRequest, 'from' | 'to' | 'status'>[];
+  leaves: Pick<LeaveRequest, 'from' | 'to' | 'status' | 'part'>[];
 }
 
 /** Colour of one calendar day. Leave and holidays win over scans; a missing day in the past is absent. */
 export function dayStatus(d: DayInput): DayStatus {
   if (d.date < d.startDate) return 'before-hire';
-  if (d.leaves.some(l => l.status === 'approved' && l.from <= d.date && l.to >= d.date)) return 'leave';
+  // a half-day or hourly leave does not take the whole day: the person still works, and is judged on their scans
+  if (d.leaves.some(l => l.status === 'approved' && !l.part && l.from <= d.date && l.to >= d.date)) return 'leave';
   if (d.holidays.includes(d.date)) return 'holiday';
   const firstIn = d.scans.filter(s => s.kind === 'in' && s.status !== 'rejected').sort((a, b) => a.deviceTime.localeCompare(b.deviceTime))[0];
   if (firstIn) {

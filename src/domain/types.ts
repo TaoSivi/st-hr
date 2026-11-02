@@ -18,6 +18,7 @@ export interface Shift {
   end: string;
   breakStart: string;
   breakEnd: string;
+  allowance?: number; // ກີບ paid for each shift worked (e.g. night-shift allowance); taxable
 }
 
 export type PayMethod = 'bank' | 'cash';
@@ -69,7 +70,7 @@ export interface ScanRecord {
   offline?: boolean;
 }
 
-export type LeaveType = 'annual' | 'sick' | 'personal' | 'unpaid';
+export type LeaveType = 'annual' | 'sick' | 'personal' | 'unpaid' | 'comp'; // comp = compensatory day off for working a public holiday
 
 export interface LeaveRequest {
   id: string;
@@ -78,7 +79,9 @@ export interface LeaveRequest {
   type: LeaveType;
   from: string; // YYYY-MM-DD
   to: string;
-  days: number;
+  days: number; // 0.5 for half a day, hours ÷ paid shift hours for hourly leave
+  part?: 'am' | 'pm' | 'hours'; // set for part-day leave (single day only)
+  hours?: number;
   reason: string;
   createdAt: string;
   approvals: { by: string; at: string; decision: 'approve' | 'reject'; note?: string }[];
@@ -136,6 +139,7 @@ export interface Settings {
   photoRetentionDays: number;
   randomSamplePerDay: number;
   holidays: string[]; // YYYY-MM-DD public holidays, entered by HR each year
+  compLeaveExpiryDays: number; // compensatory days off expire this long after the holiday worked; 0 = never
 }
 
 export interface AuditEntry {

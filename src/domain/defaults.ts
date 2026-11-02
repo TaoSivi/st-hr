@@ -29,5 +29,6 @@ export const defaultSettings = (companyId: string): Settings => ({
   advanceMaxPctOfEarned: 0.5,
   photoRetentionDays: 365,
   randomSamplePerDay: 5,
-  holidays: []
+  holidays: [],
+  compLeaveExpiryDays: 90
 });

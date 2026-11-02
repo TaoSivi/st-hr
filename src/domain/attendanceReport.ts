@@ -4,13 +4,14 @@ import { effectiveShift, type ShiftOverride } from './requests';
 import { isSettled, lateMinutes } from './attendance';
 import type { Cell, Sheet } from './xlsx';
 import { closesAtFor, isMissedClockOut } from './missedOut';
-import { scansOn, toSessions } from './sessions';
+import { scansOn, toSessions, workedMinutesOf } from './sessions';
+import { lateStartFor, PART_LABEL } from './leavePart';
 
 export const STATUS_LABEL: Record<DayStatus, string> = {
   ok: 'ປົກກະຕິ', late: 'ມາຊ້າ', absent: 'ຂາດ', leave: 'ລາ', pending: 'ລໍກວດ', dayoff: 'ວັນພັກ', holiday: 'ວັນພັກລັດຖະການ', future: '', 'before-hire': ''
 };
 const WEEKDAY = ['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'];
-const LEAVE_LABEL: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ' };
+const LEAVE_LABEL: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ', comp: 'ພັກຊົດເຊີຍ' };
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -66,7 +67,7 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       const shift = shiftOn(date);
       const dow = new Date(`${date}T12:00:00`).getDay();
       const scans = scansOn(sessions, date);
-      const status = dayStatus({ date, today: inp.today, startDate: e.startDate, shiftStart: shift?.start ?? '00:00', graceMinutes: s.graceMinutes,
+      const status = dayStatus({ date, today: inp.today, startDate: e.startDate, shiftStart: (shift && lateStartFor(shift, myLeaves.filter(l => l.from <= date && l.to >= date))) ?? '00:00', graceMinutes: s.graceMinutes,
         dayOff: shift ? [] : [dow], holidays: s.holidays, scans, leaves: myLeaves });
       if (status === 'future' || status === 'before-hire') continue;
 
@@ -75,13 +76,19 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       const bs = scans.find(x => x.kind === 'breakStart');
       const be = [...scans].reverse().find(x => x.kind === 'breakEnd');
       const t = (x?: ScanRecord) => (x ? new Date(x.deviceTime) : undefined);
-      const breakMin = bs && be ? Math.max(0, (t(be)!.getTime() - t(bs)!.getTime()) / 60000) : 0;
-      const workedMin = firstIn && lastOut ? Math.max(0, Math.round((t(lastOut)!.getTime() - t(firstIn)!.getTime()) / 60000 - breakMin)) : 0;
-      const lateMin = firstIn && shift ? lateMinutes(shift.start, t(firstIn)!, s.graceMinutes) : 0;
+      const workedMin = workedMinutesOf(scans);
+      const dayLeaves = myLeaves.filter(l => l.from <= date && l.to >= date);
+      const lateStart = shift ? lateStartFor(shift, dayLeaves) : undefined;
+      const lateMin = firstIn && lateStart ? lateMinutes(lateStart, t(firstIn)!, s.graceMinutes) : 0;
 
       const notes: string[] = [];
-      const leave = myLeaves.find(l => l.status === 'approved' && l.from <= date && l.to >= date);
+      const leave = myLeaves.find(l => l.status === 'approved' && !l.part && l.from <= date && l.to >= date);
       if (leave) notes.push(LEAVE_LABEL[leave.type] ?? 'ລາ');
+      // a part-day leave is not a leave day: the person still works, so say what it was in the note instead
+      for (const l of dayLeaves.filter(l => l.status === 'approved' && l.part)) {
+        notes.push(`${LEAVE_LABEL[l.type] ?? 'ລາ'} ${PART_LABEL[l.part!]}${l.part === 'hours' ? ` ${l.hours} ຊມ` : ''}`);
+        sum.leaveDays += l.days;
+      }
       for (const x of scans.filter(x => x.status === 'pending')) notes.push(...x.reasons);
       // a holiday or leave day on which the person still clocked in must not look like a plain day off: it is often paid differently
       const workedOnOff = !!firstIn && (status === 'holiday' || status === 'leave');
@@ -125,7 +132,7 @@ export function attendanceSheets(inp: ReportInput, meta: { by: string; generated
     columns: [
       { header: 'ລະຫັດ', width: 10 }, { header: 'ຊື່', width: 26 }, { header: 'ພະແນກ', width: 14 },
       { header: 'ມື້ມາວຽກ', width: 11, format: 'int' }, { header: 'ມາຊ້າ (ມື້)', width: 11, format: 'int' }, { header: 'ມາຊ້າ (ນາທີ)', width: 12, format: 'int' },
-      { header: 'ຂາດ (ມື້)', width: 10, format: 'int' }, { header: 'ລາ (ມື້)', width: 10, format: 'int' }, { header: 'ວັນພັກ (ມື້)', width: 12, format: 'int' },
+      { header: 'ຂາດ (ມື້)', width: 10, format: 'int' }, { header: 'ລາ (ມື້)', width: 10, format: 'decimal' }, { header: 'ວັນພັກ (ມື້)', width: 12, format: 'int' },
       { header: 'ວັນພັກລັດຖະການ', width: 15, format: 'int' }, { header: 'ເຮັດວຽກວັນພັກລັດຖະການ', width: 22, format: 'int' }, { header: 'ລໍກວດ (ມື້)', width: 11, format: 'int' }, { header: 'ລືມລົງເວລາອອກ (ມື້)', width: 18, format: 'int' },
       { header: 'ຊົ່ວໂມງເຮັດວຽກ', width: 15, format: 'decimal' }, { header: 'OT (ນາທີ)', width: 11, format: 'int' }
     ],

@@ -9,7 +9,7 @@ const MONTHS = ['ມັງກອນ', 'ກຸມພາ', 'ມີນາ', 'ເມ
 export const laoDate = (d: Date) => `ວັນ${DAYS[d.getDay()]} ${d.getDate()} ${MONTHS[d.getMonth()]}`;
 export const laoMonth = (y: number, m: number) => `${MONTHS[m]} ${y}`;
 
-export const LEAVE_TYPES: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ' };
+export const LEAVE_TYPES: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ', comp: 'ພັກຊົດເຊີຍ' };
 export const ROLE_NAMES: Record<string, string> = { employee: 'ພະນັກງານ', head: 'ຫົວໜ້າ', accountant: 'ບັນຊີ', owner: 'ເຈົ້າຂອງ / HR', auditor: 'ຜູ້ກວດສອບ' };
 
 export function downloadText(filename: string, text: string, type = 'text/csv;charset=utf-8') {

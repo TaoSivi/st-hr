@@ -189,7 +189,7 @@ describe('saving while the phone is nearly full', () => {
 describe('pay does not count an unchecked offline scan', () => {
   const emp = seedEmployees.find(e => e.id === 'e-kl')!; // morning shift, starts 06:00
   const data = (scans: ScanRecord[]): HRData => ({
-    employees: seedEmployees, branches: seedBranches, scans, leaves: [], ots: [], advances: [], payrollRuns: [], requests: [], overrides: [], notifications: [], shifts, settings: S
+    employees: seedEmployees, branches: seedBranches, scans, leaves: [], ots: [], advances: [], payrollRuns: [], requests: [], overrides: [], notifications: [], payItems: [], shifts, settings: S
   });
   const lateScan = (over: Partial<ScanRecord>) => scan('late', { deviceTime: '2026-11-03T06:30:00', ...over });
 

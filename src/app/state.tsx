@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Advance, Branch, Employee, LeaveRequest, OtRequest, ScanRecord, Settings, Shift } from '../domain/types';
 import type { HRRequest, ShiftOverride } from '../domain/requests';
+import type { PayItem } from '../domain/payItems';
 
 export interface Notification {
   id: string;
@@ -14,6 +15,7 @@ export interface Notification {
 import { LocalStore, uid } from '../data/store';
 import { COMPANY, seed, shifts } from '../data/seed';
 import { purgeExpiredPhotos } from '../domain/attendance';
+import { defaultSettings } from '../domain/defaults';
 import { syncOfflineScans } from './offlineSync';
 import { missedOutNotices } from './missedOut';
 
@@ -39,6 +41,7 @@ export interface HRData {
   overrides: ShiftOverride[];
   shifts: Shift[];
   notifications: Notification[];
+  payItems: PayItem[];
   settings: Settings;
 }
 
@@ -67,14 +70,16 @@ export function HRProvider({ children }: { children: ReactNode }) {
   });
 
   const load = useCallback(async () => {
-    const [employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, shiftRows, settingsRows] = await Promise.all([
+    const [employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, shiftRows, settingsRows, payItems] = await Promise.all([
       store.list<Employee>('employees'), store.list<Branch>('branches'), store.list<ScanRecord>('scans'),
       store.list<LeaveRequest>('leaves'), store.list<OtRequest>('ots'), store.list<Advance>('advances'),
       store.list<PayrollRun>('payrollRuns'), store.list<HRRequest>('requests'), store.list<ShiftOverride>('overrides'),
-      store.list<Notification>('notifications'), store.list<Shift>('shifts'), store.list<Settings & { id: string }>('settings')
+      store.list<Notification>('notifications'), store.list<Shift>('shifts'), store.list<Settings & { id: string }>('settings'),
+      store.list<PayItem>('payItems')
     ]);
-    const settings = { ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
-    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, shifts: shiftRows.length ? shiftRows : shifts, settings });
+    // defaults first, so settings saved before a new field existed still get a valid value for it
+    const settings = { ...defaultSettings(COMPANY), ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
+    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, payItems, shifts: shiftRows.length ? shiftRows : shifts, settings });
   }, [store]);
 
   useEffect(() => { seed(store).then(load); }, [store, load]);

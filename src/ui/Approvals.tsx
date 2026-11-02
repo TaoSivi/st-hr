@@ -9,6 +9,7 @@ import type { LeaveRequest, ScanRecord } from '../domain/types';
 import { describeRequest, statusPill } from './RequestsUI';
 import { KIND_LABEL } from './labels';
 import { hhmm, initials, LEAVE_TYPES, laoDate } from './format';
+import { leaveSpan } from '../domain/leavePart';
 
 export type { ApprovalSection };
 
@@ -103,7 +104,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
 
       {leaves.map(l => (
         <div key={l.id} className="card col">
-          {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${l.days} ມື້`, `${l.from} → ${l.to} · “${l.reason}”`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(l.status))}
+          {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${leaveSpan(l)}`, `${l.from} → ${l.to} · “${l.reason}”`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(l.status))}
           {l.status === 'pending' && actions(l.id, approvalBlock(l, me, hr.settings, now, deptOf(hr.employees, l.employeeId)),
             async () => { const n = decide(l, me, 'approve', hr.settings, now, undefined, deptOf(hr.employees, l.employeeId)); await hr.save('leaves', n, 'leave-approve'); if (n.status === 'approved') await hr.notify([l.employeeId], 'ການລາ — ອະນຸມັດແລ້ວ', 'leave'); },
             async note => { await hr.save('leaves', decide(l, me, 'reject', hr.settings, now, note, deptOf(hr.employees, l.employeeId)), 'leave-reject'); await hr.notify([l.employeeId], `ການລາ — ບໍ່ອະນຸມັດ: ${note}`, 'leave'); })}

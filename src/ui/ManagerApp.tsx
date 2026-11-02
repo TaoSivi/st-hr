@@ -11,7 +11,9 @@ import { validateBranch } from '../domain/branches';
 import { exportPayrollXlsx } from '../app/exportPayroll';
 import { PayslipView, type PayslipData } from './PayslipView';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
-import { monthKey, shiftStartOn, summarize } from '../app/payrun';
+import { lateStartOn, monthKey, summarize } from '../app/payrun';
+import { leaveSpan } from '../domain/leavePart';
+import { commissionAmount, initialPayItemStatus, PAY_ITEM_LABEL, payItemDecisionBlock, pendingPayItemsBlock, validatePayItem, type PayItem, type PayItemKind } from '../domain/payItems';
 import { closesAtFor } from '../domain/missedOut';
 import { activeSession, scansOn, toSessions } from '../domain/sessions';
 import { effectiveShift } from '../domain/requests';
@@ -93,12 +95,12 @@ function Overview() {
   const staff = hr.employees.filter(e => isActiveOn(e, ymd(now)) && e.baseSalary > 0);
   // someone still on a night shift that began yesterday is present today too
   const present = new Set(staff.filter(e => workDayOf(hr, e, now).scans.some(s => s.kind === 'in')).map(e => e.id));
-  const onLeave = hr.leaves.filter(l => l.status === 'approved' && l.from <= ymd(now) && l.to >= ymd(now)).length;
+  const onLeave = hr.leaves.filter(l => l.status === 'approved' && !l.part && l.from <= ymd(now) && l.to >= ymd(now)).length;
   let late = 0;
   for (const e of staff) {
     const wd = workDayOf(hr, e, now);
     const first = wd.scans.find(s => s.kind === 'in');
-    const start = first && shiftStartOn(hr, e, wd.date);
+    const start = first && lateStartOn(hr, e, wd.date);
     if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) late++;
   }
   const k = (label: string, v: number | string, tone = '') => <div className={`card ${tone}`}><span className={tone ? 'small' : 'muted small'} style={tone ? { color: '#9fd8d4' } : undefined}>{label}</span><div className="big-num">{v}</div></div>;
@@ -251,8 +253,8 @@ function TimeToday() {
           const fin = mine.find(s => s.kind === 'in');
           const fout = [...mine].reverse().find(s => s.kind === 'out');
           const shift = hr.shifts.find(s => s.id === (effectiveShift(e, wd.date, hr.overrides) ?? e.shiftId))!;
-          const late = fin ? lateMinutes(shift.start, new Date(fin.deviceTime), hr.settings.graceMinutes) : 0;
-          const leave = hr.leaves.find(l => l.employeeId === e.id && l.status === 'approved' && l.from <= ymd(now) && l.to >= ymd(now));
+          const late = fin ? lateMinutes(lateStartOn(hr, e, wd.date) ?? shift.start, new Date(fin.deviceTime), hr.settings.graceMinutes) : 0;
+          const leave = hr.leaves.find(l => l.employeeId === e.id && l.status === 'approved' && !l.part && l.from <= ymd(now) && l.to >= ymd(now));
           return <tr key={e.id}><td><b>{e.name}</b><div className="muted small">{e.dept}</div></td><td>{shift.name}</td><td>{fin ? hhmm(fin.deviceTime) : '—'}</td><td>{fout ? hhmm(fout.deviceTime) : '—'}</td>
             <td>{late ? <span className="pill warn">{late} ນາທີ</span> : '—'}</td>
             <td>{leave ? <span className="pill info">{LEAVE_TYPES[leave.type]}</span> : fin ? <StatusPill s={fin} /> : <span className="pill">ຍັງບໍ່ມາ</span>}</td></tr>;
@@ -331,7 +333,7 @@ function Leaves() {
       <div className="card col">
         <h2>ຕັດສິນແລ້ວ</h2>
         {done.length === 0 ? <div className="empty">ຍັງບໍ່ມີ</div> : done.map(l => (
-          <div key={l.id} className="row"><span className="grow">{nameOf(hr.employees, l.employeeId)} · {LEAVE_TYPES[l.type]} · {l.from}</span>
+          <div key={l.id} className="row"><span className="grow">{nameOf(hr.employees, l.employeeId)} · {LEAVE_TYPES[l.type]} · {leaveSpan(l)} · {l.from}</span>
             <span className={`pill ${l.status === 'approved' ? 'ok' : l.status === 'cancelled' ? 'info' : 'bad'}`}>{l.status === 'approved' ? 'ອະນຸມັດ' : l.status === 'cancelled' ? 'ຍົກເລີກແລ້ວ' : 'ປະຕິເສດ'}</span>
             <span className="muted small">{l.approvals.map(a => nameOf(hr.employees, a.by)).join(', ')}</span></div>
         ))}
@@ -540,6 +542,9 @@ function Payroll() {
   const run: PayrollRun = hr.payrollRuns.find(r => r.id === key) ?? { id: key, companyId: me.companyId, status: 'draft', lateConfirmed: [] };
   const [msg, setMsg] = useState('');
   const [slipOf, setSlipOf] = useState<PayslipData | null>(null);
+  const blankItem = { employeeId: '', kind: 'bonus' as PayItemKind, label: '', amount: '', base: '', rate: '', taxable: true };
+  const [pi, setPi] = useState<typeof blankItem | null>(null);
+  const [piMsg, setPiMsg] = useState('');
   const [exporting, setExporting] = useState(false);
   const staff = hr.employees.filter(e => e.baseSalary > 0 && employedFraction(e, now.getFullYear(), now.getMonth()) > 0);
   const rows = staff.map(e => summarize(hr, e, key, run.lateConfirmed.includes(e.id)));
@@ -548,11 +553,35 @@ function Payroll() {
   const canPrepare = canDo(me.roles, 'payroll.prepare');
   const canLock = canDo(me.roles, 'payroll.lock');
   const canConfirmLate = canDo(me.roles, 'payroll.confirmLate');
+  const canItems = canDo(me.roles, 'payroll.items') && !locked;
+  const canDecideItems = canDo(me.roles, 'payroll.items.decide') && !locked;
+  const monthItems = (hr.payItems ?? []).filter(i => i.month === key);
+  const piAmount = pi ? (pi.kind === 'commission' && pi.base && pi.rate ? commissionAmount(Number(pi.base), Number(pi.rate)) : Number(pi.amount.replace(/\D/g, ''))) : 0;
+  const addItem = async () => {
+    if (!pi) return;
+    const target = hr.employees.find(e => e.id === pi.employeeId);
+    const item: PayItem = {
+      id: uid(), companyId: me.companyId, employeeId: pi.employeeId, month: key, kind: pi.kind, label: pi.label.trim(), amount: piAmount, taxable: pi.taxable,
+      ...(pi.kind === 'commission' && pi.base && pi.rate ? { salesBase: Number(pi.base), ratePct: Number(pi.rate) } : {}),
+      status: initialPayItemStatus(hr.settings), by: me.id, createdAt: new Date().toISOString()
+    };
+    const errs = validatePayItem(item, { employeeExists: !!target, employedInMonth: !!target && employedFraction(target, now.getFullYear(), now.getMonth()) > 0, periodLocked: locked });
+    if (errs.length) return setPiMsg(errs.join(' · '));
+    await hr.save('payItems', item, 'pay-item-add');
+    setPiMsg(item.status === 'pending' ? 'ສົ່ງໃຫ້ອີກຄົນອະນຸມັດແລ້ວ (ກວດ 2 ຄົນ)' : 'ບັນທຶກແລ້ວ');
+    setPi(null);
+  };
+  const decideItem = async (item: PayItem, ok: boolean) => {
+    const block = payItemDecisionBlock(item, me.id, hr.settings);
+    if (block || !canDecideItems) return setPiMsg(block ?? 'ບໍ່ມີສິດອະນຸມັດ');
+    await hr.save('payItems', { ...item, status: ok ? 'approved' : 'rejected', approvedBy: me.id }, ok ? 'pay-item-approve' : 'pay-item-reject');
+    setPiMsg('');
+  };
 
   const toggleLate = (id: string) => hr.save('payrollRuns', { ...run, lateConfirmed: run.lateConfirmed.includes(id) ? run.lateConfirmed.filter(x => x !== id) : [...run.lateConfirmed, id] }, 'late-confirm');
   const prepare = () => hr.save('payrollRuns', { ...run, status: 'prepared', preparedBy: me.id }, 'payroll-prepare');
   const lock = async () => {
-    const block = payrollLockBlock(run.preparedBy, me.id, hr.settings); if (block) return setMsg(block);
+    const block = payrollLockBlock(run.preparedBy, me.id, hr.settings) ?? pendingPayItemsBlock(hr.payItems ?? [], key); if (block) return setMsg(block);
     await hr.save('payrollRuns', { ...run, status: 'locked', approvedBy: me.id, slips: Object.fromEntries(rows.map(r => [r.employee.id, r.slip.net])) }, 'payroll-lock');
     // advances are settled only when the period is locked
     for (const r of rows) for (const a of hr.advances.filter(a => a.employeeId === r.employee.id && a.status === 'approved' && a.remaining > 0)) {
@@ -582,6 +611,27 @@ function Payroll() {
         {canLock && run.status === 'prepared' && <button className="btn" onClick={lock}>ອະນຸມັດ & ລັອກງວດ</button>}
       </div>
       {msg && <div className="error" role="alert">{msg}</div>}
+      <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' })}>+ ເພີ່ມລາຍການ</button>}</div>
+        {piMsg && <span className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{piMsg}</span>}
+        {monthItems.length === 0 && !pi && <span className="muted small">ຍັງບໍ່ມີ. ເບ້ຍລ້ຽງຕາມກະ (ຕັ້ງໃນ ຕັ້ງຄ່າ → ກະວຽກ) ຖືກຄິດໃຫ້ເອງຈາກກະທີ່ເຮັດ.</span>}
+        {monthItems.map(i => (
+          <div key={i.id} className="row wrap"><span className="grow"><b>{nameOf(hr.employees, i.employeeId)}</b> · {PAY_ITEM_LABEL[i.kind]}: {i.label} · {money(i.amount)} ₭{i.taxable ? '' : ' (ບໍ່ເສຍພາສີ)'}{i.salesBase ? ` · ${money(i.salesBase)} × ${i.ratePct}%` : ''} · ໂດຍ {nameOf(hr.employees, i.by)}</span>
+            {i.status === 'pending' ? (canDecideItems && i.by !== me.id ? <><button className="btn danger" onClick={() => decideItem(i, false)}>ປະຕິເສດ</button><button className="btn" onClick={() => decideItem(i, true)}>ອະນຸມັດ</button></> : <span className="muted small">ລໍຄົນອື່ນອະນຸມັດ</span>)
+              : <span className={`pill ${i.status === 'approved' ? 'ok' : 'bad'}`}>{i.status === 'approved' ? 'ອະນຸມັດ' : 'ປະຕິເສດ'}</span>}</div>))}
+        {pi && (
+          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
+            <label className="field">ພະນັກງານ<select className="input" value={pi.employeeId} onChange={e => setPi({ ...pi, employeeId: e.target.value })}>{staff.map(e => <option key={e.id} value={e.id}>{e.name} · {e.code}</option>)}</select></label>
+            <div className="row wrap">{(['bonus', 'commission', 'other'] as PayItemKind[]).map(k => <button key={k} className={`btn ${pi.kind === k ? '' : 'ghost'}`} aria-pressed={pi.kind === k} onClick={() => setPi({ ...pi, kind: k })}>{PAY_ITEM_LABEL[k]}</button>)}</div>
+            <label className="field">ຊື່ລາຍການ<input className="input" value={pi.label} onChange={e => setPi({ ...pi, label: e.target.value })} placeholder="ເຊັ່ນ: ໂບນັດປີໃໝ່ / ຄອມຍອດຂາຍ" /></label>
+            {pi.kind === 'commission' && <div className="row wrap"><label className="field grow">ຍອດຂາຍ (ກີບ)<input className="input" inputMode="numeric" value={pi.base} onChange={e => setPi({ ...pi, base: e.target.value.replace(/\D/g, '') })} /></label>
+              <label className="field" style={{ width: 110 }}>ຄອມ %<input className="input" inputMode="decimal" value={pi.rate} onChange={e => setPi({ ...pi, rate: e.target.value.replace(/[^\d.]/g, '') })} /></label></div>}
+            {pi.kind === 'commission' && pi.base && pi.rate
+              ? <span className="muted small">ຈຳນວນເງິນ = {money(piAmount)} ₭ (ຄິດໃຫ້ອັດຕະໂນມັດ)</span>
+              : <label className="field">ຈຳນວນເງິນ (ກີບ)<input className="input" inputMode="numeric" value={pi.amount} onChange={e => setPi({ ...pi, amount: e.target.value.replace(/\D/g, '') })} /></label>}
+            <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={pi.taxable} onChange={e => setPi({ ...pi, taxable: e.target.checked })} />ຄິດອາກອນ (ເອົາໄປລວມລາຍໄດ້)</label>
+            <div className="row"><button className="btn ghost" onClick={() => setPi(null)}>ຍົກເລີກ</button><button className="btn" onClick={addItem}>{hr.settings.makerChecker ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
+          </div>)}
+      </div>
       <div className="grid"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num">{money(total)} ₭</div></div>
         <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.socialSecurity, 0))}</div></div>
         <div className="card"><span className="muted small">ອາກອນ</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.tax, 0))}</div></div></div>
@@ -690,6 +740,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
             <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
             {([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
               <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
+            <label className="field" style={{ width: 130 }}>ເບ້ຍລ້ຽງ/ກະ (ກີບ)<input className="input" inputMode="numeric" disabled={readOnly} value={sh.allowance ?? ''} aria-label={`${sh.name} ເບ້ຍລ້ຽງຕໍ່ກະ`} onChange={e => setShift(sh.id, { allowance: e.target.value === '' ? undefined : Number(e.target.value.replace(/\D/g, '')) })} /></label>
           </div>))}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
       </div>
@@ -698,7 +749,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
         {num('faceMinScore', 'ໃບໜ້າຂັ້ນຕ່ຳ (%)')}{num('maxClockSkewMin', 'ໂມງຕ່າງໄດ້ສູງສຸດ (ນາທີ)')}{num('randomSamplePerDay', 'ສຸ່ມກວດຕໍ່ມື້')}{num('photoRetentionDays', 'ເກັບຮູບ (ມື້)')}
       </div></div>
       <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
-        {num('leaveDaysPerYear', 'ມື້ລາພັກ/ປີ')}{num('leaveCarryOverMax', 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)')}{num('escalateAfterHours', 'ສົ່ງຫາເຈົ້າຂອງຫຼັງ (ຊົ່ວໂມງ)')}
+        {num('leaveDaysPerYear', 'ມື້ລາພັກ/ປີ')}{num('leaveCarryOverMax', 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)')}{num('compLeaveExpiryDays', 'ວັນພັກຊົດເຊີຍໝົດອາຍຸ (ມື້, 0 = ບໍ່ໝົດ)')}{num('escalateAfterHours', 'ສົ່ງຫາເຈົ້າຂອງຫຼັງ (ຊົ່ວໂມງ)')}
         <label className="field">ວິທີໄດ້ສິດລາ<select className="input" disabled={readOnly} value={s.leaveAccrual} onChange={e => setS({ ...s, leaveAccrual: e.target.value as Settings['leaveAccrual'] })}>
           <option value="monthly">ສະສົມເປັນເດືອນ</option><option value="yearStart">ໄດ້ເຕັມຕົ້ນປີ</option><option value="anniversary">ຕາມວັນຄົບຮອບ</option></select></label>
         <label className="field">ຕ້ອງອະນຸມັດຈັກຄົນ<select className="input" disabled={readOnly} value={s.leaveApproversRequired} onChange={e => setS({ ...s, leaveApproversRequired: Number(e.target.value) as 1 | 2 })}><option value={1}>1 ຄົນ</option><option value={2}>2 ຄົນ</option></select></label>

@@ -51,3 +51,16 @@ export function activeSession<S extends SessionScan>(sessions: Session<S>[], now
 export function actionsNow<S extends SessionScan>(scans: S[], now: Date, closesAt: (workDate: string) => Date): Record<ScanKind, boolean> {
   return allowedActions(activeSession(toSessions(scans, closesAt), now, closesAt)?.scans ?? []);
 }
+
+/** Minutes worked in one work day: first clock-in to last clock-out, minus the break. Zero when there is no clock-out. */
+export function workedMinutesOf(scans: SessionScan[]): number {
+  const live = scans.filter(s => s.status !== 'rejected').sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+  const at = (s?: SessionScan) => (s ? new Date(s.deviceTime).getTime() : NaN);
+  const firstIn = live.find(s => s.kind === 'in');
+  const lastOut = [...live].reverse().find(s => s.kind === 'out');
+  const bs = live.find(s => s.kind === 'breakStart');
+  const be = [...live].reverse().find(s => s.kind === 'breakEnd');
+  if (!firstIn || !lastOut) return 0;
+  const breakMin = bs && be ? Math.max(0, (at(be) - at(bs)) / 60000) : 0;
+  return Math.max(0, Math.round((at(lastOut) - at(firstIn)) / 60000 - breakMin));
+}

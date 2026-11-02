@@ -6,6 +6,7 @@ import { dailySample, evaluateScan, lateMinutes, purgeExpiredPhotos } from './at
 import { changeNeedsSecondPerson, computePayslip, lateDeductionAmount, maxAdvance, payrollLockBlock, progressiveTax } from './payroll';
 import { accruedLeave, annualLeaveBalance, approvalBlock, decide, isEscalated, leaveDays } from './leave';
 import { dayStatus } from './day';
+import { compBalance } from './comp';
 import { approvalAccess, canViewPage } from './permissions';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings } from './settingsCheck';
 import { seed } from '../data/seed';
@@ -139,6 +140,13 @@ const EFFECT: Record<Key, () => void> = {
     expect(dayStatus({ ...base, holidays: ['2026-11-03'] })).toBe('holiday');
     expect(leaveDays('2026-11-02', '2026-11-06', [0], [])).toBe(5);
     expect(leaveDays('2026-11-02', '2026-11-06', [0], ['2026-11-04'])).toBe(4);
+  },
+  compLeaveExpiryDays: () => {
+    const earned = [{ date: '2026-08-01', days: 1 }];
+    const left = (expiryDays: number) => compBalance({ earned, used: [], asOf: '2026-11-02', expiryDays }).left;
+    expect(left(0)).toBe(1); // never expires
+    expect(left(90)).toBe(0); // 1 Aug + 90 days = 30 Oct, already gone
+    expect(left(120)).toBe(1);
   }
 };
 

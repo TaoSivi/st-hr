@@ -8,7 +8,7 @@ import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
 import { describeFace, loadFaceModels, matchScore, openFrontCamera, snapshot, stopCamera } from '../device/face';
 import { getPosition, type Position } from '../device/geo';
-import { leaveBalance, monthKey, shiftStartOn, summarize } from '../app/payrun';
+import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
 import { KIND_LABEL } from './labels';
@@ -18,6 +18,8 @@ import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, t
 import { canViewPage, isManager } from '../domain/permissions';
 import { PayslipView } from './PayslipView';
 import { missedDatesFor } from '../app/missedOut';
+import { compBalanceFor, lateStartOn } from '../app/payrun';
+import { leaveRequestBlock, leaveSpan, partialDays, PART_LABEL, shiftPaidHours, type LeavePart } from '../domain/leavePart';
 import { closesAtFor } from '../domain/missedOut';
 import { activeSession, actionsNow, scansOn, toSessions } from '../domain/sessions';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
@@ -304,7 +306,7 @@ function CalendarTab() {
   // a night shift's after-midnight scans belong to the day it started
   const sessions = toSessions(mine, date => closesAtFor(date, shifts.find(x => x.id === effectiveShift(me!, date, hr.overrides))));
   const statusOf = (date: string) => {
-    const start = shiftStartOn(hr, me!, date);
+    const start = lateStartOn(hr, me!, date);
     return dayStatus({
       date, today: ymd(now), startDate: me!.startDate, shiftStart: start ?? shift.start, graceMinutes: settings.graceMinutes,
       dayOff: start ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: scansOn(sessions, date), leaves: myLeaves
@@ -368,6 +370,7 @@ function LeaveTab() {
   const [form, setForm] = useState(false);
   const today = ymd(new Date());
   const bal = leaveBalance(hr, me!, today);
+  const comp = compBalanceFor(hr, me!, today);
   const mine = leaves.filter(l => l.employeeId === me!.id).sort((a, b) => b.from.localeCompare(a.from));
   const shown = tab === 'all' ? mine : mine.filter(l => l.status === tab);
   const subs: [typeof tab, string][] = [['pending', 'ລໍ'], ['approved', 'ອະນຸມັດແລ້ວ'], ['rejected', 'ບໍ່ອະນຸມັດ'], ['all', 'ທັງໝົດ']];
@@ -381,13 +384,14 @@ function LeaveTab() {
         <div className="card row" style={{ background: 'var(--ok-bg)' }}>
           <span className="grow">ມື້ລາພັກປະຈຳປີເຫຼືອ</span><b style={{ fontSize: 22 }}>{bal.left} ມື້</b>
         </div>
+        {(comp.earned > 0 || comp.left > 0) && <div className="card row"><span className="grow">ມື້ພັກຊົດເຊີຍເຫຼືອ <span className="muted small">(ມາເຮັດວຽກວັນພັກລັດຖະການ{comp.expired ? ` · ໝົດອາຍຸແລ້ວ ${comp.expired}` : ''})</span></span><b style={{ fontSize: 22 }}>{comp.left} ມື້</b></div>}
         {shown.length === 0 && <div className="empty">ບໍ່ມີລາຍການ<br /><span className="small">ກົດ + ເພື່ອຂໍລາ</span></div>}
         {shown.map(l => (
           <div key={l.id} className="card row" style={{ alignItems: 'flex-start' }}>
             <span className="avatar big">{initials(me!.name)}</span>
             <div className="col grow" style={{ gap: 2 }}>
               <b style={{ fontSize: 17 }}>{l.reason}</b>
-              <span>{LEAVE_TYPES[l.type]} · {l.days} ມື້</span>
+              <span>{LEAVE_TYPES[l.type]} · {leaveSpan(l)}</span>
               <span className="muted small">{l.from.split('-').reverse().join('/')}{l.to !== l.from ? ` - ${l.to.split('-').reverse().join('/')}` : ''}</span>
               <div style={{ marginTop: 4 }}>{pill(l.status)}</div>
             </div>
@@ -395,26 +399,36 @@ function LeaveTab() {
         ))}
       </div>
       <button className="fab" aria-label="ຂໍລາໃໝ່" onClick={() => setForm(true)}>+</button>
-      {form && <LeaveForm left={bal.left} onClose={() => setForm(false)} />}
+      {form && <LeaveForm left={bal.left} compLeft={comp.left} onClose={() => setForm(false)} />}
     </>
   );
 }
 
-function LeaveForm({ left, onClose }: { left: number; onClose: () => void }) {
-  const { me, save, settings } = useHR();
+function LeaveForm({ left, compLeft, onClose }: { left: number; compLeft: number; onClose: () => void }) {
+  const { me, save, settings, leaves, shifts, overrides } = useHR();
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
-  const days = from && to && to >= from ? leaveDays(from, to, me!.dayOff ?? [0], settings.holidays) : 0;
+  const [part, setPart] = useState<LeavePart | 'full'>('full');
+  const [hours, setHours] = useState('2');
+  const shift = shifts.find(s => s.id === (effectiveShift(me!, from, overrides) ?? me!.shiftId)) ?? shifts[0];
+  const paidHours = shiftPaidHours(shift);
+  const partial = part !== 'full';
+  const hoursNum = Number(hours);
+  const days = partial
+    ? (from === to || !to ? partialDays(part as LeavePart, part === 'hours' ? hoursNum : undefined, paidHours) : 0)
+    : from && to && to >= from ? leaveDays(from, to, me!.dayOff ?? [0], settings.holidays) : 0;
+  const pickPart = (p: LeavePart | 'full') => { setPart(p); if (p !== 'full') setTo(from); };
   const submit = async () => {
     setErr('');
-    if (days <= 0) return setErr('ວັນທີບໍ່ຖືກຕ້ອງ');
-    if (type === 'annual' && days > left) return setErr(`ມື້ລາພັກເຫຼືອ ${left} ມື້ ບໍ່ພໍ`);
+    const ask = { type, from, to: partial ? from : to, days, part: partial ? (part as LeavePart) : undefined, hours: part === 'hours' ? hoursNum : undefined };
+    const block = leaveRequestBlock(ask, { existing: leaves.filter(l => l.employeeId === me!.id), paidHours, weeklyOff: me!.dayOff ?? [0], holidays: settings.holidays, annualLeft: left, compLeft });
+    if (block) return setErr(block);
     if (!reason.trim()) return setErr('ກະລຸນາໃສ່ເຫດຜົນ');
-    const req: LeaveRequest = { id: uid(), companyId: me!.companyId, employeeId: me!.id, type, from, to, days, reason: reason.trim(), createdAt: new Date().toISOString(), approvals: [], status: 'pending' };
+    const req: LeaveRequest = { id: uid(), companyId: me!.companyId, employeeId: me!.id, type, from, to: ask.to, days, ...(ask.part ? { part: ask.part } : {}), ...(ask.part === 'hours' ? { hours: hoursNum } : {}), reason: reason.trim(), createdAt: new Date().toISOString(), approvals: [], status: 'pending' };
     await save('leaves', req, 'leave-request');
     onClose();
   };
@@ -422,11 +436,14 @@ function LeaveForm({ left, onClose }: { left: number; onClose: () => void }) {
     <div className="sheet-back" onClick={onClose}>
       <div className="sheet col" onClick={e => e.stopPropagation()} role="dialog" aria-label="ຂໍລາ">
         <h2>ຂໍລາ</h2>
-        <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid'] as LeaveType[]).map(t => (
+        <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
           <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}</button>))}</div>
-        <div className="row"><label className="field grow">ແຕ່ວັນທີ<input className="input" type="date" value={from} onChange={e => setFrom(e.target.value)} /></label>
-          <label className="field grow">ຫາວັນທີ<input className="input" type="date" value={to} onChange={e => setTo(e.target.value)} /></label></div>
-        <span className="muted small">ລວມ {days} ມື້ເຮັດວຽກ</span>
+        <div className="row wrap">{([['full', 'ເຕັມວັນ'], ['am', PART_LABEL.am], ['pm', PART_LABEL.pm], ['hours', PART_LABEL.hours]] as [LeavePart | 'full', string][]).map(([p, label]) => (
+          <button key={p} className={`btn ${part === p ? '' : 'ghost'}`} onClick={() => pickPart(p)} aria-pressed={part === p}>{label}</button>))}</div>
+        <div className="row"><label className="field grow">{partial ? 'ວັນທີ' : 'ແຕ່ວັນທີ'}<input className="input" type="date" value={from} onChange={e => { setFrom(e.target.value); if (partial) setTo(e.target.value); }} /></label>
+          {!partial && <label className="field grow">ຫາວັນທີ<input className="input" type="date" value={to} onChange={e => setTo(e.target.value)} /></label>}
+          {part === 'hours' && <label className="field" style={{ width: 110 }}>ຊົ່ວໂມງ<input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value.replace(/[^\d.]/g, ''))} /></label>}</div>
+        <span className="muted small">{partial ? `ນັບ ${days} ມື້ (ກະຂອງເຈົ້າເຮັດວຽກ ${paidHours} ຊມ/ມື້)` : `ລວມ ${days} ມື້ເຮັດວຽກ`}</span>
         <label className="field">ເຫດຜົນ<input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder="ເຊັ່ນ: ໄປໂຮງໝໍ" /></label>
         {err && <div className="error" role="alert">{err}</div>}
         <div className="row"><button className="btn ghost grow" onClick={onClose}>ຍົກເລີກ</button><button className="btn grow" onClick={submit}>ສົ່ງຄຳຂໍ</button></div>
@@ -482,6 +499,7 @@ function Pay() {
       <div className="card col">
         <span className="muted small">ລາຍຮັບ</span>
         {line('ເງິນເດືອນພື້ນຖານ', s.base)}{line('ຄ່າລ່ວງເວລາ (OT)', s.ot)}{line('ເບ້ຍລ້ຽງ', s.allowance)}
+        {s.shiftAllowance > 0 && line('ເບ້ຍລ້ຽງຕາມກະ', s.shiftAllowance)}{s.bonus > 0 && line('ໂບນັດ', s.bonus)}{s.commission > 0 && line('ຄອມມິດຊັນ', s.commission)}{s.otherPay > 0 && line('ລາຍຮັບອື່ນໆ', s.otherPay)}{s.extraNonTaxable > 0 && line('ລາຍຮັບອື່ນ (ບໍ່ເສຍພາສີ)', s.extraNonTaxable)}
         <span className="muted small">ລາຍຫັກ</span>
         {line('ມາຊ້າ', s.lateDeduction, true)}{line('ລາບໍ່ຮັບເງິນເດືອນ', s.unpaidLeave, true)}{line('ປະກັນສັງຄົມ', s.socialSecurity, true)}{line('ອາກອນລາຍໄດ້', s.tax, true)}{line('ເບີກລ່ວງໜ້າ', s.advance, true)}
       </div>

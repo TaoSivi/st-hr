@@ -38,6 +38,8 @@ const ACTIONS_SPEC: Record<Action, boolean[]> = {
   'payroll.prepare': [false, false, true, true, false],
   'payroll.lock': [false, false, true, true, false],
   'payroll.confirmLate': [false, false, true, true, false],
+  'payroll.items': [false, false, true, true, false],
+  'payroll.items.decide': [false, false, true, true, false],
   'settings.edit': [false, false, false, true, false]
 };
 const A: Access[] = ['act'], V: Access[] = ['view'], N: Access[] = ['none'];

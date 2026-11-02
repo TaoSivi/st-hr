@@ -22,7 +22,7 @@ export const PAGE_ROLES: Record<ManagerPage, Role[]> = {
 export type Action =
   | 'scan.review' | 'ot.preapprove' | 'advance.decide'
   | 'staff.edit' | 'staff.change.decide'
-  | 'payroll.prepare' | 'payroll.lock' | 'payroll.confirmLate'
+  | 'payroll.prepare' | 'payroll.lock' | 'payroll.confirmLate' | 'payroll.items' | 'payroll.items.decide'
   | 'settings.edit';
 
 /** Every write-type action. The auditor and the plain employee must never appear here. */
@@ -35,6 +35,8 @@ export const ACTION_ROLES: Record<Action, Role[]> = {
   'payroll.prepare': ['owner', 'accountant'],
   'payroll.lock': ['owner', 'accountant'],
   'payroll.confirmLate': ['owner', 'accountant'],
+  'payroll.items': ['owner', 'accountant'],
+  'payroll.items.decide': ['owner', 'accountant'],
   'settings.edit': ['owner']
 };
 

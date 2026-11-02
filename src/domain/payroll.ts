@@ -24,6 +24,11 @@ export interface PayInput {
   workingDaysInMonth: number;
   reimbursement?: number; // approved expenses, paid with salary, not taxed
   prorate?: number; // share of the month employed (hired or left mid-month); base pay and allowance scale by it
+  bonus?: number; // taxable, from approved pay items
+  commission?: number; // taxable
+  shiftAllowance?: number; // taxable: per-shift allowance for the shifts worked (night shift and so on)
+  otherTaxable?: number; // taxable, other pay items
+  extraNonTaxable?: number; // paid after tax, like an expense refund
 }
 
 export interface Payslip {
@@ -40,6 +45,11 @@ export interface Payslip {
   tax: number;
   advance: number;
   reimbursement: number;
+  bonus: number;
+  commission: number;
+  shiftAllowance: number;
+  otherPay: number;
+  extraNonTaxable: number;
   net: number;
 }
 
@@ -51,15 +61,17 @@ export function computePayslip(p: PayInput, s: Settings): Payslip {
   const hourly = p.baseSalary / s.workHoursPerMonth;
   const ot = Math.round((p.otMinutesApproved / 60) * hourly * s.otRate);
   const unpaidLeave = Math.round((p.baseSalary / p.workingDaysInMonth) * p.unpaidLeaveDays);
-  const gross = base + allowance + ot - p.lateDeduction - unpaidLeave + p.adjustments;
+  const bonus = p.bonus ?? 0, commission = p.commission ?? 0, shiftAllowance = p.shiftAllowance ?? 0, otherPay = p.otherTaxable ?? 0, extraNonTaxable = p.extraNonTaxable ?? 0;
+  const gross = base + allowance + ot + bonus + commission + shiftAllowance + otherPay - p.lateDeduction - unpaidLeave + p.adjustments;
   const socialSecurity = Math.round(base * s.ssRate);
   const taxable = Math.max(0, gross - socialSecurity);
   const tax = progressiveTax(taxable, s.taxBrackets);
   const reimbursement = p.reimbursement ?? 0;
-  const net = gross - socialSecurity - tax - p.advanceInstallment + reimbursement;
+  const net = gross - socialSecurity - tax - p.advanceInstallment + reimbursement + extraNonTaxable;
   return {
     prorate, base, allowance, ot, lateDeduction: p.lateDeduction, unpaidLeave,
-    adjustments: p.adjustments, gross, socialSecurity, taxable, tax, advance: p.advanceInstallment, reimbursement, net
+    adjustments: p.adjustments, gross, socialSecurity, taxable, tax, advance: p.advanceInstallment, reimbursement,
+    bonus, commission, shiftAllowance, otherPay, extraNonTaxable, net
   };
 }
 
