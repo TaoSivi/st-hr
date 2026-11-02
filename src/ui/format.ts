@@ -22,3 +22,14 @@ export function downloadText(filename: string, text: string, type = 'text/csv;ch
 
 /** 365 → "1 ປີ", 90 → "90 ມື້": the retention period as Admin set it. */
 export const retentionLabel = (days: number) => (days % 365 === 0 ? `${days / 365} ປີ` : `${days} ມື້`);
+
+/** Hand binary data (an .xlsx, for instance) to the browser as a download. */
+export function downloadBytes(filename: string, bytes: Uint8Array, type: string) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([bytes as BlobPart], { type }));
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}

@@ -1,9 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useHR } from '../app/state';
-import { shiftStartOn } from '../app/payrun';
-import { dayStatus, monthGrid } from '../domain/day';
+import { buildAttendance } from '../domain/attendanceReport';
+import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/exportAttendance';
 import { effectiveShift, type HRRequest } from '../domain/requests';
-import type { Employee } from '../domain/types';
 import MapCard, { type MapMark } from './MapCard';
 import { MyRequests } from './RequestsUI';
 import { KIND_LABEL } from './labels';
@@ -77,55 +76,48 @@ export function Notifications({ onOpen }: { onOpen: (link?: string) => void }) {
   );
 }
 
-interface MonthStats { worked: number; ok: number; late: number; absent: number; leave: number; pending: number; lateMin: number; hours: number; otMin: number }
-
-function monthStats(hr: ReturnType<typeof useHR>, e: Employee, y: number, m: number): MonthStats {
-  const today = ymd(new Date());
-  const st: MonthStats = { worked: 0, ok: 0, late: 0, absent: 0, leave: 0, pending: 0, lateMin: 0, hours: 0, otMin: 0 };
-  for (const c of monthGrid(y, m).filter(c => c.inMonth)) {
-    const scans = hr.scans.filter(s => s.employeeId === e.id && ymd(new Date(s.deviceTime)) === c.date && s.status !== 'rejected').sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
-    const start = shiftStartOn(hr, e, c.date);
-    const ds = dayStatus({ date: c.date, today, startDate: e.startDate, shiftStart: start ?? '00:00', graceMinutes: hr.settings.graceMinutes,
-      dayOff: start ? [] : [new Date(c.date + 'T12:00:00').getDay()], holidays: hr.settings.holidays, scans, leaves: hr.leaves.filter(l => l.employeeId === e.id) });
-    if (ds === 'ok' || ds === 'late' || ds === 'pending') st.worked++;
-    if (ds in st) (st as any)[ds]++;
-    const fin = scans.find(s => s.kind === 'in');
-    if (fin && start) {
-      const late = new Date(fin.deviceTime).getHours() * 60 + new Date(fin.deviceTime).getMinutes() - (+start.slice(0, 2) * 60 + +start.slice(3));
-      if (late > hr.settings.graceMinutes) st.lateMin += late;
-    }
-    const out = [...scans].reverse().find(s => s.kind === 'out');
-    if (fin && out) {
-      const bs = scans.find(s => s.kind === 'breakStart'), be = scans.find(s => s.kind === 'breakEnd');
-      const brk = bs && be ? (new Date(be.deviceTime).getTime() - new Date(bs.deviceTime).getTime()) : 0;
-      st.hours += Math.max(0, new Date(out.deviceTime).getTime() - new Date(fin.deviceTime).getTime() - brk) / 3600000;
-    }
-  }
-  st.otMin = hr.ots.filter(o => o.employeeId === e.id && o.status === 'approved' && o.date.startsWith(`${y}-${String(m + 1).padStart(2, '0')}`)).reduce((a, o) => a + o.minutes, 0);
-  return st;
-}
-
 export function Reports({ team }: { team: boolean }) {
   const hr = useHR();
   const now = new Date();
   const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
-  const move = (d: number) => setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; });
-  const people = team ? hr.employees.filter(e => e.baseSalary > 0) : [hr.me!];
-  const rows = people.map(e => ({ e, s: monthStats(hr, e, ym.y, ym.m) }));
-  const me = rows.find(r => r.e.id === hr.me!.id)?.s;
-  const tile = (k: string, v: string | number, tone = '') => <div className={`card ${tone}`} style={{ padding: '12px 14px' }}><span className="muted small">{k}</span><div className="big-num" style={{ fontSize: 26 }}>{v}</div></div>;
+  const [exporting, setExporting] = useState(false);
+  const [note, setNote] = useState('');
+  const move = (d: number) => { setNote(''); setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; }); };
+  // the screen and the Excel file are built from the same list and the same calculation
+  const people = reportEmployees(hr, team);
+  const report = buildAttendance(reportInput(hr, people, ym.y, ym.m));
+  const rows = report.summary;
+  const me = rows.find(r => r.employee.id === hr.me!.id);
+  const tile = (k: string, v: string | number) => <div className="card" style={{ padding: '12px 14px' }}><span className="muted small">{k}</span><div className="big-num" style={{ fontSize: 26 }}>{v}</div></div>;
+  const doExport = async () => {
+    setExporting(true);
+    setNote('');
+    try {
+      const r = await exportAttendanceXlsx(hr, team, ym.y, ym.m);
+      setNote(`ດາວໂຫຼດແລ້ວ: ${r.fileName} (${r.employees} ຄົນ)`);
+    } catch (e: any) {
+      setNote('Export ບໍ່ສຳເລັດ: ' + (e?.message || 'ລອງໃໝ່'));
+    } finally {
+      setExporting(false);
+    }
+  };
   return (
     <div className="screen">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <button className="icon-btn dark" aria-label="ເດືອນກ່ອນ" onClick={() => move(-1)}>‹</button><b style={{ fontSize: 18 }}>{laoMonth(ym.y, ym.m)}</b><button className="icon-btn dark" aria-label="ເດືອນຖັດໄປ" onClick={() => move(1)}>›</button>
       </div>
+      <button className="btn" onClick={doExport} disabled={exporting || report.days.length === 0} style={{ alignSelf: 'flex-start' }}>
+        {exporting ? 'ກຳລັງສ້າງໄຟລ໌…' : team ? 'ດາວໂຫຼດລາຍງານເຂົ້າ-ອອກ (Excel)' : 'ດາວໂຫຼດລາຍງານຂອງຂ້ອຍ (Excel)'}
+      </button>
+      {report.days.length === 0 && <span className="muted small">ເດືອນນີ້ຍັງບໍ່ມີຂໍ້ມູນໃຫ້ດາວໂຫຼດ</span>}
+      {note && <div className={`pill ${note.startsWith('Export') ? 'bad' : 'ok'}`} role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{note}</div>}
       {!team && me && <div className="grid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
-        {tile('ມາວຽກ (ມື້)', me.worked)}{tile('ມາຊ້າ', `${me.late} ຄັ້ງ`)}{tile('ຂາດ (ມື້)', me.absent)}{tile('ລາ (ມື້)', me.leave)}
+        {tile('ມາວຽກ (ມື້)', me.workedDays)}{tile('ມາຊ້າ', `${me.lateDays} ຄັ້ງ`)}{tile('ຂາດ (ມື້)', me.absentDays)}{tile('ລາ (ມື້)', me.leaveDays)}
         {tile('ຊົ່ວໂມງເຮັດວຽກ', me.hours.toFixed(1))}{tile('OT (ນາທີ)', me.otMin)}
       </div>}
       {team && <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th className="num">ມາ</th><th className="num">ຊ້າ</th><th className="num">ນາທີຊ້າ</th><th className="num">ຂາດ</th><th className="num">ລາ</th><th className="num">ຊມ</th><th className="num">OT</th></tr></thead><tbody>
-        {rows.map(({ e, s }) => <tr key={e.id}><td><b>{e.name}</b><div className="muted small">{e.dept}</div></td><td className="num">{s.worked}</td><td className="num">{s.late}</td><td className="num">{s.lateMin}</td><td className="num">{s.absent}</td><td className="num">{s.leave}</td><td className="num">{s.hours.toFixed(1)}</td><td className="num">{s.otMin}</td></tr>)}
-      </tbody></table></div>}
+        {rows.map(s => <tr key={s.employee.id}><td><b>{s.employee.name}</b><div className="muted small">{s.employee.dept}</div></td><td className="num">{s.workedDays}</td><td className="num">{s.lateDays}</td><td className="num">{s.lateMin}</td><td className="num">{s.absentDays}</td><td className="num">{s.leaveDays}</td><td className="num">{s.hours.toFixed(1)}</td><td className="num">{s.otMin}</td></tr>)}
+      </tbody></table>{rows.length === 0 && <div className="empty">ບໍ່ມີພະນັກງານໃນຂອບເຂດຂອງທ່ານ</div>}</div>}
     </div>
   );
 }
