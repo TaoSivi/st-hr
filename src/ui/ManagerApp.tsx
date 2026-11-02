@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useHR, type PayrollRun } from '../app/state';
-import type { Advance, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
+import type { Advance, Branch, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings, validateShifts } from '../domain/settingsCheck';
 import { ACTION_ROLES, approvalAccess, canDo, canGrantRoles, canViewPage, isReadOnly, roleChangeBlock, scopeBlock, type ManagerPage } from '../domain/permissions';
 import { deptOf, inMyScope } from '../app/scope';
 import { dailySample, lateMinutes } from '../domain/attendance';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
 import { bankCsv, changeNeedsSecondPerson, payrollLockBlock } from '../domain/payroll';
+import { validateBranch } from '../domain/branches';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
 import { monthKey, summarize } from '../app/payrun';
 import { getPosition } from '../device/geo';
@@ -577,6 +578,24 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const [shiftRows, setShiftRows] = useState<Shift[]>(hr.shifts);
   const [newHoliday, setNewHoliday] = useState('');
   const [msg, setMsg] = useState('');
+  const [nb, setNb] = useState<{ name: string; lat: string; lng: string; radiusM: string } | null>(null);
+  const nbBranch = (): Branch | null => (nb ? { id: 'b-' + uid().slice(0, 8), companyId: me.companyId, name: nb.name.trim(), lat: nb.lat.trim() === '' ? NaN : Number(nb.lat), lng: nb.lng.trim() === '' ? NaN : Number(nb.lng), radiusM: nb.radiusM.trim() === '' ? NaN : Number(nb.radiusM) } : null);
+  const nbErrors = (() => { const b = nbBranch(); return b ? validateBranch(b, hr.branches) : []; })();
+  const fillHere = async () => {
+    const p = await getPosition();
+    if (!p) return setMsg('ອ່ານ GPS ບໍ່ໄດ້ (ກວດສິດຕຳແໜ່ງ) — ໃສ່ພິກັດເອງໄດ້');
+    setNb(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v));
+    setMsg(`ໃຊ້ຕຳແໜ່ງນີ້ (±${Math.round(p.accuracyM)} ມ.)`);
+  };
+  const addBranch = async () => {
+    const b = nbBranch();
+    if (!b || !canDo(me.roles, 'settings.edit')) return;
+    const errs = validateBranch(b, hr.branches);
+    if (errs.length) return setMsg(errs.join(' · '));
+    await hr.save('branches', b, 'branch-add');
+    setMsg(`ເພີ່ມສາຂາ ${b.name} ແລ້ວ`);
+    setNb(null);
+  };
   // follow the stored values when they change underneath (saved, or demo data reset), but not on every reload
   const stored = JSON.stringify([hr.settings, hr.branches.map(b => b.radiusM), hr.shifts]);
   useEffect(() => { setS(hr.settings); setShiftRows(hr.shifts); setRadii(Object.fromEntries(hr.branches.map(b => [b.id, b.radiusM]))); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -623,6 +642,19 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           <label className="row small">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
             onChange={e => setRadii({ ...radii, [b.id]: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
           {!readOnly && <button className="btn ghost" onClick={() => useHere(b.id)}>ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>}</div>)}
+        {!readOnly && !nb && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setNb({ name: '', lat: '', lng: '', radiusM: '100' })}>+ ເພີ່ມສາຂາ</button>}
+        {!readOnly && nb && (
+          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
+            <b>ສາຂາໃໝ່</b>
+            <label className="field">ຊື່ສາຂາ<input className="input" value={nb.name} onChange={e => setNb({ ...nb, name: e.target.value })} /></label>
+            <div className="row wrap">
+              <label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={nb.lat} onChange={e => setNb({ ...nb, lat: e.target.value })} /></label>
+              <label className="field grow">ລອງຈິຈູດ (lng)<input className="input" inputMode="decimal" value={nb.lng} onChange={e => setNb({ ...nb, lng: e.target.value })} /></label>
+              <label className="field" style={{ width: 110 }}>ລັດສະໝີ (ມ.)<input className="input" inputMode="numeric" value={nb.radiusM} onChange={e => setNb({ ...nb, radiusM: e.target.value })} /></label></div>
+            <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={fillHere}>ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>
+            {nbErrors.length > 0 && (nb.name || nb.lat || nb.lng) && <span className="small" style={{ color: 'var(--bad, #c0392b)' }}>{nbErrors.join(' · ')}</span>}
+            <div className="row"><button className="btn ghost" onClick={() => setNb(null)}>ຍົກເລີກ</button><button className="btn" disabled={nbErrors.length > 0} onClick={addBranch}>ເພີ່ມສາຂາ</button></div>
+          </div>)}
       </div>
       <div className="card col"><h2>ກະວຽກ</h2>
         <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ</span>
