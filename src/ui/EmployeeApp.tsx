@@ -61,7 +61,7 @@ const OTHER: [Page, string, string][] = [
 ];
 const Ico = ({ d }: { d: string }) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 
-export default function EmployeeApp({ onSwitch }: { onSwitch: () => void }) {
+export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () => void; onManagerView?: () => void }) {
   const hr = useHR();
   const { me } = hr;
   const [page, setPage] = useState<Page>('clock');
@@ -131,8 +131,11 @@ export default function EmployeeApp({ onSwitch }: { onSwitch: () => void }) {
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
             {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico d={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
+            {!approver && onManagerView && <><div className="drawer-sec">ກວດສອບ</div>
+              <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button></>}
             {approver && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
+              {onManagerView && <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
               {APPROVALS.map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico d={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
               <button onClick={() => go('map')}><Ico d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14" /><span className="grow">ແຜນທີ່</span></button>
             </>}

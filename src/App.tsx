@@ -10,7 +10,8 @@ export default function App() {
 
 function Shell() {
   const { me, setMe, employees } = useHR();
-  const [employeeView, setEmployeeView] = useState(false);
+  // everyone opens on the clock/map screen; managers reach the back office from the menu
+  const [managerView, setManagerView] = useState(false);
 
   if (!me) {
     return (
@@ -20,7 +21,7 @@ function Shell() {
         <span className="muted">ເລືອກຜູ້ໃຊ້ເພື່ອລອງແຕ່ລະບົດບາດ. ລະບົບຈິງຈະມີການ login.</span>
         <div className="col">
           {employees.map(e => (
-            <button key={e.id} className="card row" style={{ border: 'none', textAlign: 'left', minHeight: 64 }} onClick={() => { setMe(e.id); setEmployeeView(false); }}>
+            <button key={e.id} className="card row" style={{ border: 'none', textAlign: 'left', minHeight: 64 }} onClick={() => { setMe(e.id); setManagerView(false); }}>
               <span className="logo" style={{ background: 'var(--mint)' }}>{initials(e.name)}</span>
               <div className="col grow" style={{ gap: 0 }}><b>{e.name}</b><span className="muted small">{e.position}</span></div>
               <span className="small muted">{e.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ') || 'ພະນັກງານ'}</span>
@@ -32,6 +33,6 @@ function Shell() {
   }
 
   const isManager = me.roles.some(r => r !== 'employee');
-  if (isManager && !employeeView) return <ManagerApp onSwitch={() => setMe(null)} onEmployeeView={() => setEmployeeView(true)} />;
-  return <EmployeeApp onSwitch={() => (isManager ? setEmployeeView(false) : setMe(null))} />;
+  if (isManager && managerView) return <ManagerApp onSwitch={() => setMe(null)} onEmployeeView={() => setManagerView(false)} />;
+  return <EmployeeApp onSwitch={() => setMe(null)} onManagerView={isManager ? () => setManagerView(true) : undefined} />;
 }

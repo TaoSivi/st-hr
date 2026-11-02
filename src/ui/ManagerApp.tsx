@@ -51,7 +51,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
           </button>
         ))}
         <div style={{ height: 12 }} />
-        <button onClick={onEmployeeView}>ແອັບພະນັກງານ (ສະແກນ)</button>
+        <button onClick={onEmployeeView}>‹ ກັບໜ້າລົງເວລາ</button>
         <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
       </nav>
       <main>
