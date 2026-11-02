@@ -3,9 +3,10 @@ import { useHR } from '../app/state';
 import { buildAttendance } from '../domain/attendanceReport';
 import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/exportAttendance';
 import { featureBlock } from '../domain/company';
+import { getDeviceId } from '../device/deviceId';
 import { effectiveShift, type HRRequest } from '../domain/requests';
 import MapCard, { type MapMark } from './MapCard';
-import { MyRequests } from './RequestsUI';
+import { MyRequests, RequestSheet } from './RequestsUI';
 import { KIND_LABEL } from './labels';
 import { hhmm, initials, laoDate, laoMonth, money, retentionLabel, ROLE_NAMES, sameDay, ymd } from './format';
 
@@ -236,6 +237,7 @@ export function EmpSettings({ onLogout }: { onLogout: () => void }) {
   const hr = useHR();
   const me = hr.me!;
   const [msg, setMsg] = useState('');
+  const [deviceSheet, setDeviceSheet] = useState(false);
   const [notif, setNotif] = useState(() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } });
   return (
     <div className="screen">
@@ -243,6 +245,12 @@ export function EmpSettings({ onLogout }: { onLogout: () => void }) {
         <label className="row" style={{ minHeight: 48 }}><span className="grow">ສະແດງແຈ້ງເຕືອນ</span>
           <input type="checkbox" checked={notif} onChange={e => { setNotif(e.target.checked); try { localStorage.setItem('sthr-notif', e.target.checked ? 'on' : 'off'); } catch { /* ignore */ } }} style={{ width: 24, height: 24 }} /></label>
         <div className="row" style={{ minHeight: 48 }}><span className="grow">ພາສາ</span><b>ລາວ</b></div>
+      </div>
+      <div className="card col">
+        <b>ເຄື່ອງທີ່ຜູກກັບບັນຊີ</b>
+        <span className="muted small">{!me.deviceId ? 'ຍັງບໍ່ໄດ້ຜູກ — ເຄື່ອງທຳອິດທີ່ສະແກນຈະຖືກຜູກ.' : me.deviceId === getDeviceId() ? 'ເຄື່ອງນີ້ຖືກຜູກກັບບັນຊີຂອງເຈົ້າແລ້ວ.' : 'ບັນຊີນີ້ຜູກກັບເຄື່ອງອື່ນ. ການສະແກນຈາກເຄື່ອງນີ້ຈະລໍຫົວໜ້າກວດ.'}</span>
+        {me.deviceId && me.deviceId !== getDeviceId() && <button className="btn ghost" onClick={() => setDeviceSheet(true)}>ຂໍປ່ຽນມາໃຊ້ເຄື່ອງນີ້</button>}
+        {deviceSheet && <RequestSheet kind="deviceChange" onClose={() => setDeviceSheet(false)} />}
       </div>
       <div className="card col">
         <b>ຂໍ້ມູນໃບໜ້າ</b>

@@ -44,6 +44,8 @@ export interface Employee {
   bankAccount?: string;
   faceEnrolled?: number[]; // face descriptor (demo: stored locally only)
   faceConsentAt?: string;
+  deviceId?: string; // the phone this account is bound to; a scan from another phone goes to review
+  deviceBoundAt?: string;
 }
 
 export type ScanKind = 'in' | 'breakStart' | 'breakEnd' | 'out';
@@ -68,6 +70,7 @@ export interface ScanRecord {
   reviewedBy?: string;
   reviewNote?: string;
   offline?: boolean;
+  deviceId?: string; // the phone the scan was made on
 }
 
 export type LeaveType = 'annual' | 'sick' | 'personal' | 'unpaid' | 'comp'; // comp = compensatory day off for working a public holiday

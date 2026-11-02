@@ -1,5 +1,6 @@
 import type { DataStore } from '../data/store';
 import { reevaluateOfflineScan } from '../domain/attendance';
+import { isDeviceReason } from '../domain/device';
 import type { Branch, ScanRecord, Settings } from '../domain/types';
 
 let running: Promise<number> | null = null;
@@ -22,7 +23,10 @@ export function syncOfflineScans(store: DataStore, branches: Branch[], settings:
       const ctx = clock();
       const v = reevaluateOfflineScan(fresh, branches, settings, ctx);
       const decided = fresh.status === 'approved' || fresh.status === 'rejected';
-      await store.put<ScanRecord>('scans', { ...fresh, serverTime: ctx.serverNow.toISOString(), reasons: v.reasons, status: decided ? fresh.status : v.ok ? 'ok' : 'pending' }, fresh.employeeId, 'sync-offline-scan');
+      // the phone check was made at scan time against the account's bound phone; the server re-check has no business dropping it
+      const kept = fresh.reasons.filter(isDeviceReason);
+      const reasons = [...v.reasons, ...kept];
+      await store.put<ScanRecord>('scans', { ...fresh, serverTime: ctx.serverNow.toISOString(), reasons, status: decided ? fresh.status : reasons.length === 0 ? 'ok' : 'pending' }, fresh.employeeId, 'sync-offline-scan');
       settled++;
     }
     return settled;

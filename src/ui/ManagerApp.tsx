@@ -49,7 +49,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
   const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, ACTION_ROLES['scan.review'])).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, ACTION_ROLES['scan.review'])).length;
   const pendingLeave = hr.leaves.filter(l => l.status === 'pending' && inScope(l.employeeId, hr.settings.leaveApproverRoles)).length + hr.advances.filter(a => a.status === 'pending' && inScope(a.employeeId, ACTION_ROLES['advance.decide'])).length;
-  const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
+  const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
   return (
@@ -519,6 +519,7 @@ function Staff() {
             <div className="row wrap"><label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={headSel.includes('*')} onChange={() => setHeadSel(headSel.includes('*') ? [edit.dept] : ['*'])} />ທຸກພະແນກ</label>
               {depts.map(d => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={headSel.includes('*')} checked={headSel.includes('*') || headSel.includes(d)} onChange={() => setHeadSel(headSel.includes(d) ? headSel.filter(x => x !== d) : [...headSel, d])} />{d}</label>)}</div></fieldset>}
           <div className="row"><button className="btn ghost" onClick={() => setEdit(null)}>ຍົກເລີກ</button><button className="btn" onClick={submit}>{changeNeedsSecondPerson(hr.settings) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
+          {edit.deviceId && <div className="row wrap"><span className="grow small muted">ຜູກກັບເຄື່ອງແລ້ວ ({edit.deviceBoundAt?.slice(0, 10)}). ລ້າງເພື່ອໃຫ້ເຄື່ອງທຳອິດທີ່ສະແກນ ຖືກຜູກໃໝ່.</span><button className="btn ghost" onClick={async () => { await hr.save('employees', { ...edit, deviceId: undefined, deviceBoundAt: undefined }, 'device-reset'); setMsg(`ລ້າງເຄື່ອງທີ່ຜູກຂອງ ${edit.name} ແລ້ວ`); setEdit(null); }}>ລ້າງເຄື່ອງທີ່ຜູກ</button></div>}
           {!edit.endDate && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ລາອອກ / ປິດບັນຊີ</legend>
             <div className="row wrap"><label className="field grow">ວັນສຸດທ້າຍຂອງການເຮັດວຽກ<input className="input" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></label>
               <button className="btn danger" onClick={submitTerminate}>ປິດບັນຊີ</button></div>

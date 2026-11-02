@@ -1,3 +1,4 @@
+import { deviceVerdict } from './device';
 import type { Branch, ScanRecord, Settings } from './types';
 
 /** Great-circle distance in metres (haversine). */
@@ -41,6 +42,7 @@ export interface ScanInput {
   deviceTime: Date;
   serverTime: Date;
   manualBranch?: Branch | null; // employee picked the branch by hand instead of relying on GPS
+  device?: { bound?: string; current: string }; // the account's bound phone and the phone used now
 }
 
 export interface ScanVerdict {
@@ -74,6 +76,11 @@ export function evaluateScan(input: ScanInput, branches: Branch[], s: Settings):
 
   const skew = Math.abs(input.serverTime.getTime() - input.deviceTime.getTime()) / 60000;
   if (skew > s.maxClockSkewMin) reasons.push(`ໂມງໂທລະສັບຕ່າງ ${Math.round(skew)} ນທ`);
+
+  if (input.device) {
+    const d = deviceVerdict(input.device.bound, input.device.current);
+    if (d.reason) reasons.push(d.reason);
+  }
 
   if (input.manualBranch) {
     reasons.push(`ເລືອກສາຂາເອງ: ${input.manualBranch.name}`);

@@ -8,6 +8,7 @@ import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
 import { describeFace, loadFaceModels, matchScore, openFrontCamera, snapshot, stopCamera } from '../device/face';
 import { getPosition, type Position } from '../device/geo';
+import { getDeviceId } from '../device/deviceId';
 import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
@@ -59,7 +60,7 @@ const APPROVALS: [ApprovalSection, string][] = [
   ['scan', 'M9 11l2 2 4-4M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z'], ['leave', 'M3 17l18-6-18-6v5l10 1-10 1z'],
   ['shift', 'M7 7h13l-3-3M17 17H4l3 3'], ['schedule', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 15l2 2 4-4'],
   ['ot', 'M9 4h6v3H9zM6 6h12v15H6zM9 14l2 2 4-4'], ['expense', 'M4 6h16v12H4zM4 7l8 6 8-6'],
-  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4']
+  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4'], ['device', 'M8 3h8v18H8zM11 18h2']
 ];
 const OTHER: [Page, string, string][] = [
   ['about', 'ຂໍ້ມູນ', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5'],
@@ -117,7 +118,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       {page === 'directory' && <Directory />}
       {page === 'notifications' && <Notifications onOpen={openLink} />}
       {page === 'reports' && <Reports team={false} />}
-      {page === 'clockFix' && <MyRequests kinds={['clockFix', 'leaveCancel']} />}
+      {page === 'clockFix' && <MyRequests kinds={['clockFix', 'leaveCancel', 'deviceChange']} />}
       {page === 'shift' && <MyRequests kinds={['shiftSwap', 'dayOffSwap']} />}
       {page === 'schedule' && <SchedulePage />}
       {page === 'ot' && <MyRequests kinds={['ot']} />}
@@ -419,7 +420,7 @@ function LeaveForm({ left, compLeft, onClose }: { left: number; compLeft: number
   const partial = part !== 'full';
   const hoursNum = Number(hours);
   const days = partial
-    ? (from === to || !to ? partialDays(part as LeavePart, part === 'hours' ? hoursNum : undefined, paidHours) : 0)
+    ? partialDays(part as LeavePart, part === 'hours' ? hoursNum : undefined, paidHours) // a part-day leave is one day: the end date is ignored
     : from && to && to >= from ? leaveDays(from, to, me!.dayOff ?? [0], settings.holidays) : 0;
   const pickPart = (p: LeavePart | 'full') => { setPart(p); if (p !== 'full') setTo(from); };
   const submit = async () => {
@@ -543,7 +544,8 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
       if (samples.length < 3) throw new Error('ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
       const avg = samples[0].map((_, i) => samples.reduce((a, s) => a + s[i], 0) / samples.length);
       setPhase('saving');
-      await save('employees', { ...me!, faceEnrolled: avg, faceConsentAt: new Date().toISOString() }, 'face-enroll');
+      // enrolling on a phone with no phone bound yet also binds that phone
+      await save('employees', { ...me!, faceEnrolled: avg, faceConsentAt: new Date().toISOString(), ...(me!.deviceId ? {} : { deviceId: getDeviceId(), deviceBoundAt: new Date().toISOString() }) }, 'face-enroll');
       stopCamera(stream.current);
       onDone();
     } catch (e: any) {
@@ -630,7 +632,8 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       if (self.cancelled) return;
       const offline = !navigator.onLine;
       // offline: the server cannot confirm the clock yet, so the check is repeated when the scan is synced
-      const v = evaluateScan({ gps: pos, faceScore: score, deviceTime, serverTime: offline ? deviceTime : new Date(), manualBranch }, branches, settings);
+      const thisDevice = getDeviceId();
+      const v = evaluateScan({ gps: pos, faceScore: score, deviceTime, serverTime: offline ? deviceTime : new Date(), manualBranch, device: { bound: me!.deviceId, current: thisDevice } }, branches, settings);
       const branch = branches.find(b => b.id === v.branchId);
       const gpsBad = !!manualBranch || v.reasons.some(r => r.startsWith('ຢູ່ໄກ') || r.startsWith('ບໍ່ມີ GPS'));
       setGps(gpsBad ? 'no' : 'ok');
@@ -638,8 +641,10 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       const rec: ScanRecord = {
         id: uid(), companyId: me!.companyId, employeeId: me!.id, kind, deviceTime: deviceTime.toISOString(),
         serverTime: offline ? undefined : new Date().toISOString(), branchId: v.branchId, lat: pos?.lat, lng: pos?.lng,
-        distanceM: v.distanceM, faceScore: score ?? undefined, photo, status: v.ok ? 'ok' : 'pending', reasons: v.reasons, offline, manual: !!manualBranch
+        distanceM: v.distanceM, faceScore: score ?? undefined, photo, status: v.ok ? 'ok' : 'pending', reasons: v.reasons, offline, manual: !!manualBranch, deviceId: thisDevice
       };
+      // the first phone an account is used on becomes its phone
+      if (!me!.deviceId) await save('employees', { ...me!, deviceId: thisDevice, deviceBoundAt: new Date().toISOString() }, 'device-bind');
       pending.current = rec;
       await commit(rec, self);
     })();

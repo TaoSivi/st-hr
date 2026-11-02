@@ -2,7 +2,7 @@ import type { Employee, Role, ScanKind, Settings } from './types';
 import { scopeBlock } from './scope';
 
 /** Every "ask a manager" flow except leave shares this shape and the same approval rules. */
-export type RequestKind = 'clockFix' | 'ot' | 'shiftSwap' | 'dayOffSwap' | 'schedule' | 'expense' | 'certificate' | 'leaveCancel';
+export type RequestKind = 'clockFix' | 'ot' | 'shiftSwap' | 'dayOffSwap' | 'schedule' | 'expense' | 'certificate' | 'leaveCancel' | 'deviceChange';
 
 export interface RequestPayloads {
   clockFix: { date: string; kind: ScanKind; time: string };
@@ -13,6 +13,7 @@ export interface RequestPayloads {
   expense: { date: string; category: string; amount: number; receipt?: string };
   certificate: { type: 'salary' | 'employment'; purpose: string };
   leaveCancel: { leaveId: string };
+  deviceChange: { newDeviceId: string; label: string }; // the phone being asked for, and a readable description of it
 }
 
 export interface HRRequest<K extends RequestKind = RequestKind> {
@@ -37,12 +38,13 @@ export const APPROVER_ROLES: Record<RequestKind, Role[]> = {
   schedule: ['head', 'owner'],
   expense: ['head', 'accountant', 'owner'],
   certificate: ['owner'],
-  leaveCancel: ['head', 'owner']
+  leaveCancel: ['head', 'owner'],
+  deviceChange: ['owner'] // moving an account to another phone is an identity decision: HR / owner only
 };
 
 export const REQUEST_LABEL: Record<RequestKind, string> = {
   clockFix: 'ຂໍລົງເວລາ', ot: 'ຂໍລ່ວງເວລາ (OT)', shiftSwap: 'ສະລັບກະ', dayOffSwap: 'ສະລັບວັນພັກ', schedule: 'ຕາຕະລາງວຽກ',
-  expense: 'ຄ່າໃຊ້ຈ່າຍ', certificate: 'ໜັງສືຮັບຮອງ', leaveCancel: 'ຍົກເລີກການລາ'
+  expense: 'ຄ່າໃຊ້ຈ່າຍ', certificate: 'ໜັງສືຮັບຮອງ', leaveCancel: 'ຍົກເລີກການລາ', deviceChange: 'ປ່ຽນເຄື່ອງ'
 };
 
 export function requestEscalated(r: HRRequest, s: Settings, now: Date): boolean {
@@ -80,6 +82,7 @@ export function validateRequest(kind: RequestKind, p: any, today: string): strin
     case 'expense': return !(p.amount > 0) ? 'ໃສ່ຈຳນວນເງິນ' : !p.category ? 'ເລືອກປະເພດ' : !p.date ? 'ໃສ່ວັນທີ' : null;
     case 'certificate': return !p.purpose?.trim() ? 'ໃສ່ຈຸດປະສົງ' : null;
     case 'leaveCancel': return !p.leaveId ? 'ເລືອກການລາ' : null;
+    case 'deviceChange': return !p.newDeviceId ? 'ອ່ານລະຫັດເຄື່ອງບໍ່ໄດ້' : null;
   }
 }
 

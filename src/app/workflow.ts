@@ -63,6 +63,13 @@ async function applyEffect(hr: HR, r: HRRequest) {
       if (l) await hr.save('leaves', { ...l, status: 'cancelled' }, 'leave-cancel-apply');
       break;
     }
+    case 'deviceChange': {
+      const p = r.payload as RequestPayloads['deviceChange'];
+      const e = hr.employees.find(x => x.id === r.employeeId);
+      // the face is enrolled again on the new phone, so the move is checked against the person, not just the phone
+      if (e) await hr.save('employees', { ...e, deviceId: p.newDeviceId, deviceBoundAt: new Date().toISOString(), faceEnrolled: undefined }, 'device-change-apply');
+      break;
+    }
     case 'expense': case 'certificate':
       break; // expenses are read by payroll; certificates become printable
   }

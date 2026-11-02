@@ -5,6 +5,8 @@ import { REQUEST_LABEL, validateRequest, type HRRequest, type RequestKind, type 
 import type { ScanKind } from '../domain/types';
 import { KIND_LABEL } from './labels';
 import { LEAVE_TYPES, money, ymd } from './format';
+import { getDeviceId, deviceLabel } from '../device/deviceId';
+import { deviceChangeBlock } from '../domain/device';
 
 export const EXPENSE_CATEGORIES = ['ເດີນທາງ', 'ອາຫານ / ຮັບແຂກ', 'ຊື້ເຄື່ອງໃຫ້ຮ້ານ', 'ໂທລະສັບ / ອິນເຕີເນັດ', 'ອື່ນໆ'];
 
@@ -44,12 +46,13 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
       case 'expense': return { date, category, amount: Number(amount.replace(/\D/g, '')) || 0, receipt };
       case 'certificate': return { type: certType, purpose: reason };
       case 'leaveCancel': return { leaveId };
+      case 'deviceChange': return { newDeviceId: getDeviceId(), label: deviceLabel() };
     }
   };
   const submit = async () => {
     setErr('');
     const p = payload();
-    const v = validateRequest(kind, p, today);
+    const v = validateRequest(kind, p, today) ?? (kind === 'deviceChange' ? deviceChangeBlock(me.deviceId, p.newDeviceId) : null);
     if (v) return setErr(v);
     if (kind !== 'certificate' && !reason.trim()) return setErr('ກະລຸນາໃສ່ເຫດຜົນ');
     if (hr.requests.some(r => r.employeeId === me.id && r.kind === kind && r.status === 'pending' && JSON.stringify(r.payload) === JSON.stringify(p))) return setErr('ສົ່ງຄຳຂໍນີ້ໄປແລ້ວ ລໍອະນຸມັດຢູ່');
@@ -77,6 +80,7 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
           <div className="row"><label className="field grow">ວັນທີ<input className="input" type="date" max={today} value={date} onChange={e => setDate(e.target.value)} /></label>
             <label className="field grow">ເວລາ<input className="input" type="time" value={time} onChange={e => setTime(e.target.value)} /></label></div>
         </>}
+        {kind === 'deviceChange' && <span className="muted small">ຂໍຜູກບັນຊີນີ້ກັບ <b>ເຄື່ອງທີ່ກຳລັງໃຊ້ຢູ່ນີ້</b> ({deviceLabel()}). ເຈົ້າຂອງຕ້ອງອະນຸມັດ ແລະ ຫຼັງຈາກນັ້ນຕ້ອງລົງທະບຽນໃບໜ້າໃໝ່ໃນເຄື່ອງນີ້. ກະລຸນາສົ່ງຄຳຂໍຈາກເຄື່ອງໃໝ່.</span>}
         {kind === 'ot' && <div className="row">
           <label className="field grow">ວັນທີ<input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
           <label className="field" style={{ width: 120 }}>ນາທີ<input className="input" inputMode="numeric" value={minutes} onChange={e => setMinutes(e.target.value.replace(/\D/g, ''))} /></label></div>}
@@ -120,17 +124,18 @@ export function statusPill(s: string) {
   return <span className={`status-pill ${s}`}>{label[s] ?? s}</span>;
 }
 
-export function describeRequest(r: HRRequest, nameOf: (id: string) => string): string {
+export function describeRequest(r: HRRequest, nameOf: (id: string) => string, shiftName: (id: string) => string = id => id): string {
   const p: any = r.payload;
   switch (r.kind) {
     case 'clockFix': return `${KIND_LABEL[p.kind as ScanKind]} ${p.time} · ${p.date}`;
     case 'ot': return `${p.minutes} ນາທີ · ${p.date}`;
     case 'shiftSwap': return `ກັບ ${nameOf(p.withEmployeeId)} · ${p.date}`;
     case 'dayOffSwap': return `ມາວຽກ ${p.fromDate} · ພັກ ${p.toDate}`;
-    case 'schedule': return `${p.shiftId === 'off' ? 'ພັກ' : p.shiftId === 'morning' ? 'ກະເຊົ້າ' : 'ກະແລງ'} · ${p.dates[0]}${p.dates.length > 1 ? ` → ${p.dates[p.dates.length - 1]} (${p.dates.length} ມື້)` : ''}`;
+    case 'schedule': return `${p.shiftId === 'off' ? 'ພັກ' : shiftName(p.shiftId)} · ${p.dates[0]}${p.dates.length > 1 ? ` → ${p.dates[p.dates.length - 1]} (${p.dates.length} ມື້)` : ''}`;
     case 'expense': return `${p.category} · ${money(p.amount)} ₭ · ${p.date}`;
     case 'certificate': return `${p.type === 'salary' ? 'ຮັບຮອງເງິນເດືອນ' : 'ຮັບຮອງການເຮັດວຽກ'} · ${p.purpose}`;
     case 'leaveCancel': return `ການລາ ${p.leaveId}`;
+    case 'deviceChange': return `ຜູກກັບເຄື່ອງໃໝ່: ${p.label || p.newDeviceId}`;
   }
 }
 
@@ -147,7 +152,7 @@ export function MyRequests({ kinds, onPrint }: { kinds: RequestKind[]; onPrint?:
       {mine.map(r => (
         <div key={r.id} className="card col" style={{ gap: 4 }}>
           <div className="row"><b className="grow">{REQUEST_LABEL[r.kind]}</b>{statusPill(r.status)}</div>
-          <span>{describeRequest(r, nameOf)}</span>
+          <span>{describeRequest(r, nameOf, id => hr.shifts.find(s => s.id === id)?.name ?? id)}</span>
           {r.reason && r.kind !== 'certificate' && <span className="muted small">“{r.reason}”</span>}
           {r.kind === 'expense' && (r.payload as RequestPayloads['expense']).receipt && <img src={(r.payload as RequestPayloads['expense']).receipt} alt="ໃບບິນ" style={{ maxHeight: 90, borderRadius: 10, alignSelf: 'flex-start' }} />}
           {r.approvals.filter(a => a.note).map(a => <span key={a.at} className="small" style={{ color: 'var(--bad)' }}>{nameOf(a.by)}: {a.note}</span>)}

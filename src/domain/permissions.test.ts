@@ -51,7 +51,8 @@ const SECTIONS_SPEC: Record<ApprovalSection, Access[]> = {
   ot: [...N, ...A, ...N, ...A, ...V],
   expense: [...N, ...A, ...A, ...A, ...V], // accountants reimburse expenses
   certificate: [...N, ...N, ...N, ...A, ...V], // only the owner signs certificates
-  leaveCancel: [...N, ...A, ...N, ...A, ...V]
+  leaveCancel: [...N, ...A, ...N, ...A, ...V],
+  device: [...N, ...N, ...N, ...A, ...V] // only the owner moves an account to another phone
 };
 const KIND_APPROVERS: Record<RequestKind, boolean[]> = {
   clockFix: [false, true, false, true, false],
@@ -61,7 +62,8 @@ const KIND_APPROVERS: Record<RequestKind, boolean[]> = {
   schedule: [false, true, false, true, false],
   expense: [false, true, true, true, false],
   certificate: [false, false, false, true, false],
-  leaveCancel: [false, true, false, true, false]
+  leaveCancel: [false, true, false, true, false],
+  deviceChange: [false, false, false, true, false]
 };
 
 describe('page visibility, every role × every back-office page', () => {
