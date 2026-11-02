@@ -258,12 +258,12 @@ function ClockTab() {
 }
 
 /** Expected vs actual for one day, in two halves like a punch card. */
-function TimeCard({ date, scans, shift }: { date: Date; scans: ScanRecord[]; shift: { start: string; end: string; breakStart: string; breakEnd: string; name: string } }) {
+function TimeCard({ date, scans, shift }: { date: Date; scans: ScanRecord[]; shift: { start: string; end: string; breakStart: string; breakEnd: string; name: string; flexible?: boolean } }) {
   const { settings } = useHR();
   const first = (k: ScanKind) => scans.find(s => s.kind === k && s.status !== 'rejected');
   const last = (k: ScanKind) => [...scans].reverse().find(s => s.kind === k && s.status !== 'rejected');
   const cell = (label: string, expected: string, s: ScanRecord | undefined, brkLabel: string, brkExpected: string, brk: ScanRecord | undefined, lateCheck: boolean) => {
-    const late = lateCheck && s && (new Date(s.deviceTime).getHours() * 60 + new Date(s.deviceTime).getMinutes()) - (+expected.slice(0, 2) * 60 + +expected.slice(3)) > settings.graceMinutes;
+    const late = lateCheck && !shift.flexible && s && (new Date(s.deviceTime).getHours() * 60 + new Date(s.deviceTime).getMinutes()) - (+expected.slice(0, 2) * 60 + +expected.slice(3)) > settings.graceMinutes;
     const tone = !s ? 'none' : s.status === 'pending' ? 'warn' : late ? 'late' : 'ok';
     return (
       <div className="tc-half">
@@ -276,8 +276,8 @@ function TimeCard({ date, scans, shift }: { date: Date; scans: ScanRecord[]; shi
   };
   return (
     <div className="card timecard">
-      {cell('ເຂົ້າວຽກ', shift.start, first('in'), 'ເລີ່ມພັກ', shift.breakStart, first('breakStart'), true)}
-      {cell('ອອກວຽກ', shift.end, last('out'), 'ເສັດພັກ', shift.breakEnd, last('breakEnd'), false)}
+      {cell('ເຂົ້າວຽກ', shift.flexible ? 'ຢືດຢຸ່ນ' : shift.start, first('in'), 'ເລີ່ມພັກ', shift.flexible ? '—' : shift.breakStart, first('breakStart'), true)}
+      {cell('ອອກວຽກ', shift.flexible ? 'ຢືດຢຸ່ນ' : shift.end, last('out'), 'ເສັດພັກ', shift.flexible ? '—' : shift.breakEnd, last('breakEnd'), false)}
     </div>
   );
 }
@@ -309,8 +309,8 @@ function CalendarTab() {
   const statusOf = (date: string) => {
     const start = lateStartOn(hr, me!, date);
     return dayStatus({
-      date, today: ymd(now), startDate: me!.startDate, shiftStart: start ?? shift.start, graceMinutes: settings.graceMinutes,
-      dayOff: start ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: scansOn(sessions, date), leaves: myLeaves
+      date, today: ymd(now), startDate: me!.startDate, shiftStart: start, graceMinutes: settings.graceMinutes,
+      dayOff: effectiveShift(me!, date, hr.overrides) ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: scansOn(sessions, date), leaves: myLeaves
     });
   };
   const grid = monthGrid(ym.y, ym.m);

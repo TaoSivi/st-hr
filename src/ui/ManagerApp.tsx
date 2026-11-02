@@ -12,7 +12,7 @@ import { exportPayrollXlsx } from '../app/exportPayroll';
 import { PayslipView, type PayslipData } from './PayslipView';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
 import { lateStartOn, monthKey, summarize } from '../app/payrun';
-import { leaveSpan } from '../domain/leavePart';
+import { leaveSpan, shiftRange } from '../domain/leavePart';
 import { planSettlement, settlementItem } from '../app/settlement';
 import { branchBlock, countedEmployees, featureBlock, hireBlock } from '../domain/company';
 import { PlanCard } from './PlanCard';
@@ -259,7 +259,8 @@ function TimeToday() {
           const fin = mine.find(s => s.kind === 'in');
           const fout = [...mine].reverse().find(s => s.kind === 'out');
           const shift = hr.shifts.find(s => s.id === (effectiveShift(e, wd.date, hr.overrides) ?? e.shiftId))!;
-          const late = fin ? lateMinutes(lateStartOn(hr, e, wd.date) ?? shift.start, new Date(fin.deviceTime), hr.settings.graceMinutes) : 0;
+          const lateFrom = lateStartOn(hr, e, wd.date); // null: day off or flexible hours, so never late
+          const late = fin && lateFrom ? lateMinutes(lateFrom, new Date(fin.deviceTime), hr.settings.graceMinutes) : 0;
           const leave = hr.leaves.find(l => l.employeeId === e.id && l.status === 'approved' && !l.part && l.from <= ymd(now) && l.to >= ymd(now));
           return <tr key={e.id}><td><b>{e.name}</b><div className="muted small">{e.dept}</div></td><td>{shift.name}</td><td>{fin ? hhmm(fin.deviceTime) : '—'}</td><td>{fout ? hhmm(fout.deviceTime) : '—'}</td>
             <td>{late ? <span className="pill warn">{late} ນາທີ</span> : '—'}</td>
@@ -509,7 +510,7 @@ function Staff() {
           <h2>ແກ້ໄຂ: {edit.name}</h2>
           <label className="field">ເງິນເດືອນພື້ນຖານ<input className="input" inputMode="numeric" value={salary} onChange={e => setSalary(e.target.value.replace(/\D/g, ''))} /></label>
           <label className="field">ເລກບັນຊີທະນາຄານ<input className="input" value={acct} onChange={e => setAcct(e.target.value)} /></label>
-          <label className="field">ກະປະຈຳ<select className="input" value={shiftSel} onChange={e => setShiftSel(e.target.value)}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {s.start}–{s.end}</option>)}</select></label>
+          <label className="field">ກະປະຈຳ<select className="input" value={shiftSel} onChange={e => setShiftSel(e.target.value)}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
           <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ວັນພັກປະຈຳອາທິດ</legend>
             <div className="row wrap">{['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'].map((d, i) => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={dayOffSel.includes(i)} onChange={() => setDayOffSel(dayOffSel.includes(i) ? dayOffSel.filter(x => x !== i) : [...dayOffSel, i])} />{d}</label>)}</div></fieldset>
           {canRoles && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ບົດບາດ (ສະເພາະເຈົ້າຂອງ ກຳນົດໄດ້ · ມີຜົນທັນທີ ແລະ ເກັບໃນ audit log)</legend>
@@ -544,7 +545,7 @@ function Staff() {
           <label className="field">ຕຳແໜ່ງ<input className="input" value={hire.position} onChange={e => setH({ position: e.target.value })} /></label>
           <label className="field">ວັນເລີ່ມວຽກ<input className="input" type="date" value={hire.startDate} onChange={e => setH({ startDate: e.target.value })} /></label>
           <label className="field">ສາຂາຫຼັກ<select className="input" value={hire.homeBranchId} onChange={e => setH({ homeBranchId: e.target.value })}>{hr.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-          <label className="field">ກະປະຈຳ<select className="input" value={hire.shiftId} onChange={e => setH({ shiftId: e.target.value })}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {s.start}–{s.end}</option>)}</select></label>
+          <label className="field">ກະປະຈຳ<select className="input" value={hire.shiftId} onChange={e => setH({ shiftId: e.target.value })}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
           <label className="field">ເງິນເດືອນພື້ນຖານ<input className="input" inputMode="numeric" value={hire.baseSalary || ''} onChange={e => setH({ baseSalary: Number(e.target.value.replace(/\D/g, '')) })} /></label>
           <label className="field">ເບ້ຍລ້ຽງ<input className="input" inputMode="numeric" value={hire.allowance || ''} onChange={e => setH({ allowance: Number(e.target.value.replace(/\D/g, '')) })} /></label>
           <label className="field">ຮັບເງິນ<select className="input" value={hire.payMethod} onChange={e => setH({ payMethod: e.target.value as Employee['payMethod'] })}><option value="bank">ໂອນທະນາຄານ</option><option value="cash">ເງິນສົດ</option></select></label>
@@ -763,15 +764,19 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </div>)}
       </div>
       <div className="card col"><h2>ກະວຽກ</h2>
-        <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ</span>
+        <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ. ກະຢືດຢຸ່ນ: ເຂົ້າ-ອອກເວລາໃດກໍໄດ້ ບໍ່ຄິດມາຊ້າ</span>
         {shiftRows.map(sh => (
           <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
             <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
-            {([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
-              <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
+            <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={!!sh.flexible} aria-label={`${sh.name} ຢືດຢຸ່ນ`} onChange={e => setShift(sh.id, { flexible: e.target.checked, dailyHours: sh.dailyHours ?? 8 })} />ຢືດຢຸ່ນ (ບໍ່ກຳນົດເວລາ)</label>
+            {sh.flexible
+              ? <label className="field" style={{ width: 130 }}>ຊົ່ວໂມງ/ມື້<input className="input" inputMode="decimal" disabled={readOnly} value={Number.isFinite(sh.dailyHours) ? sh.dailyHours : ''} aria-label={`${sh.name} ຊົ່ວໂມງຕໍ່ມື້`} onChange={e => setShift(sh.id, { dailyHours: e.target.value === '' ? NaN : Number(e.target.value.replace(/[^\d.]/g, '')) })} /></label>
+              : ([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
+                <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
             <label className="field" style={{ width: 130 }}>ເບ້ຍລ້ຽງ/ກະ (ກີບ)<input className="input" inputMode="numeric" disabled={readOnly} value={sh.allowance ?? ''} aria-label={`${sh.name} ເບ້ຍລ້ຽງຕໍ່ກະ`} onChange={e => setShift(sh.id, { allowance: e.target.value === '' ? undefined : Number(e.target.value.replace(/\D/g, '')) })} /></label>
           </div>))}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
+        {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00', flexible: true, dailyHours: 8 }])}>+ ເພີ່ມກະຢືດຢຸ່ນ (ອອຟຟິດ)</button>}
       </div>
       <div className="card col"><h2>ເວລາ & ສະແກນ</h2><div className="grid">
         {num('graceMinutes', 'ຜ່ອນຜັນມາຊ້າ (ນາທີ)')}{num('lateDeductPerMinute', 'ຫັກມາຊ້າ (ກີບ/ນາທີ)', 100)}{num('otRate', 'ອັດຕາ OT (ເທົ່າ)', 0.1)}

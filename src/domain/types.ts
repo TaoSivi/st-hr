@@ -19,6 +19,8 @@ export interface Shift {
   breakStart: string;
   breakEnd: string;
   allowance?: number; // ກີບ paid for each shift worked (e.g. night-shift allowance); taxable
+  flexible?: boolean; // office staff with no fixed hours: no lateness, any clock-in time; start/end/break are then only placeholders
+  dailyHours?: number; // flexible shift: expected paid hours per working day (used for part-day leave and the short-day note)
 }
 
 export type PayMethod = 'bank' | 'cash';

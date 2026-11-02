@@ -52,12 +52,18 @@ const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3);
 export const MAX_SHIFT_MIN = 16 * 60;
 
 /** Shift definitions: valid times, a sensible length, and the break inside the shift. A shift whose end is before its start runs overnight (22:00–06:00). */
-export function validateShifts(shifts: { id: string; name: string; start: string; end: string; breakStart: string; breakEnd: string; allowance?: number }[]): string[] {
+export function validateShifts(shifts: { id: string; name: string; start: string; end: string; breakStart: string; breakEnd: string; allowance?: number; flexible?: boolean; dailyHours?: number }[]): string[] {
   const e: string[] = [];
   if (!shifts.length) e.push('ຕ້ອງມີຢ່າງໜ້ອຍ 1 ກະ');
   for (const s of shifts) {
     const label = s.name?.trim() || s.id;
     if (!s.name?.trim()) e.push(`ກະ ${s.id}: ຕ້ອງມີຊື່`);
+    if (s.flexible) {
+      // no fixed times to check: only the expected hours per day matter
+      if (!Number.isFinite(s.dailyHours) || s.dailyHours! < 1 || s.dailyHours! > 16 || Math.round(s.dailyHours! * 2) !== s.dailyHours! * 2) e.push(`ກະ ${label}: ຊົ່ວໂມງຕໍ່ມື້ຕ້ອງຢູ່ລະຫວ່າງ 1–16 (ເຄິ່ງຊົ່ວໂມງເປັນຂັ້ນ)`);
+      if (s.allowance !== undefined && (!Number.isInteger(s.allowance) || s.allowance < 0 || s.allowance > 10_000_000)) e.push(`ກະ ${label}: ເບ້ຍລ້ຽງຕໍ່ກະຕ້ອງເປັນເລກເຕັມ 0–10,000,000`);
+      continue;
+    }
     if (![s.start, s.end, s.breakStart, s.breakEnd].every(t => HHMM.test(t))) { e.push(`ກະ ${label}: ເວລາບໍ່ຖືກຕ້ອງ`); continue; }
     if (s.allowance !== undefined && (!Number.isInteger(s.allowance) || s.allowance < 0 || s.allowance > 10_000_000)) e.push(`ກະ ${label}: ເບ້ຍລ້ຽງຕໍ່ກະຕ້ອງເປັນເລກເຕັມ 0–10,000,000`);
     // minutes since the shift started, wrapping past midnight

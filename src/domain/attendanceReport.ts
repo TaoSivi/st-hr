@@ -5,7 +5,7 @@ import { isSettled, lateMinutes } from './attendance';
 import type { Cell, Sheet } from './xlsx';
 import { closesAtFor, isMissedClockOut } from './missedOut';
 import { scansOn, toSessions, workedMinutesOf } from './sessions';
-import { lateStartFor, PART_LABEL } from './leavePart';
+import { lateStartFor, PART_LABEL, shiftPaidHours, shiftRange } from './leavePart';
 
 export const STATUS_LABEL: Record<DayStatus, string> = {
   ok: 'ປົກກະຕິ', late: 'ມາຊ້າ', absent: 'ຂາດ', leave: 'ລາ', pending: 'ລໍກວດ', dayoff: 'ວັນພັກ', holiday: 'ວັນພັກລັດຖະການ', future: '', 'before-hire': ''
@@ -67,7 +67,7 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       const shift = shiftOn(date);
       const dow = new Date(`${date}T12:00:00`).getDay();
       const scans = scansOn(sessions, date);
-      const status = dayStatus({ date, today: inp.today, startDate: e.startDate, shiftStart: (shift && lateStartFor(shift, myLeaves.filter(l => l.from <= date && l.to >= date))) ?? '00:00', graceMinutes: s.graceMinutes,
+      const status = dayStatus({ date, today: inp.today, startDate: e.startDate, shiftStart: shift ? lateStartFor(shift, myLeaves.filter(l => l.from <= date && l.to >= date)) : null, graceMinutes: s.graceMinutes,
         dayOff: shift ? [] : [dow], holidays: s.holidays, scans, leaves: myLeaves });
       if (status === 'future' || status === 'before-hire') continue;
 
@@ -97,11 +97,13 @@ export function buildAttendance(inp: ReportInput): { days: DayRow[]; summary: Su
       const closesAt = closesAtFor(date, shift);
       const missedOut = isMissedClockOut(scans, closesAt, inp.now ?? new Date(`${inp.today}T23:59:59`));
       if (missedOut) notes.push('ລືມລົງເວລາອອກ');
+      // flexible hours: nobody is late, so a short day is the thing worth seeing (a note only, it does not change pay)
+      if (shift?.flexible && workedMin > 0 && workedMin < shiftPaidHours(shift) * 60 - s.graceMinutes) notes.push(`ເຮັດວຽກ ${round2(workedMin / 60)} ຊມ ຕ່ຳກວ່າ ${shiftPaidHours(shift)} ຊມ`);
       if (scans.some(x => !isSettled(x))) notes.push('ສະແກນຕອນບໍ່ມີເນັດ ຍັງບໍ່ຢືນຢັນ');
       if (scans.some(x => x.status === 'approved' && x.reasons.length)) notes.push('ຫົວໜ້າຢືນຢັນແລ້ວ');
 
       days.push({
-        date, employee: e, shiftName: shift?.name ?? '—', shiftTime: shift ? `${shift.start}–${shift.end}` : '',
+        date, employee: e, shiftName: shift?.name ?? '—', shiftTime: shift ? shiftRange(shift) : '',
         in: firstIn && hhmm(t(firstIn)!), breakStart: bs && hhmm(t(bs)!), breakEnd: be && hhmm(t(be)!), out: lastOut && hhmm(t(lastOut)!) + (ymd(t(lastOut)!) > date ? ' (+1)' : ''),
         workedMin, lateMin, status, branch: (firstIn?.branchId && branchName.get(firstIn.branchId)) || '', note: [...new Set(notes)].join(' · ')
       });

@@ -8,7 +8,9 @@ export const COMPANY = 'demo-co';
 /** Default shifts for a fresh company; the live list is stored and editable by Admin. */
 export const shifts: Shift[] = [
   { id: 'morning', name: 'ກະເຊົ້າ', start: '06:00', end: '14:00', breakStart: '10:00', breakEnd: '10:30' },
-  { id: 'evening', name: 'ກະແລງ', start: '14:00', end: '22:00', breakStart: '18:00', breakEnd: '18:30' }
+  { id: 'evening', name: 'ກະແລງ', start: '14:00', end: '22:00', breakStart: '18:00', breakEnd: '18:30' },
+  // office staff: come and go when they like, expected to work 8 hours a day
+  { id: 'flex', name: 'ຢືດຢຸ່ນ (ອອຟຟິດ)', start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00', flexible: true, dailyHours: 8 }
 ];
 
 export const branches: Branch[] = [

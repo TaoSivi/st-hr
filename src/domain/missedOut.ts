@@ -37,8 +37,8 @@ export function missedClockOutDates(p: {
  * When the work of `date` is due to be over: the shift's end, which is the next day for an overnight shift (end before start),
  * or the end of the day when there is no shift (someone who came in on a day off).
  */
-export function closesAtFor(date: string, shift?: { start: string; end: string }): Date {
-  if (!shift) return new Date(`${date}T23:59:59`);
+export function closesAtFor(date: string, shift?: { start: string; end: string; flexible?: boolean }): Date {
+  if (!shift || shift.flexible) return new Date(`${date}T23:59:59`);
   const end = new Date(`${date}T${shift.end}:00`);
   if (shift.end <= shift.start) end.setDate(end.getDate() + 1);
   return end;

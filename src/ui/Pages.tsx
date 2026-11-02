@@ -3,6 +3,7 @@ import { useHR } from '../app/state';
 import { buildAttendance } from '../domain/attendanceReport';
 import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/exportAttendance';
 import { featureBlock } from '../domain/company';
+import { shiftRange } from '../domain/leavePart';
 import { getDeviceId } from '../device/deviceId';
 import { effectiveShift, type HRRequest } from '../domain/requests';
 import MapCard, { type MapMark } from './MapCard';
@@ -27,7 +28,7 @@ export function Profile() {
         <span style={{ color: '#9fd8d4' }}>{me.position} · {me.code}</span>
       </div>
       <div className="card col">
-        {row('ພະແນກ', me.dept)}{row('ສາຂາຫຼັກ', branch?.name ?? '—')}{row('ກະປະຈຳ', `${shift.name} ${shift.start}–${shift.end}`)}
+        {row('ພະແນກ', me.dept)}{row('ສາຂາຫຼັກ', branch?.name ?? '—')}{row('ກະປະຈຳ', `${shift.name} ${shiftRange(shift)}`)}
         {row('ເລີ່ມວຽກ', me.startDate.split('-').reverse().join('/'))}{row('ບົດບາດ', me.roles.map(r => ROLE_NAMES[r]).join(', '))}
         {row('ຮັບເງິນເດືອນ', me.payMethod === 'cash' ? 'ເງິນສົດ' : `${me.bankName ?? ''} ${mask(me.bankAccount)}`)}
         {row('ໃບໜ້າ', me.faceEnrolled ? `ລົງທະບຽນແລ້ວ ${me.faceConsentAt?.slice(0, 10) ?? ''}` : 'ຍັງບໍ່ລົງທະບຽນ')}
@@ -146,7 +147,7 @@ export function SchedulePage() {
             return <div key={d} className="row" style={{ minHeight: 48, borderBottom: '1px solid #f2f8f7', background: d === ymd(new Date()) ? 'var(--warn-bg)' : undefined }}>
               <span className="grow">{laoDate(new Date(d + 'T12:00:00'))}</span>
               {changed && <span className="pill info">ປ່ຽນແລ້ວ</span>}
-              <b style={{ color: s ? 'var(--ink)' : '#dc2626' }}>{s ? `${s.name} ${s.start}–${s.end}` : 'ພັກ'}</b></div>;
+              <b style={{ color: s ? 'var(--ink)' : '#dc2626' }}>{s ? `${s.name} ${shiftRange(s)}` : 'ພັກ'}</b></div>;
           })}
         </div>
       </div>

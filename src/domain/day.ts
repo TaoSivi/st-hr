@@ -20,7 +20,7 @@ export interface DayInput {
   date: string; // YYYY-MM-DD
   today: string;
   startDate: string;
-  shiftStart: string;
+  shiftStart: string | null; // null = no fixed start (flexible hours), so nobody is late
   graceMinutes: number;
   dayOff: number[];
   holidays: string[];
@@ -37,7 +37,7 @@ export function dayStatus(d: DayInput): DayStatus {
   const firstIn = d.scans.filter(s => s.kind === 'in' && s.status !== 'rejected').sort((a, b) => a.deviceTime.localeCompare(b.deviceTime))[0];
   if (firstIn) {
     if (firstIn.status === 'pending') return 'pending';
-    return lateMinutes(d.shiftStart, new Date(firstIn.deviceTime), d.graceMinutes) > 0 ? 'late' : 'ok';
+    return d.shiftStart && lateMinutes(d.shiftStart, new Date(firstIn.deviceTime), d.graceMinutes) > 0 ? 'late' : 'ok';
   }
   if (d.date > d.today) return 'future';
   if (d.dayOff.includes(new Date(d.date + 'T00:00:00').getDay())) return 'dayoff';

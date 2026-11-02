@@ -8,7 +8,8 @@ const mins = (t: string) => +t.slice(0, 2) * 60 + +t.slice(3);
 const wrap = (m: number) => (m + 1440) % 1440;
 
 /** Paid working hours of one shift (its length minus the break), also for shifts that cross midnight. */
-export function shiftPaidHours(s: { start: string; end: string; breakStart: string; breakEnd: string }): number {
+export function shiftPaidHours(s: { start: string; end: string; breakStart: string; breakEnd: string; flexible?: boolean; dailyHours?: number }): number {
+  if (s.flexible) return s.dailyHours ?? 8;
   return (wrap(mins(s.end) - mins(s.start)) - wrap(mins(s.breakEnd) - mins(s.breakStart))) / 60;
 }
 
@@ -17,6 +18,9 @@ export function partialDays(part: LeavePart, hours: number | undefined, paidHour
   if (part === 'am' || part === 'pm') return 0.5;
   return Math.round(((hours ?? 0) / paidHours) * 100) / 100;
 }
+
+/** How a shift's hours read in lists: "06:00–14:00", or "ຢືດຢຸ່ນ 8 ຊມ" for a flexible shift. */
+export const shiftRange = (s: { start: string; end: string; flexible?: boolean; dailyHours?: number }) => (s.flexible ? `ຢືດຢຸ່ນ ${s.dailyHours ?? 8} ຊມ` : `${s.start}–${s.end}`);
 
 /** What the leave takes, for lists: "2 ມື້", "ເຄິ່ງວັນເຊົ້າ", "3 ຊົ່ວໂມງ". */
 export function leaveSpan(l: Pick<LeaveRequest, 'days' | 'part' | 'hours'>): string {
@@ -72,6 +76,7 @@ export function leaveRequestBlock(
  * The time lateness is measured from on a given day. When the morning is a leave (approved), work starts after the break;
  * every other case, including an afternoon or hourly leave, is judged from the shift start.
  */
-export function lateStartFor(shift: { start: string; breakEnd: string }, approvedLeavesThatDay: Pick<LeaveRequest, 'part' | 'status'>[]): string {
+export function lateStartFor(shift: { start: string; breakEnd: string; flexible?: boolean }, approvedLeavesThatDay: Pick<LeaveRequest, 'part' | 'status'>[]): string | null {
+  if (shift.flexible) return null; // no fixed start, so nobody is late
   return approvedLeavesThatDay.some(l => l.status === 'approved' && l.part === 'am') ? shift.breakEnd : shift.start;
 }
