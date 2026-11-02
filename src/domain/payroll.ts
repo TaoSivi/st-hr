@@ -22,6 +22,7 @@ export interface PayInput {
   advanceInstallment: number;
   adjustments: number; // + or − carried from locked periods
   workingDaysInMonth: number;
+  reimbursement?: number; // approved expenses, paid with salary, not taxed
 }
 
 export interface Payslip {
@@ -36,6 +37,7 @@ export interface Payslip {
   taxable: number;
   tax: number;
   advance: number;
+  reimbursement: number;
   net: number;
 }
 
@@ -47,10 +49,11 @@ export function computePayslip(p: PayInput, s: Settings): Payslip {
   const socialSecurity = Math.round(p.baseSalary * s.ssRate);
   const taxable = Math.max(0, gross - socialSecurity);
   const tax = progressiveTax(taxable, s.taxBrackets);
-  const net = gross - socialSecurity - tax - p.advanceInstallment;
+  const reimbursement = p.reimbursement ?? 0;
+  const net = gross - socialSecurity - tax - p.advanceInstallment + reimbursement;
   return {
     base: p.baseSalary, allowance: p.allowance, ot, lateDeduction: p.lateDeduction, unpaidLeave,
-    adjustments: p.adjustments, gross, socialSecurity, taxable, tax, advance: p.advanceInstallment, net
+    adjustments: p.adjustments, gross, socialSecurity, taxable, tax, advance: p.advanceInstallment, reimbursement, net
   };
 }
 

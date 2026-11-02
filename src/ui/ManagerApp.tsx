@@ -7,14 +7,19 @@ import { bankCsv } from '../domain/payroll';
 import { monthKey, summarize } from '../app/payrun';
 import { getPosition } from '../device/geo';
 import { uid } from '../data/store';
-import { KIND_LABEL } from './EmployeeApp';
+import { KIND_LABEL } from './labels';
+import Approvals, { actionableCount, SECTION_LABEL, type ApprovalSection } from './Approvals';
+import { Reports, TeamMap } from './Pages';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
-type Page = 'overview' | 'review' | 'time' | 'leave' | 'staff' | 'pay' | 'settings' | 'audit';
+type Page = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'settings' | 'audit';
 const PAGES: { id: Page; label: string; roles: Role[] }[] = [
   { id: 'overview', label: 'ພາບລວມ', roles: ['head', 'accountant', 'owner', 'auditor'] },
   { id: 'review', label: 'ກວດການລົງເວລາ', roles: ['head', 'owner', 'auditor'] },
+  { id: 'approvals', label: 'ອະນຸມັດຄຳຂໍ', roles: ['head', 'owner', 'accountant', 'auditor'] },
   { id: 'time', label: 'ລົງເວລາມື້ນີ້', roles: ['head', 'owner', 'accountant', 'auditor'] },
+  { id: 'reports', label: 'ລາຍງານທີມ', roles: ['head', 'owner', 'accountant', 'auditor'] },
+  { id: 'map', label: 'ແຜນທີ່', roles: ['head', 'owner', 'auditor'] },
   { id: 'leave', label: 'ລາພັກ & ເບີກ', roles: ['head', 'owner', 'auditor'] },
   { id: 'staff', label: 'ພະນັກງານ', roles: ['owner', 'accountant', 'auditor'] },
   { id: 'pay', label: 'ເງິນເດືອນ', roles: ['owner', 'accountant', 'auditor'] },
@@ -33,7 +38,8 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const readOnly = me.roles.includes('auditor') && !can(me.roles, ['owner', 'head', 'accountant']);
   const pendingScans = hr.scans.filter(s => s.status === 'pending').length + hr.ots.filter(o => o.status === 'pending').length;
   const pendingLeave = hr.leaves.filter(l => l.status === 'pending').length + hr.advances.filter(a => a.status === 'pending').length;
-  const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave };
+  const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
+  const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
   return (
     <div className="mgr">
@@ -52,7 +58,10 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
         {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ (ຜູ້ກວດສອບ)</div>}
         {page === 'overview' && <Overview />}
         {page === 'review' && <Review readOnly={readOnly} />}
+        {page === 'approvals' && <ApprovalsHub readOnly={readOnly} />}
         {page === 'time' && <TimeToday />}
+        {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
+        {page === 'map' && <><h1>ແຜນທີ່ການສະແກນມື້ນີ້</h1><TeamMap /></>}
         {page === 'leave' && <Leaves readOnly={readOnly} />}
         {page === 'staff' && <Staff readOnly={readOnly} />}
         {page === 'pay' && <Payroll readOnly={readOnly} />}
@@ -92,6 +101,22 @@ function Overview() {
             {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
           </tbody></table></div>}
       </div>
+    </>
+  );
+}
+
+function ApprovalsHub({ readOnly }: { readOnly: boolean }) {
+  const hr = useHR();
+  const sections: ApprovalSection[] = ['scan', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel'];
+  const [sec, setSec] = useState<ApprovalSection>('scan');
+  return (
+    <>
+      <div className="col" style={{ gap: 0 }}><span className="muted">ຫ້າມອະນຸມັດຂອງຕົນເອງ · ຕ້ອງອະນຸມັດ {hr.settings.leaveApproversRequired} ຄົນ</span><h1>ອະນຸມັດຄຳຂໍ</h1></div>
+      <div className="tabs" role="tablist">{sections.map(s => {
+        const n = actionableCount(hr, s);
+        return <button key={s} role="tab" aria-selected={sec === s} onClick={() => setSec(s)}>{SECTION_LABEL[s].replace('ອະນຸມັດ', '')}{n ? ` (${n})` : ''}</button>;
+      })}</div>
+      <Approvals key={sec} section={sec} readOnly={readOnly} />
     </>
   );
 }

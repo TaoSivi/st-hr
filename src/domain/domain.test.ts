@@ -32,6 +32,13 @@ describe('computePayslip', () => {
     expect(p.taxable).toBe(p.gross - p.socialSecurity);
     expect(p.net).toBe(p.gross - p.socialSecurity - p.tax - 500_000);
   });
+  it('adds reimbursed expenses after tax, untaxed', () => {
+    const inp = { baseSalary: 5_000_000, allowance: 0, otMinutesApproved: 0, lateDeduction: 0, unpaidLeaveDays: 0, advanceInstallment: 0, adjustments: 0, workingDaysInMonth: 26 };
+    const a = computePayslip(inp, S);
+    const b = computePayslip({ ...inp, reimbursement: 250_000 }, S);
+    expect(b.tax).toBe(a.tax);
+    expect(b.net - a.net).toBe(250_000);
+  });
   it('never taxes a negative income', () => {
     const p = computePayslip({ baseSalary: 1_000_000, allowance: 0, otMinutesApproved: 0, lateDeduction: 2_000_000,
       unpaidLeaveDays: 0, advanceInstallment: 0, adjustments: 0, workingDaysInMonth: 26 }, S);

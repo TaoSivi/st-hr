@@ -1,6 +1,17 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Advance, Branch, Employee, LeaveRequest, OtRequest, ScanRecord, Settings } from '../domain/types';
-import { LocalStore } from '../data/store';
+import type { HRRequest, ShiftOverride } from '../domain/requests';
+
+export interface Notification {
+  id: string;
+  companyId: string;
+  userId: string;
+  text: string;
+  at: string;
+  read: boolean;
+  link?: string; // page id to open
+}
+import { LocalStore, uid } from '../data/store';
 import { COMPANY, seed, shifts } from '../data/seed';
 import { evaluateScan } from '../domain/attendance';
 
@@ -22,10 +33,14 @@ export interface HRData {
   ots: OtRequest[];
   advances: Advance[];
   payrollRuns: PayrollRun[];
+  requests: HRRequest[];
+  overrides: ShiftOverride[];
+  notifications: Notification[];
   settings: Settings;
 }
 
 interface Ctx extends HRData {
+  notify: (userIds: string[], text: string, link?: string) => Promise<void>;
   ready: boolean;
   me: Employee | null;
   setMe: (id: string | null) => void;
@@ -50,12 +65,14 @@ export function HRProvider({ children }: { children: ReactNode }) {
   });
 
   const load = useCallback(async () => {
-    const [employees, branches, scans, leaves, ots, advances, payrollRuns, settingsRows] = await Promise.all([
+    const [employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, settingsRows] = await Promise.all([
       store.list<Employee>('employees'), store.list<Branch>('branches'), store.list<ScanRecord>('scans'),
       store.list<LeaveRequest>('leaves'), store.list<OtRequest>('ots'), store.list<Advance>('advances'),
-      store.list<PayrollRun>('payrollRuns'), store.list<Settings & { id: string }>('settings')
+      store.list<PayrollRun>('payrollRuns'), store.list<HRRequest>('requests'), store.list<ShiftOverride>('overrides'),
+      store.list<Notification>('notifications'), store.list<Settings & { id: string }>('settings')
     ]);
-    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, settings: settingsRows[0] });
+    const settings = { ...settingsRows[0], holidays: settingsRows[0].holidays ?? [] };
+    setData({ employees, branches, scans, leaves, ots, advances, payrollRuns, requests, overrides, notifications, settings });
   }, [store]);
 
   useEffect(() => { seed(store).then(load); }, [store, load]);
@@ -90,6 +107,12 @@ export function HRProvider({ children }: { children: ReactNode }) {
       try { id ? localStorage.setItem('sthr-me', id) : localStorage.removeItem('sthr-me'); } catch { /* private mode */ }
     },
     save: async (collection, item, action) => { await store.put(collection, item, by, action); await load(); },
+    notify: async (userIds, text, link) => {
+      for (const userId of new Set(userIds)) {
+        await store.put<Notification>('notifications', { id: uid(), companyId: COMPANY, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');
+      }
+      await load();
+    },
     store,
     shifts,
     resetDemo: () => { store.reset(); seed(store).then(load); }

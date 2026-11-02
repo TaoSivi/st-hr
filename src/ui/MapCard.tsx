@@ -5,7 +5,9 @@ import type { Branch } from '../domain/types';
 import type { Position } from '../device/geo';
 
 /** Map with each branch's allowed radius and the phone's position. Tiles need internet; the rest still works offline. */
-export default function MapCard({ branches, pos, children }: { branches: Branch[]; pos: Position | null; children?: React.ReactNode }) {
+export interface MapMark { lat: number; lng: number; label: string; color: string }
+
+export default function MapCard({ branches, pos, marks = [], height, children }: { branches: Branch[]; pos: Position | null; marks?: MapMark[]; height?: number; children?: React.ReactNode }) {
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const me = useRef<L.CircleMarker | null>(null);
@@ -33,6 +35,15 @@ export default function MapCard({ branches, pos, children }: { branches: Branch[
 
   useEffect(() => {
     const m = map.current;
+    if (!m || !marks.length) return;
+    const layer = L.layerGroup().addTo(m);
+    for (const k of marks) L.circleMarker([k.lat, k.lng], { radius: 8, color: '#fff', weight: 2, fillColor: k.color, fillOpacity: 1 }).bindTooltip(k.label).addTo(layer);
+    m.fitBounds(L.latLngBounds([...marks.map(k => [k.lat, k.lng] as [number, number]), ...branches.map(b => [b.lat, b.lng] as [number, number])]), { padding: [30, 30], maxZoom: 17 });
+    return () => { layer.remove(); };
+  }, [marks, branches]);
+
+  useEffect(() => {
+    const m = map.current;
     if (!m || !pos) return;
     if (!me.current) me.current = L.circleMarker([pos.lat, pos.lng], { radius: 9, color: '#fff', weight: 3, fillColor: '#2563eb', fillOpacity: 1 }).addTo(m);
     else me.current.setLatLng([pos.lat, pos.lng]);
@@ -42,7 +53,7 @@ export default function MapCard({ branches, pos, children }: { branches: Branch[
   const recenter = () => pos && map.current?.setView([pos.lat, pos.lng], 17);
 
   return (
-    <div className="mapcard">
+    <div className="mapcard" style={height ? { height } : undefined}>
       <div ref={el} className="mapcard-map" />
       <button className="map-btn" onClick={recenter} aria-label="ໄປຕຳແໜ່ງຂອງຂ້ອຍ" disabled={!pos}>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></svg>

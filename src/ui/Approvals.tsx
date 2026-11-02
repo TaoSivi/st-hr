@@ -1,0 +1,117 @@
+import { useState } from 'react';
+import { useHR } from '../app/state';
+import { decideAndApply } from '../app/workflow';
+import { requestBlock, requestEscalated, REQUEST_LABEL, type HRRequest, type RequestKind, type RequestPayloads } from '../domain/requests';
+import { approvalBlock, decide, isEscalated } from '../domain/leave';
+import type { LeaveRequest, ScanRecord } from '../domain/types';
+import { describeRequest, statusPill } from './RequestsUI';
+import { KIND_LABEL } from './labels';
+import { hhmm, initials, LEAVE_TYPES, laoDate } from './format';
+
+export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel';
+
+export const SECTION_LABEL: Record<ApprovalSection, string> = {
+  scan: 'ອະນຸມັດລົງເວລາ', leave: 'ອະນຸມັດການລາ', shift: 'ອະນຸມັດສະລັບກະ ແລະ ວັນພັກ', schedule: 'ອະນຸມັດຕາຕະລາງວຽກ',
+  ot: 'ອະນຸມັດລ່ວງເວລາ', expense: 'ອະນຸມັດຄ່າໃຊ້ຈ່າຍ', certificate: 'ອະນຸມັດໜັງສືຮັບຮອງ', leaveCancel: 'ອະນຸມັດຍົກເລີກການລາ'
+};
+
+const SECTION_KINDS: Record<ApprovalSection, RequestKind[]> = {
+  scan: ['clockFix'], leave: [], shift: ['shiftSwap', 'dayOffSwap'], schedule: ['schedule'], ot: ['ot'],
+  expense: ['expense'], certificate: ['certificate'], leaveCancel: ['leaveCancel']
+};
+
+/** Items in a section that this user can act on right now (used for menu badges). */
+export function actionableCount(hr: ReturnType<typeof useHR>, section: ApprovalSection): number {
+  const me = hr.me!;
+  const now = new Date();
+  const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && !requestBlock(r, me, hr.settings, now)).length;
+  if (section === 'leave') return hr.leaves.filter(l => !approvalBlock(l, me, hr.settings, now)).length;
+  if (section === 'scan' && me.roles.some(r => r === 'head' || r === 'owner')) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id).length;
+  return reqs;
+}
+
+export function canApproveAnything(roles: string[]) {
+  return roles.some(r => r === 'head' || r === 'owner' || r === 'accountant');
+}
+
+export default function Approvals({ section, readOnly = false }: { section: ApprovalSection; readOnly?: boolean }) {
+  const hr = useHR();
+  const me = hr.me!;
+  const now = new Date();
+  const [tab, setTab] = useState<'pending' | 'done'>('pending');
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [err, setErr] = useState('');
+  const nameOf = (id: string) => hr.employees.find(e => e.id === id)?.name ?? id;
+
+  const run = async (fn: () => Promise<void>) => {
+    setErr('');
+    try { await fn(); } catch (e: any) { setErr(e.message); }
+  };
+  const actions = (id: string, block: string | null, onApprove: () => Promise<void>, onReject: (note: string) => Promise<void>) => {
+    if (readOnly) return null;
+    if (block) return <span className="muted small">{block}</span>;
+    return (
+      <div className="col" style={{ gap: 8, width: '100%' }}>
+        <input className="input" placeholder="ເຫດຜົນ (ຕ້ອງໃສ່ຖ້າບໍ່ອະນຸມັດ)" value={notes[id] ?? ''} onChange={e => setNotes({ ...notes, [id]: e.target.value })} aria-label="ເຫດຜົນ" />
+        <div className="row">
+          <button className="btn danger grow" onClick={() => run(() => onReject(notes[id] ?? ''))}>ບໍ່ອະນຸມັດ</button>
+          <button className="btn grow" onClick={() => run(onApprove)}>ອະນຸມັດ</button>
+        </div>
+      </div>
+    );
+  };
+  const head = (employeeId: string, title: string, sub: string, right: React.ReactNode) => (
+    <div className="row" style={{ alignItems: 'flex-start' }}>
+      <span className="avatar big">{initials(nameOf(employeeId))}</span>
+      <div className="col grow" style={{ gap: 2 }}><b>{nameOf(employeeId)}</b><span>{title}</span><span className="muted small">{sub}</span></div>
+      {right}
+    </div>
+  );
+
+  const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && (tab === 'pending' ? r.status === 'pending' : r.status !== 'pending'))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const scans: ScanRecord[] = section === 'scan' ? hr.scans.filter(s => tab === 'pending' ? s.status === 'pending' : s.status === 'approved' || s.status === 'rejected').slice(-30).reverse() : [];
+  const leaves: LeaveRequest[] = section === 'leave' ? hr.leaves.filter(l => tab === 'pending' ? l.status === 'pending' : l.status !== 'pending').reverse() : [];
+  const empty = reqs.length + scans.length + leaves.length === 0;
+
+  return (
+    <div className="screen">
+      <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
+        <button role="tab" aria-selected={tab === 'pending'} onClick={() => setTab('pending')}>ລໍອະນຸມັດ</button>
+        <button role="tab" aria-selected={tab === 'done'} onClick={() => setTab('done')}>ຕັດສິນແລ້ວ</button>
+      </div>
+      {err && <div className="error" role="alert">{err}</div>}
+      {empty && <div className="empty">ບໍ່ມີລາຍການ</div>}
+
+      {scans.map(s => (
+        <div key={s.id} className="card col">
+          {head(s.employeeId, `${KIND_LABEL[s.kind]} · ${hhmm(s.deviceTime)}`, laoDate(new Date(s.deviceTime)), s.status === 'pending' ? null : statusPill(s.status === 'approved' ? 'approved' : 'rejected'))}
+          {s.photo && <img src={s.photo} alt="ຮູບຕອນສະແກນ" style={{ width: 120, borderRadius: 12 }} />}
+          <div className="row wrap">{s.reasons.map(r => <span key={r} className="pill warn">{r}</span>)}</div>
+          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !me.roles.some(r => r === 'head' || r === 'owner') ? 'ບໍ່ມີສິດ' : null,
+            () => hr.save('scans', { ...s, status: 'approved', reviewedBy: me.id }, 'scan-approve'),
+            async note => { if (!note.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອບໍ່ອະນຸມັດ'); await hr.save('scans', { ...s, status: 'rejected', reviewedBy: me.id, reviewNote: note }, 'scan-reject'); })}
+        </div>
+      ))}
+
+      {leaves.map(l => (
+        <div key={l.id} className="card col">
+          {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${l.days} ມື້`, `${l.from} → ${l.to} · “${l.reason}”`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(l.status))}
+          {l.status === 'pending' && actions(l.id, approvalBlock(l, me, hr.settings, now),
+            async () => { const n = decide(l, me, 'approve', hr.settings, now); await hr.save('leaves', n, 'leave-approve'); if (n.status === 'approved') await hr.notify([l.employeeId], 'ການລາ — ອະນຸມັດແລ້ວ', 'leave'); },
+            async note => { await hr.save('leaves', decide(l, me, 'reject', hr.settings, now, note), 'leave-reject'); await hr.notify([l.employeeId], `ການລາ — ບໍ່ອະນຸມັດ: ${note}`, 'leave'); })}
+        </div>
+      ))}
+
+      {reqs.map(r => (
+        <div key={r.id} className="card col">
+          {head(r.employeeId, REQUEST_LABEL[r.kind], describeRequest(r as HRRequest, nameOf), r.status === 'pending' ? (requestEscalated(r, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(r.status))}
+          {r.reason && r.kind !== 'certificate' && <span className="muted small">“{r.reason}”</span>}
+          {r.kind === 'expense' && (r.payload as RequestPayloads['expense']).receipt && <img src={(r.payload as RequestPayloads['expense']).receipt} alt="ໃບບິນ" style={{ maxWidth: 200, borderRadius: 12 }} />}
+          <span className="muted small">ອະນຸມັດແລ້ວ {r.approvals.filter(a => a.decision === 'approve').length}/{hr.settings.leaveApproversRequired}{r.approvals.length ? ' · ' + r.approvals.map(a => nameOf(a.by)).join(', ') : ''}</span>
+          {r.status === 'pending' && actions(r.id, requestBlock(r, me, hr.settings, now), () => decideAndApply(hr, r, 'approve'), note => decideAndApply(hr, r, 'reject', note))}
+        </div>
+      ))}
+    </div>
+  );
+}

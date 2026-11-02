@@ -80,7 +80,7 @@ export interface LeaveRequest {
   reason: string;
   createdAt: string;
   approvals: { by: string; at: string; decision: 'approve' | 'reject'; note?: string }[];
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   escalatedAt?: string;
 }
 

@@ -8,41 +8,97 @@ import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
 import { describeFace, loadFaceModels, matchScore, openFrontCamera, snapshot, stopCamera } from '../device/face';
 import { getPosition, type Position } from '../device/geo';
-import { leaveBalance, monthKey, summarize } from '../app/payrun';
+import { leaveBalance, monthKey, shiftStartOn, summarize } from '../app/payrun';
+import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
+import { KIND_LABEL } from './labels';
+import type { HRRequest } from '../domain/requests';
+import { MyRequests } from './RequestsUI';
+import Approvals, { actionableCount, canApproveAnything, SECTION_LABEL, type ApprovalSection } from './Approvals';
+import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
 import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, sameDay, ymd } from './format';
 
 const Tick = ({ color = 'currentColor', size = 18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 
-export const KIND_LABEL: Record<ScanKind, string> = { in: 'ເຂົ້າວຽກ', breakStart: 'ເລີ່ມພັກ', breakEnd: 'ເສັດພັກ', out: 'ອອກວຽກ' };
 const KIND_COLOR: Record<ScanKind, string> = { in: 'var(--primary)', breakStart: '#0e7490', breakEnd: '#0e7490', out: 'var(--out)' };
 
-type Page = 'clock' | 'calendar' | 'leave' | 'pay' | 'advance';
+type Page = 'clock' | 'calendar' | 'leave' | 'pay' | 'advance' | 'profile' | 'directory' | 'notifications' | 'reports' | 'clockFix'
+  | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'map' | 'about' | 'privacy' | 'settings' | `approve:${ApprovalSection}`;
+
+const MAIN_TABS: [Page, string][] = [['clock', 'ລົງເວລາ'], ['calendar', 'ປະຕິທິນ'], ['leave', 'ລາ']];
+
+const TITLES: Partial<Record<Page, string>> = {
+  pay: 'ສະລິບເງິນເດືອນ', advance: 'ເບີກເງິນລ່ວງໜ້າ', profile: 'ໂປຣໄຟລ໌', directory: 'ລາຍຊື່ພະນັກງານ', notifications: 'ການແຈ້ງເຕືອນ',
+  reports: 'ລາຍງານ', clockFix: 'ຂໍລົງເວລາ', shift: 'ສະລັບກະ ແລະ ວັນພັກ', schedule: 'ຈັດຕາຕະລາງວຽກ', ot: 'ຂໍລ່ວງເວລາ',
+  expense: 'ບັນທຶກຄ່າໃຊ້ຈ່າຍ', certificate: 'ຂໍໜັງສືຮັບຮອງ', map: 'ແຜນທີ່', about: 'ຂໍ້ມູນ', privacy: 'Privacy policy', settings: 'ຕັ້ງຄ່າ'
+};
+
+// 24 menu entries, in the order of the reference app's drawer
+const PERSONAL: [Page, string, string][] = [
+  ['profile', 'ໂປຣໄຟລ໌', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0'],
+  ['directory', 'ລາຍຊື່', 'M6 3h12v18H6zM10 8h4M9 13h6M9 17h6'],
+  ['notifications', 'ການແຈ້ງເຕືອນ', 'M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0'],
+  ['reports', 'ລາຍງານ', 'M4 20V10M10 20V4M16 20v-7M22 20H2'],
+  ['clockFix', 'ຂໍລົງເວລາ', 'M12 7v5l3 2M21 12a9 9 0 1 1-3-6.7M21 4v5h-5'],
+  ['shift', 'ສະລັບກະ ແລະ ວັນພັກ', 'M7 7h13l-3-3M17 17H4l3 3'],
+  ['schedule', 'ຈັດຕາຕະລາງວຽກ', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 13h6M9 17h3'],
+  ['ot', 'ຂໍລ່ວງເວລາ', 'M9 4h6v3H9zM6 6h12v15H6zM9 12h6M9 16h4'],
+  ['expense', 'ບັນທຶກຄ່າໃຊ້ຈ່າຍ', 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6'],
+  ['certificate', 'ຂໍໜັງສືຮັບຮອງ', 'M3 5h18v14H3zM8 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 16a3 3 0 0 1 6 0M14 9h4M14 13h4'],
+  ['pay', 'ເບິ່ງສະລິບເງິນເດືອນ', 'M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21zM9 8h6M9 12h6M9 16h3'],
+  ['advance', 'ເບີກເງິນລ່ວງໜ້າ', 'M3 7h18v12H3zM3 11h18M7 15h3']
+];
+const APPROVALS: [ApprovalSection, string][] = [
+  ['scan', 'M9 11l2 2 4-4M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z'], ['leave', 'M3 17l18-6-18-6v5l10 1-10 1z'],
+  ['shift', 'M7 7h13l-3-3M17 17H4l3 3'], ['schedule', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 15l2 2 4-4'],
+  ['ot', 'M9 4h6v3H9zM6 6h12v15H6zM9 14l2 2 4-4'], ['expense', 'M4 6h16v12H4zM4 7l8 6 8-6'],
+  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4']
+];
+const OTHER: [Page, string, string][] = [
+  ['about', 'ຂໍ້ມູນ', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5'],
+  ['privacy', 'Privacy policy', 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM9 12l2 2 4-4'],
+  ['settings', 'ຕັ້ງຄ່າ', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12h2M3 12h2M12 3v2M12 19v2M17 7l1.4-1.4M5.6 18.4 7 17M17 17l1.4 1.4M5.6 5.6 7 7']
+];
+const Ico = ({ d }: { d: string }) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 
 export default function EmployeeApp({ onSwitch }: { onSwitch: () => void }) {
-  const { me } = useHR();
+  const hr = useHR();
+  const { me } = hr;
   const [page, setPage] = useState<Page>('clock');
   const [drawer, setDrawer] = useState(false);
+  const [cert, setCert] = useState<HRRequest<'certificate'> | null>(null);
   if (!me) return null;
-  const tabs: [Page, string][] = [['clock', 'ລົງເວລາ'], ['calendar', 'ປະຕິທິນ'], ['leave', 'ລາ']];
   const go = (p: Page) => { setPage(p); setDrawer(false); };
+  const isMain = MAIN_TABS.some(([id]) => id === page);
+  const notifOn = (() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } })();
+  const unread = notifOn ? hr.notifications.filter(n => n.userId === me.id && !n.read).length : 0;
+  const approver = canApproveAnything(me.roles);
+  const title = page.startsWith('approve:') ? SECTION_LABEL[page.slice(8) as ApprovalSection] : TITLES[page];
+  const openLink = (link?: string) => {
+    if (link === 'approvals') return go('approve:scan');
+    if (link === 'requests') return go('clockFix');
+    go((link as Page) || 'clock');
+  };
+  const badge = (n: number) => n > 0 && <span className="badge red">{n > 99 ? '99' : n}</span>;
   return (
     <div className="phone">
       <header className="appbar">
         <div className="appbar-top">
-          <button className="icon-btn" aria-label="ເມນູ" onClick={() => setDrawer(true)}>
+          <button className="icon-btn" aria-label="ເມນູ" onClick={() => setDrawer(true)} style={{ position: 'relative' }}>
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
           </button>
-          <b className="grow" style={{ fontSize: 20 }}>ST HR</b>
-          <span className="avatar">{initials(me.name)}</span>
+          <b className="grow" style={{ fontSize: 20 }}>{isMain ? 'ST HR' : title}</b>
+          <button className="icon-btn" aria-label={`ແຈ້ງເຕືອນ ${unread}`} onClick={() => go('notifications')} style={{ position: 'relative' }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0" /></svg>
+            {unread > 0 && <span className="badge red dot-badge">{unread > 99 ? '99' : unread}</span>}
+          </button>
         </div>
-        {(page === 'clock' || page === 'calendar' || page === 'leave') && (
+        {isMain ? (
           <nav className="toptabs" role="tablist">
-            {tabs.map(([id, label]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}>{label}</button>)}
+            {MAIN_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}>{label}</button>)}
           </nav>
-        )}
-        {(page === 'pay' || page === 'advance') && (
-          <div className="appbar-sub"><button className="icon-btn" aria-label="ກັບ" onClick={() => setPage('clock')}>‹</button><b>{page === 'pay' ? 'ເງິນເດືອນ' : 'ເບີກເງິນລ່ວງໜ້າ'}</b></div>
+        ) : (
+          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 36, padding: '0 12px', background: 'transparent', color: '#fff', borderColor: '#1d5a56' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
         )}
       </header>
       {page === 'clock' && <ClockTab />}
@@ -50,18 +106,39 @@ export default function EmployeeApp({ onSwitch }: { onSwitch: () => void }) {
       {page === 'leave' && <LeaveTab />}
       {page === 'pay' && <Pay />}
       {page === 'advance' && <AdvancePage />}
+      {page === 'profile' && <Profile />}
+      {page === 'directory' && <Directory />}
+      {page === 'notifications' && <Notifications onOpen={openLink} />}
+      {page === 'reports' && <Reports team={false} />}
+      {page === 'clockFix' && <MyRequests kinds={['clockFix', 'leaveCancel']} />}
+      {page === 'shift' && <MyRequests kinds={['shiftSwap', 'dayOffSwap']} />}
+      {page === 'schedule' && <SchedulePage />}
+      {page === 'ot' && <MyRequests kinds={['ot']} />}
+      {page === 'expense' && <MyRequests kinds={['expense']} />}
+      {page === 'certificate' && <MyRequests kinds={['certificate']} onPrint={setCert} />}
+      {page === 'map' && <TeamMap />}
+      {page === 'about' && <About />}
+      {page === 'privacy' && <Privacy />}
+      {page === 'settings' && <EmpSettings onLogout={onSwitch} />}
+      {page.startsWith('approve:') && <Approvals key={page} section={page.slice(8) as ApprovalSection} />}
+      {cert && <CertificateView r={cert} onClose={() => setCert(null)} />}
       {drawer && (
         <div className="drawer-back" onClick={() => setDrawer(false)}>
           <aside className="drawer" onClick={e => e.stopPropagation()} aria-label="ເມນູ">
-            <div className="row" style={{ padding: '8px 4px 16px' }}><span className="avatar" style={{ width: 48, height: 48 }}>{initials(me.name)}</span>
-              <div className="col" style={{ gap: 0 }}><b style={{ color: '#fff' }}>{me.name}</b><span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span></div></div>
-            <button onClick={() => go('clock')}>ລົງເວລາ</button>
-            <button onClick={() => go('calendar')}>ປະຕິທິນ</button>
-            <button onClick={() => go('leave')}>ລາພັກ</button>
-            <button onClick={() => go('pay')}>ເງິນເດືອນ</button>
-            <button onClick={() => go('advance')}>ເບີກເງິນລ່ວງໜ້າ</button>
-            <div style={{ flex: 1 }} />
-            <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
+            <div className="drawer-head">
+              <span className="avatar" style={{ width: 72, height: 72, fontSize: 24 }}>{initials(me.name)}</span>
+              <b style={{ color: '#fff', fontSize: 18 }}>{me.name} ({me.code})</b>
+              <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
+            </div>
+            {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico d={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
+            {approver && <>
+              <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
+              {APPROVALS.map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico d={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
+              <button onClick={() => go('map')}><Ico d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14" /><span className="grow">ແຜນທີ່</span></button>
+            </>}
+            <div className="drawer-sec" />
+            {OTHER.map(([id, label, d]) => <button key={id} onClick={() => go(id)}><Ico d={d} /><span className="grow">{label}</span></button>)}
+            <button onClick={onSwitch}><Ico d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /><span className="grow">ອອກຈາກລະບົບ</span></button>
           </aside>
         </div>
       )}
@@ -77,7 +154,7 @@ function useTodayScans(date: Date) {
 }
 
 function ClockTab() {
-  const { me, branches, shifts } = useHR();
+  const { me, branches, shifts, overrides } = useHR();
   const [now, setNow] = useState(new Date());
   const [pos, setPos] = useState<Position | null>(null);
   const [locating, setLocating] = useState(true);
@@ -98,7 +175,8 @@ function ClockTab() {
   const near = pos ? nearestBranch(pos.lat, pos.lng, branches) : null;
   const inside = near && near.distanceM <= near.branch.radiusM;
   const allowed = allowedActions(todays);
-  const shift = shifts.find(s => s.id === me!.shiftId)!;
+  const todaysShift = effectiveShift(me!, ymd(today), overrides);
+  const shift = shifts.find(s => s.id === (todaysShift ?? me!.shiftId))!;
   const start = (kind: ScanKind) => setFlow({ kind, enroll: kind === 'in' && !me!.faceEnrolled });
 
   const chip = locating ? <span className="loc-chip">ກຳລັງຫາຕຳແໜ່ງ…</span>
@@ -134,7 +212,7 @@ function ClockTab() {
         <button className="clock-btn brk" disabled={!allowed.breakEnd} onClick={() => start('breakEnd')}>ເສັດພັກ</button>
       </div>
       {todays.some(s => s.status === 'pending') && <div className="pill warn" style={{ height: 'auto', padding: '8px 12px', whiteSpace: 'normal' }}>ມີການລົງເວລາທີ່ລໍຫົວໜ້າກວດ</div>}
-      <h2 style={{ marginTop: 6 }}>ເວລາເຂົ້າ-ອອກວຽກ</h2>
+      <h2 style={{ marginTop: 6 }}>ເວລາເຂົ້າ-ອອກວຽກ {todaysShift ? <span className="pill ok">{shift.name}</span> : <span className="pill info">ມື້ນີ້ເປັນວັນພັກ</span>}</h2>
       <TimeCard date={today} scans={todays} shift={shift} />
       {flow?.enroll && <Enroll onDone={() => setFlow({ kind: flow.kind, enroll: false })} onSkip={() => setFlow({ kind: flow.kind, enroll: false })} onCancel={() => setFlow(null)} />}
       {flow && !flow.enroll && <ScanFlow kind={flow.kind} manualBranch={manual} onClose={() => setFlow(null)} />}
@@ -180,7 +258,8 @@ const DAY_STYLE: Record<DayStatus, { cls: string; label: string } | null> = {
 };
 
 function CalendarTab() {
-  const { me, scans, leaves, settings, shifts } = useHR();
+  const hr = useHR();
+  const { me, scans, leaves, settings, shifts } = hr;
   const now = new Date();
   const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [sel, setSel] = useState(ymd(now));
@@ -188,10 +267,13 @@ function CalendarTab() {
   const shift = shifts.find(s => s.id === me!.shiftId)!;
   const mine = scans.filter(s => s.employeeId === me!.id);
   const myLeaves = leaves.filter(l => l.employeeId === me!.id);
-  const statusOf = (date: string) => dayStatus({
-    date, today: ymd(now), startDate: me!.startDate, shiftStart: shift.start, graceMinutes: settings.graceMinutes,
-    dayOff: me!.dayOff ?? [0], holidays: settings.holidays ?? [], scans: mine.filter(s => s.deviceTime.slice(0, 10) === date || ymd(new Date(s.deviceTime)) === date), leaves: myLeaves
-  });
+  const statusOf = (date: string) => {
+    const start = shiftStartOn(hr, me!, date);
+    return dayStatus({
+      date, today: ymd(now), startDate: me!.startDate, shiftStart: start ?? shift.start, graceMinutes: settings.graceMinutes,
+      dayOff: start ? [] : [new Date(date + 'T12:00:00').getDay()], holidays: settings.holidays ?? [], scans: mine.filter(s => ymd(new Date(s.deviceTime)) === date), leaves: myLeaves
+    });
+  };
   const grid = monthGrid(ym.y, ym.m);
   const move = (d: number) => setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; });
   const selDate = new Date(sel + 'T12:00:00');
