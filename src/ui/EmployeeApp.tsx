@@ -16,6 +16,7 @@ import type { HRRequest } from '../domain/requests';
 import { MyRequests } from './RequestsUI';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { canViewPage, isManager } from '../domain/permissions';
+import { PayslipView } from './PayslipView';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
 import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, sameDay, ymd } from './format';
 
@@ -440,7 +441,9 @@ function Pay() {
   const me = hr.me!;
   const key = monthKey(new Date());
   const run = hr.payrollRuns.find(r => r.id === key);
-  const s = summarize(hr, me, key, !!run?.lateConfirmed.includes(me.id)).slip;
+  const sum = summarize(hr, me, key, !!run?.lateConfirmed.includes(me.id));
+  const s = sum.slip;
+  const [printing, setPrinting] = useState(false);
   const line = (k: string, v: number, neg = false) => <div className="row"><span className="grow">{k}</span><b style={{ color: neg && v ? 'var(--bad)' : undefined }}>{neg && v ? '−' : ''}{money(v)}</b></div>;
   return (
     <div className="screen">
@@ -452,6 +455,8 @@ function Pay() {
         {line('ມາຊ້າ', s.lateDeduction, true)}{line('ລາບໍ່ຮັບເງິນເດືອນ', s.unpaidLeave, true)}{line('ປະກັນສັງຄົມ', s.socialSecurity, true)}{line('ອາກອນລາຍໄດ້', s.tax, true)}{line('ເບີກລ່ວງໜ້າ', s.advance, true)}
       </div>
       <div className="card dark row"><span className="grow" style={{ color: '#9fd8d4' }}>ຮັບສຸດທິ</span><span className="big-num">{money(s.net)} <span style={{ fontSize: 16, color: 'var(--mint-ink)' }}>₭</span></span></div>
+      <button className="btn ghost" onClick={() => setPrinting(true)}>ພິມ / ບັນທຶກ PDF</button>
+      {printing && <PayslipView data={sum} monthLabel={laoMonth(new Date().getFullYear(), new Date().getMonth())} final={run?.status === 'locked'} onClose={() => setPrinting(false)} />}
     </div>
   );
 }

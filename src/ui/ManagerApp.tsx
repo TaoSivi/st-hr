@@ -8,6 +8,8 @@ import { dailySample, lateMinutes } from '../domain/attendance';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
 import { bankCsv, changeNeedsSecondPerson, payrollLockBlock } from '../domain/payroll';
 import { validateBranch } from '../domain/branches';
+import { exportPayrollXlsx } from '../app/exportPayroll';
+import { PayslipView, type PayslipData } from './PayslipView';
 import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from '../domain/hiring';
 import { monthKey, summarize } from '../app/payrun';
 import { getPosition } from '../device/geo';
@@ -522,6 +524,8 @@ function Payroll() {
   const key = monthKey(now);
   const run: PayrollRun = hr.payrollRuns.find(r => r.id === key) ?? { id: key, companyId: me.companyId, status: 'draft', lateConfirmed: [] };
   const [msg, setMsg] = useState('');
+  const [slipOf, setSlipOf] = useState<PayslipData | null>(null);
+  const [exporting, setExporting] = useState(false);
   const staff = hr.employees.filter(e => e.baseSalary > 0 && employedFraction(e, now.getFullYear(), now.getMonth()) > 0);
   const rows = staff.map(e => summarize(hr, e, key, run.lateConfirmed.includes(e.id)));
   const total = rows.reduce((a, r) => a + r.slip.net, 0);
@@ -540,6 +544,12 @@ function Payroll() {
       await hr.save('advances', { ...a, remaining: Math.max(0, a.remaining - Math.ceil(a.amount / a.installments)) }, 'advance-deduct');
     }
   };
+  const exportXlsx = async () => {
+    setExporting(true);
+    try { const r = await exportPayrollXlsx(hr, rows, key, run); setMsg(`ດາວໂຫຼດແລ້ວ: ${r.fileName} (${r.employees} ຄົນ)`); }
+    catch (e: any) { setMsg('Export ບໍ່ສຳເລັດ: ' + (e?.message || 'ລອງໃໝ່')); }
+    finally { setExporting(false); }
+  };
   const exportBank = () => downloadText(`ໂອນເງິນເດືອນ_${key}.csv`, bankCsv(rows.filter(r => r.employee.payMethod === 'bank').map(r => ({ code: r.employee.code, name: r.employee.name, bank: r.employee.bankName ?? '', account: r.employee.bankAccount ?? '', amount: r.slip.net }))));
   const exportCash = () => downloadText(`ໃບເຊັນຮັບເງິນສົດ_${key}.csv`, bankCsv(rows.filter(r => r.employee.payMethod === 'cash').map(r => ({ code: r.employee.code, name: r.employee.name, bank: 'ເງິນສົດ', account: '(ເຊັນຮັບ)', amount: r.slip.net }))));
 
@@ -550,6 +560,7 @@ function Payroll() {
           <span className="muted">ງວດ {key} · {run.status === 'draft' ? 'ຮ່າງ' : run.status === 'prepared' ? `ກະກຽມໂດຍ ${nameOf(hr.employees, run.preparedBy)} · ລໍອະນຸມັດ` : `ລັອກແລ້ວ · ອະນຸມັດໂດຍ ${nameOf(hr.employees, run.approvedBy)}`}</span>
           <h1>ເງິນເດືອນ {laoMonth(now.getFullYear(), now.getMonth())}</h1>
         </div>
+        <button className="btn ghost" disabled={exporting} onClick={exportXlsx}>Export Excel</button>
         <button className="btn ghost" onClick={exportBank}>Export ໂອນທະນາຄານ</button>
         <button className="btn ghost" onClick={exportCash}>Export ເງິນສົດ</button>
         {canPrepare && run.status === 'draft' && <button className="btn" onClick={prepare}>ກະກຽມ & ສົ່ງອະນຸມັດ</button>}
@@ -559,12 +570,13 @@ function Payroll() {
       <div className="grid"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num">{money(total)} ₭</div></div>
         <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.socialSecurity, 0))}</div></div>
         <div className="card"><span className="muted small">ອາກອນ</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.tax, 0))}</div></div></div>
-      <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th className="num">ພື້ນຖານ</th><th className="num">OT</th><th>ມາຊ້າ (ຢືນຢັນ?)</th><th className="num">ປະກັນ</th><th className="num">ອາກອນ</th><th className="num">ເບີກ</th><th className="num">ສຸດທິ</th></tr></thead><tbody>
+      <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th className="num">ພື້ນຖານ</th><th className="num">OT</th><th>ມາຊ້າ (ຢືນຢັນ?)</th><th className="num">ປະກັນ</th><th className="num">ອາກອນ</th><th className="num">ເບີກ</th><th className="num">ສຸດທິ</th><th /></tr></thead><tbody>
         {rows.map(r => <tr key={r.employee.id}><td><b>{r.employee.name}</b><div className="muted small">{r.employee.payMethod === 'cash' ? 'ເງິນສົດ' : r.employee.bankName}</div></td>
           <td className="num">{money(r.slip.base)}</td><td className="num">{money(r.slip.ot)}</td>
           <td>{r.lateMin ? <label className="row small"><input type="checkbox" disabled={locked || !canConfirmLate} checked={r.lateConfirmed} onChange={() => toggleLate(r.employee.id)} />{r.lateMin} ນທ → −{money(r.lateMin * hr.settings.lateDeductPerMinute)}</label> : '—'}</td>
-          <td className="num">{money(r.slip.socialSecurity)}</td><td className="num">{money(r.slip.tax)}</td><td className="num">{money(r.slip.advance)}</td><td className="num"><b>{money(r.slip.net)}</b></td></tr>)}
+          <td className="num">{money(r.slip.socialSecurity)}</td><td className="num">{money(r.slip.tax)}</td><td className="num">{money(r.slip.advance)}</td><td className="num"><b>{money(r.slip.net)}</b></td><td><button className="btn ghost" onClick={() => setSlipOf(r)}>ສະລິບ</button></td></tr>)}
       </tbody></table></div>
+      {slipOf && <PayslipView data={slipOf} monthLabel={laoMonth(now.getFullYear(), now.getMonth())} final={locked} onClose={() => setSlipOf(null)} />}
       {locked && <div className="muted small">ງວດນີ້ລັອກແລ້ວ: ການແກ້ໄຂທີ່ພົບພາຍຫຼັງ ຈະເປັນລາຍການປັບໃນເດືອນຖັດໄປ.</div>}
     </>
   );
