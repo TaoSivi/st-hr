@@ -9,8 +9,10 @@ import { validateCompanyName } from './domain/company';
 import { createCompany, DEMO_COMPANY_ID, getCompany, listCompanies, storePrefix } from './data/companies';
 import { LocalStore } from './data/store';
 import { seedNewCompany } from './data/seed';
+import { landsInBackOffice } from './domain/permissions';
 
 const ACTIVE_KEY = 'sthr-company';
+const isWideScreen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 900px)').matches;
 const readActive = () => {
   let id: string | null = null;
   try { id = localStorage.getItem(ACTIVE_KEY); } catch { /* private mode */ }
@@ -66,8 +68,9 @@ function CompanyPicker({ current, onChoose, onPlatform, onClose }: { current: st
 
 function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) => void; onPlatform: () => void }) {
   const { me, setMe, employees, company, companyId } = useHR();
-  // everyone opens on the clock/map screen; managers reach the back office from the menu
-  const [managerView, setManagerView] = useState(false);
+  // phone: everyone opens on the clock screen and managers reach the back office from the menu; computer: managers open in the back office.
+  // null = nobody has chosen yet, so the screen decides
+  const [chosenView, setChosenView] = useState<boolean | null>(null);
   const [picking, setPicking] = useState(false);
 
   if (!me) {
@@ -81,7 +84,7 @@ function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) 
         <span className="muted">ເລືອກຜູ້ໃຊ້ເພື່ອລອງແຕ່ລະບົດບາດ. ລະບົບຈິງຈະມີການ login.</span>
         <div className="col">
           {employees.filter(e => isActiveOn(e, ymd(new Date()))).map(e => (
-            <button key={e.id} className="card row" style={{ border: 'none', textAlign: 'left', minHeight: 64 }} onClick={() => { setMe(e.id); setManagerView(false); }}>
+            <button key={e.id} className="card row" style={{ border: 'none', textAlign: 'left', minHeight: 64 }} onClick={() => { setMe(e.id); setChosenView(null); }}>
               <span className="logo" style={{ background: 'var(--mint)' }}>{initials(e.name)}</span>
               <div className="col grow" style={{ gap: 0 }}><b>{e.name}</b><span className="muted small">{e.position}</span></div>
               <span className="small muted">{e.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ') || 'ພະນັກງານ'}</span>
@@ -102,6 +105,7 @@ function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) 
     );
   }
   const isManager = me.roles.some(r => r !== 'employee');
-  if (isManager && managerView) return <ManagerApp onSwitch={() => setMe(null)} onEmployeeView={() => setManagerView(false)} />;
-  return <EmployeeApp onSwitch={() => setMe(null)} onManagerView={isManager ? () => setManagerView(true) : undefined} />;
+  const managerView = isManager && (chosenView ?? landsInBackOffice(me.roles, isWideScreen()));
+  if (managerView) return <ManagerApp onSwitch={() => setMe(null)} onEmployeeView={() => setChosenView(false)} />;
+  return <EmployeeApp onSwitch={() => setMe(null)} onManagerView={isManager ? () => setChosenView(true) : undefined} />;
 }

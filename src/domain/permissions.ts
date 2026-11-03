@@ -49,6 +49,8 @@ export const canDo = (roles: Role[], action: Action) => intersects(roles, ACTION
 /** True for someone who can look at the back office but change nothing in it. */
 export const isReadOnly = (roles: Role[]) => roles.includes('auditor') && !intersects(roles, ['owner', 'head', 'accountant']);
 export const isManager = (roles: Role[]) => roles.some(r => r !== 'employee');
+/** On a computer-sized screen anyone with a back-office role opens straight into it; on a phone everyone opens on the clock screen. */
+export const landsInBackOffice = (roles: Role[], wideScreen: boolean) => wideScreen && isManager(roles);
 
 export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel' | 'device' | 'face';
 export const APPROVAL_SECTIONS: ApprovalSection[] = ['scan', 'leave', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face'];

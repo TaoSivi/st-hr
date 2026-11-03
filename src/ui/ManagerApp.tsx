@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useHR, type PayrollRun } from '../app/state';
-import type { Advance, Branch, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
+import type { Advance, AuditEntry, Branch, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings, validateShifts } from '../domain/settingsCheck';
 import { ACTION_ROLES, approvalAccess, canDo, canGrantRoles, canViewPage, isReadOnly, roleChangeBlock, scopeBlock, type ManagerPage } from '../domain/permissions';
 import { deptOf, inMyScope } from '../app/scope';
@@ -26,12 +26,13 @@ import { faceTemplates } from '../domain/face';
 import { KIND_LABEL } from './labels';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { Reports, TeamMap } from './Pages';
+import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
 type Page = ManagerPage;
 const PAGE_LABEL: Record<Page, string> = {
   overview: 'ພາບລວມ', review: 'ກວດການລົງເວລາ', approvals: 'ອະນຸມັດຄຳຂໍ', time: 'ລົງເວລາມື້ນີ້', reports: 'ລາຍງານທີມ', map: 'ແຜນທີ່',
-  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', settings: 'ຕັ້ງຄ່າ', audit: 'Audit log'
+  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'Audit log'
 };
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
 
@@ -677,6 +678,11 @@ function Payroll() {
   );
 }
 
+type RuleTab = 'summary' | RulesTab | 'plan' | 'history';
+const RULE_TABS: [RuleTab, string][] = [['summary', 'ສະຫຼຸບກົດເກນ'], ['places', 'ສາຂາ & GPS'], ['shifts', 'ກະວຽກ'], ['time', 'ເວລາ & ສະແກນ'], ['leave', 'ລາພັກ & ອະນຸມັດ'], ['holidays', 'ວັນພັກ'], ['pay', 'ເງິນເດືອນ & ອາກອນ'], ['plan', 'ແພັກເກັດ'], ['history', 'ປະຫວັດການແກ້']];
+const EDIT_TABS: RuleTab[] = ['places', 'shifts', 'time', 'leave', 'holidays', 'pay'];
+const RULE_ACTIONS = ['settings-update', 'shift-update', 'branch-radius', 'branch-gps', 'branch-add'];
+
 function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const hr = useHR();
   const me = hr.me!;
@@ -685,6 +691,9 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const [shiftRows, setShiftRows] = useState<Shift[]>(hr.shifts);
   const [newHoliday, setNewHoliday] = useState('');
   const [msg, setMsg] = useState('');
+  const [tab, setTab] = useState<RuleTab>('summary');
+  const [audit, setAudit] = useState<AuditEntry[]>([]);
+  useEffect(() => { if (tab === 'history') hr.store.audit().then(r => setAudit([...r].reverse())); }, [tab, hr.store, hr.settings, hr.shifts, hr.branches]); // eslint-disable-line react-hooks/exhaustive-deps
   const [nb, setNb] = useState<{ name: string; lat: string; lng: string; radiusM: string } | null>(null);
   const nbBranch = (): Branch | null => (nb ? { id: 'b-' + uid().slice(0, 8), companyId: me.companyId, name: nb.name.trim(), lat: nb.lat.trim() === '' ? NaN : Number(nb.lat), lng: nb.lng.trim() === '' ? NaN : Number(nb.lng), radiusM: nb.radiusM.trim() === '' ? NaN : Number(nb.radiusM) } : null);
   const nbErrors = (() => { const b = nbBranch(); return b ? [...validateBranch(b, hr.branches), ...asList(branchBlock(hr.company, hr.branches.length, ymd(new Date())))] : []; })();
@@ -715,8 +724,8 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const dirty = JSON.stringify(s) !== JSON.stringify(hr.settings) || hr.branches.some(b => radii[b.id] !== b.radiusM) || JSON.stringify(shiftRows) !== JSON.stringify(hr.shifts);
   // show 0.07×100 as 7, not 7.000000000000001
   const shown = (v: number, scale: number) => (Number.isFinite(v) ? Math.round(v * scale * 1e6) / 1e6 : '');
-  const num = (k: keyof Settings, label: string, step = 1, scale = 1) => (
-    <label className="field">{label}<input className="input" type="number" step={step} disabled={readOnly} value={shown(Number(s[k]), scale)}
+  const num = (k: keyof Settings, label: string, step = 1, scale = 1, hint = '') => (
+    <label className="field">{label}{hint && <span className="muted small" style={{ fontWeight: 400 }}>{hint}</span>}<input className="input" type="number" step={step} disabled={readOnly} value={shown(Number(s[k]), scale)}
       onChange={e => setS({ ...s, [k]: e.target.value === '' ? NaN : Number(e.target.value) / scale })} /></label>);
   const setBracket = (i: number, patch: Partial<TaxBracket>) => setS({ ...s, taxBrackets: s.taxBrackets.map((b, j) => j === i ? { ...b, ...patch } : b) });
   const toggleRole = (r: Role) => setS({ ...s, leaveApproverRoles: s.leaveApproverRoles.includes(r) ? s.leaveApproverRoles.filter(x => x !== r) : [...s.leaveApproverRoles, r] });
@@ -742,10 +751,39 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   };
   return (
     <>
-      <h1>ຕັ້ງຄ່າ</h1>
-      <PlanCard />
+      <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ແກ້ໄຂແລ້ວກົດ "ບັນທຶກ" ທີ່ລຸ່ມສຸດ · ທຸກການແກ້ມີບັນທຶກປະຫວັດ'}</span><h1>ກົດເກນບໍລິສັດ & ຕັ້ງຄ່າ</h1></div>
+      <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
+        {RULE_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
+      </div>
+      {tab === 'summary' && <>
+        <div className="muted small">ກົດເກນທີ່ໃຊ້ຢູ່ຕອນນີ້ (ທີ່ບັນທຶກແລ້ວ) ອ່ານເປັນປະໂຫຍກ</div>
+        {rulesSummary(hr.settings, hr.shifts, hr.branches).map(sec => (
+          <div key={sec.title} className="card col">
+            <div className="row"><h2 className="grow">{sec.title}</h2><button className="btn ghost" onClick={() => setTab(sec.tab)}>{readOnly ? 'ເບິ່ງ' : 'ແກ້ໄຂ'} ›</button></div>
+            {sec.lines.map(l => <span key={l}>• {l}</span>)}
+          </div>))}
+      </>}
+      {tab === 'plan' && <PlanCard />}
+      {tab === 'history' && (() => {
+        const rows = audit.filter(a => RULE_ACTIONS.includes(a.action)).map(a => ({
+          a,
+          lines: a.entity === 'settings' ? ruleChanges(a.before as Partial<Settings>, a.after as Partial<Settings>).map(c => `${c.label}: ${c.from} → ${c.to}`)
+            : recordChanges(a.entity === 'shifts' ? 'shift' : 'branch', a.before as Record<string, unknown> | undefined, a.after as Record<string, unknown> | undefined)
+        })).filter(r => r.lines.length).slice(0, 100);
+        return (
+          <div className="card col"><h2>ປະຫວັດການແກ້ກົດເກນ</h2>
+            <span className="muted small">ໃຜແກ້ຫຍັງ ເມື່ອໃດ (ກົດເກນ, ກະ, ສາຂາ). ລຶບ ຫຼື ແກ້ປະຫວັດບໍ່ໄດ້.</span>
+            {rows.length === 0 && <div className="empty">ຍັງບໍ່ມີການແກ້ກົດເກນ</div>}
+            {rows.map(({ a, lines }) => (
+              <div key={a.id} className="col" style={{ gap: 2, borderTop: '1px solid var(--line-2)', paddingTop: 8 }}>
+                <div className="row"><b className="grow">{nameOf(hr.employees, a.by)}</b><span className="muted small">{ymd(new Date(a.at))} {new Date(a.at).toTimeString().slice(0, 5)}</span></div>
+                {lines.map(l => <span key={l} className="small">{l}</span>)}
+              </div>))}
+          </div>);
+      })()}
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
-      <div className="card col"><h2>ສາຂາ & GPS</h2>
+      {tab === 'places' && <div className="card col"><h2>ສາຂາ & GPS</h2>
+        <span className="muted small">ພະນັກງານລົງເວລາໄດ້ເມື່ອຢູ່ໃນລັດສະໝີຂອງສາຂາ. ຢືນຢູ່ສາຂາແລ້ວກົດ 'ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້' ເພື່ອຕັ້ງຈຸດໃຫ້ຖືກ.</span>
         {hr.branches.map(b => <div key={b.id} className="row wrap"><b className="grow">{b.name}</b><span className="muted small">{b.lat.toFixed(5)}, {b.lng.toFixed(5)}</span>
           <label className="row small">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
             onChange={e => setRadii({ ...radii, [b.id]: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
@@ -763,8 +801,8 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
             {nbErrors.length > 0 && (nb.name || nb.lat || nb.lng) && <span className="small" style={{ color: 'var(--bad, #c0392b)' }}>{nbErrors.join(' · ')}</span>}
             <div className="row"><button className="btn ghost" onClick={() => setNb(null)}>ຍົກເລີກ</button><button className="btn" disabled={nbErrors.length > 0} onClick={addBranch}>ເພີ່ມສາຂາ</button></div>
           </div>)}
-      </div>
-      <div className="card col"><h2>ກະວຽກ</h2>
+      </div>}
+      {tab === 'shifts' && <div className="card col"><h2>ກະວຽກ</h2>
         <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ. ກະຢືດຢຸ່ນ: ເຂົ້າ-ອອກເວລາໃດກໍໄດ້ ບໍ່ຄິດມາຊ້າ</span>
         {shiftRows.map(sh => (
           <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
@@ -778,14 +816,14 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </div>))}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00', flexible: true, dailyHours: 8 }])}>+ ເພີ່ມກະຢືດຢຸ່ນ (ອອຟຟິດ)</button>}
-      </div>
-      <div className="card col"><h2>ເວລາ & ສະແກນ</h2><div className="grid">
-        {num('graceMinutes', 'ຜ່ອນຜັນມາຊ້າ (ນາທີ)')}{num('lateDeductPerMinute', 'ຫັກມາຊ້າ (ກີບ/ນາທີ)', 100)}{num('otRate', 'ອັດຕາ OT (ເທົ່າ)', 0.1)}
-        {num('faceMinScore', 'ໃບໜ້າຂັ້ນຕ່ຳ (%)')}{num('maxClockSkewMin', 'ໂມງຕ່າງໄດ້ສູງສຸດ (ນາທີ)')}{num('randomSamplePerDay', 'ສຸ່ມກວດຕໍ່ມື້')}{num('photoRetentionDays', 'ເກັບຮູບ (ມື້)')}
-      </div></div>
-      <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
-        {num('leaveDaysPerYear', 'ມື້ລາພັກ/ປີ')}{num('leaveCarryOverMax', 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)')}{num('compLeaveExpiryDays', 'ວັນພັກຊົດເຊີຍໝົດອາຍຸ (ມື້, 0 = ບໍ່ໝົດ)')}
-        <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={s.leavePayoutOnExit} onChange={e => setS({ ...s, leavePayoutOnExit: e.target.checked })} />ຈ່າຍວັນລາພັກຄ້າງ ເມື່ອພະນັກງານອອກ (leavePayoutOnExit)</label>{num('escalateAfterHours', 'ສົ່ງຫາເຈົ້າຂອງຫຼັງ (ຊົ່ວໂມງ)')}
+      </div>}
+      {tab === 'time' && <div className="card col"><h2>ເວລາ & ສະແກນ</h2><div className="grid">
+        {num('graceMinutes', RULE_LABEL.graceMinutes, 1, 1, 'ມາຊ້າບໍ່ເກີນນີ້ ບໍ່ນັບວ່າມາຊ້າ; ເກີນແລ້ວນັບຕັ້ງແຕ່ເວລາເລີ່ມກະ')}{num('lateDeductPerMinute', RULE_LABEL.lateDeductPerMinute, 100, 1, 'ຫັກຕໍ່ນາທີທີ່ມາຊ້າ')}{num('otRate', RULE_LABEL.otRate, 0.1, 1, 'ຄູນກັບຄ່າແຮງຕໍ່ຊົ່ວໂມງ (1.5 = ເຖິງເຄິ່ງ)')}
+        {num('faceMinScore', RULE_LABEL.faceMinScore, 1, 1, 'ຕ່ຳກວ່ານີ້ → ລໍຫົວໜ້າກວດ. ຖ້າພະນັກງານສະແກນບໍ່ຕິດຫຼາຍ ລອງລົດລົງເທື່ອລະ 5')}{num('maxClockSkewMin', RULE_LABEL.maxClockSkewMin, 1, 1, 'ໂມງໂທລະສັບຜິດຈາກເຊີບເວີເກີນນີ້ → ລໍກວດ')}{num('randomSamplePerDay', RULE_LABEL.randomSamplePerDay, 1, 1, 'ລາຍການທີ່ຜ່ານແລ້ວ ແຕ່ສຸ່ມໃຫ້ຫົວໜ້າກວດຊ້ຳ')}{num('photoRetentionDays', RULE_LABEL.photoRetentionDays, 1, 1, 'ຮູບສະແກນຖືກລຶບເອງຫຼັງຈາກນີ້')}
+      </div></div>}
+      {tab === 'leave' && <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
+        {num('leaveDaysPerYear', RULE_LABEL.leaveDaysPerYear)}{num('leaveCarryOverMax', RULE_LABEL.leaveCarryOverMax, 1, 1, 'ມື້ທີ່ເຫຼືອຍົກໄປປີໜ້າໄດ້ບໍ່ເກີນນີ້')}{num('compLeaveExpiryDays', RULE_LABEL.compLeaveExpiryDays + ' (0 = ບໍ່ໝົດ)', 1, 1, 'ນັບຈາກວັນຫຍຸດທີ່ມາເຮັດວຽກ')}
+        <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={s.leavePayoutOnExit} onChange={e => setS({ ...s, leavePayoutOnExit: e.target.checked })} />{RULE_LABEL.leavePayoutOnExit}</label>{num('escalateAfterHours', RULE_LABEL.escalateAfterHours, 1, 1, 'ຄຳຂໍທີ່ຄ້າງນານກວ່ານີ້ ເຈົ້າຂອງອະນຸມັດແທນໄດ້')}
         <label className="field">ວິທີໄດ້ສິດລາ<select className="input" disabled={readOnly} value={s.leaveAccrual} onChange={e => setS({ ...s, leaveAccrual: e.target.value as Settings['leaveAccrual'] })}>
           <option value="monthly">ສະສົມເປັນເດືອນ</option><option value="yearStart">ໄດ້ເຕັມຕົ້ນປີ</option><option value="anniversary">ຕາມວັນຄົບຮອບ</option></select></label>
         <label className="field">ຕ້ອງອະນຸມັດຈັກຄົນ<select className="input" disabled={readOnly} value={s.leaveApproversRequired} onChange={e => setS({ ...s, leaveApproversRequired: Number(e.target.value) as 1 | 2 })}><option value={1}>1 ຄົນ</option><option value={2}>2 ຄົນ</option></select></label>
@@ -793,24 +831,24 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       </div>
         <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '8px 14px' }}><legend className="small muted">ໃຜອະນຸມັດການລາໄດ້ (ເຈົ້າຂອງຊ່ວຍໄດ້ຫຼັງເກີນເວລາ)</legend>
           <div className="row wrap">{ASSIGNABLE_APPROVER_ROLES.map(r => <label key={r} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={readOnly} checked={s.leaveApproverRoles.includes(r)} onChange={() => toggleRole(r)} />{ROLE_NAMES[r]}</label>)}</div></fieldset>
-        <div className="grid">{num('advanceMaxPctOfEarned', 'ເບີກລ່ວງໜ້າສູງສຸດ (% ຂອງເງິນທີ່ໄດ້ແລ້ວ)', 5, 100)}</div>
-      </div>
-      <div className="card col"><h2>ວັນພັກລັດຖະການ</h2>
+        <div className="grid">{num('advanceMaxPctOfEarned', RULE_LABEL.advanceMaxPctOfEarned, 5, 100, 'ເຊັ່ນ 50 = ເບີກໄດ້ເຄິ່ງໜຶ່ງຂອງເງິນທີ່ເຮັດວຽກມາແລ້ວ')}</div>
+      </div>}
+      {tab === 'holidays' && <div className="card col"><h2>ວັນພັກລັດຖະການ</h2>
         <span className="muted small">ວັນເຫຼົ່ານີ້ບໍ່ນັບເປັນຂາດ ແລະ ບໍ່ນັບເປັນມື້ລາ</span>
         <div className="row wrap">{s.holidays.length === 0 && <span className="muted">ຍັງບໍ່ມີ</span>}{s.holidays.map(d => (
           <span key={d} className="pill info" style={{ height: 34 }}>{d.split('-').reverse().join('/')}{!readOnly && <button aria-label={`ລຶບ ${d}`} onClick={() => setS({ ...s, holidays: s.holidays.filter(x => x !== d) })} style={{ border: 'none', background: 'none', marginLeft: 6, fontWeight: 800 }}>×</button>}</span>))}</div>
         {!readOnly && <div className="row"><input className="input" type="date" aria-label="ເພີ່ມວັນພັກ" value={newHoliday} onChange={e => setNewHoliday(e.target.value)} style={{ maxWidth: 200 }} /><button className="btn ghost" onClick={addHoliday} disabled={!newHoliday}>+ ເພີ່ມວັນພັກ</button></div>}
-      </div>
-      <div className="card col"><h2>ປະກັນສັງຄົມ & ອາກອນ</h2>
+      </div>}
+      {tab === 'pay' && <div className="card col"><h2>ປະກັນສັງຄົມ & ອາກອນ</h2>
         <div className="pill warn" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>ຄ່າເລີ່ມຕົ້ນເປັນຕົວຢ່າງ — ກວດກັບກົດໝາຍປັດຈຸບັນກ່ອນໃຊ້ຈິງ</div>
-        <div className="grid">{num('ssRate', 'ປະກັນສັງຄົມພະນັກງານ (%)', 0.1, 100)}{num('workHoursPerMonth', 'ຊົ່ວໂມງວຽກ/ເດືອນ')}</div>
+        <div className="grid">{num('ssRate', RULE_LABEL.ssRate, 0.1, 100, 'ຫັກຈາກເງິນເດືອນພື້ນຖານ')}{num('workHoursPerMonth', RULE_LABEL.workHoursPerMonth, 1, 1, 'ເງິນເດືອນ ÷ ເລກນີ້ = ຄ່າແຮງຕໍ່ຊົ່ວໂມງ (ໃຊ້ຄິດ OT)')}</div>
         <table className="t"><thead><tr><th>ລາຍໄດ້ເຖິງ (ກີບ)</th><th>ອັດຕາ (%)</th></tr></thead><tbody>
           {s.taxBrackets.map((b, i) => <tr key={i}><td>{b.upTo == null ? 'ຂຶ້ນໄປ' : <input className="input" type="number" disabled={readOnly} value={Number.isFinite(b.upTo) ? b.upTo : ''} onChange={e => setBracket(i, { upTo: e.target.value === '' ? NaN : Number(e.target.value) })} aria-label="ລາຍໄດ້ເຖິງ" />}</td>
             <td><input className="input" type="number" step="0.5" disabled={readOnly} value={shown(b.rate, 100)} onChange={e => setBracket(i, { rate: e.target.value === '' ? NaN : Number(e.target.value) / 100 })} aria-label="ອັດຕາ" /></td></tr>)}
         </tbody></table>
-      </div>
-      {!readOnly && errors.length > 0 && <div className="error" role="alert"><b>ບັນທຶກບໍ່ໄດ້ — ກະລຸນາແກ້:</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{errors.map(e => <li key={e}>{e}</li>)}</ul></div>}
-      {!readOnly && <div className="row"><button className="btn" disabled={errors.length > 0 || !dirty} onClick={saveAll}>ບັນທຶກການຕັ້ງຄ່າ</button>
+      </div>}
+      {!readOnly && EDIT_TABS.includes(tab) && errors.length > 0 && <div className="error" role="alert"><b>ບັນທຶກບໍ່ໄດ້ — ກະລຸນາແກ້:</b><ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>{errors.map(e => <li key={e}>{e}</li>)}</ul></div>}
+      {!readOnly && EDIT_TABS.includes(tab) && <div className="savebar"><button className="btn" disabled={errors.length > 0 || !dirty} onClick={saveAll}>ບັນທຶກການຕັ້ງຄ່າ</button>
         {dirty && <span className="pill warn">ມີການແກ້ໄຂທີ່ຍັງບໍ່ບັນທຶກ</span>}
         {hr.companyId === 'demo-co' && <button className="btn danger" onClick={() => { if (confirm('ລ້າງຂໍ້ມູນສາທິດທັງໝົດ?')) hr.resetDemo(); }}>ລ້າງຂໍ້ມູນສາທິດ</button>}</div>}
     </>
