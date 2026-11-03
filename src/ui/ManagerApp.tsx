@@ -30,6 +30,7 @@ import Icon, { type IconName } from './Icon';
 import StaffImport from './StaffImport';
 import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
+import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, type Hours } from '../domain/personalShift';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
@@ -379,6 +380,10 @@ function Staff() {
 
   const [shiftSel, setShiftSel] = useState('');
   const [dayOffSel, setDayOffSel] = useState<number[]>([0]);
+  // own hours for this one person (shown when the shift list is set to "own hours")
+  const CUSTOM = '__custom';
+  const [own, setOwn] = useState<Hours>({ start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00' });
+  const [bulk, setBulk] = useState<{ dept: string; shiftId: string; dayOff: number[] | null } | null>(null);
   const [rolesSel, setRolesSel] = useState<Role[]>(['employee']);
   const [headSel, setHeadSel] = useState<string[]>([]);
   const depts = [...new Set(hr.employees.map(e => e.dept))];
@@ -424,13 +429,21 @@ function Staff() {
     }
     setEdit(null);
   };
-  const open = (e: Employee) => { setEdit(e); setSalary(String(e.baseSalary)); setAcct(e.bankAccount ?? ''); setShiftSel(e.shiftId); setDayOffSel(e.dayOff ?? [0]); setRolesSel(e.roles); setHeadSel(e.headOf ?? [e.dept]); setMsg(''); };
+  const open = (e: Employee) => { const cur = hr.shifts.find(s => s.id === e.shiftId); setEdit(e); setSalary(String(e.baseSalary)); setAcct(e.bankAccount ?? ''); setShiftSel(cur?.personal ? CUSTOM : e.shiftId); if (cur?.personal) setOwn({ start: cur.start, end: cur.end, breakStart: cur.breakStart, breakEnd: cur.breakEnd, flexible: cur.flexible, dailyHours: cur.dailyHours, allowance: cur.allowance }); setDayOffSel(e.dayOff ?? [0]); setRolesSel(e.roles); setHeadSel(e.headOf ?? [e.dept]); setMsg(''); };
   const sameSet = (a: unknown[], b: unknown[]) => JSON.stringify([...a].sort()) === JSON.stringify([...b].sort());
   const submit = async () => {
     if (!edit) return;
     // schedule and roles are not pay data, so they apply at once (audited); salary and bank account may need a second person
     const direct: Partial<Employee> = {};
-    if (shiftSel !== edit.shiftId) direct.shiftId = shiftSel;
+    if (shiftSel === CUSTOM) {
+      const p = makePersonalShift(edit, own);
+      const problems = personalShiftProblems(p, hr.shifts);
+      if (problems.length) return setMsg(problems.join(' · '));
+      const before = hr.shifts.find(s => s.id === p.id);
+      if (JSON.stringify(before) !== JSON.stringify(p)) await hr.save('shifts', p, before ? 'shift-personal-update' : 'shift-personal');
+      if (edit.shiftId !== p.id) direct.shiftId = p.id;
+    } else if (shiftSel !== edit.shiftId) direct.shiftId = shiftSel;
+    const ownChanged = shiftSel === CUSTOM && JSON.stringify(hr.shifts.find(s => s.id === personalShiftId(edit.id))) !== JSON.stringify(makePersonalShift(edit, own));
     if (!sameSet(dayOffSel, edit.dayOff ?? [0])) direct.dayOff = dayOffSel;
     if (canRoles && !sameSet(rolesSel, edit.roles)) {
       const block = roleChangeBlock(hr.employees, edit.id, rolesSel, me.id);
@@ -441,7 +454,7 @@ function Staff() {
     const reqs: ChangeRequest[] = [];
     if (Number(salary) !== edit.baseSalary) reqs.push({ id: uid(), companyId: me.companyId, employeeId: edit.id, field: 'baseSalary', from: String(edit.baseSalary), to: String(Number(salary)), by: me.id, at: new Date().toISOString(), status: 'pending' });
     if (acct !== (edit.bankAccount ?? '')) reqs.push({ id: uid(), companyId: me.companyId, employeeId: edit.id, field: 'bankAccount', from: edit.bankAccount ?? '', to: acct, by: me.id, at: new Date().toISOString(), status: 'pending' });
-    if (!reqs.length && !Object.keys(direct).length) return setMsg('ບໍ່ມີການປ່ຽນແປງ');
+    if (!reqs.length && !Object.keys(direct).length) { setMsg(ownChanged || shiftSel === CUSTOM ? 'ບັນທຶກເວລາເຂົ້າ-ອອກສະເພາະຄົນແລ້ວ' : 'ບໍ່ມີການປ່ຽນແປງ'); if (shiftSel === CUSTOM) setEdit(null); return; }
     const notes: string[] = [];
     if (Object.keys(direct).length) {
       await hr.save('employees', { ...edit, ...direct }, direct.roles ? 'employee-roles' : 'employee-schedule');
@@ -466,7 +479,7 @@ function Staff() {
   };
   const decideChange = async (c: ChangeRequest, ok: boolean) => {
     if (!canDecideChange) return setMsg('ບໍ່ມີສິດອະນຸມັດ');
-    if (c.by === me.id) return setMsg('ຄົນສ້າງຄຳຂໍ ອະນຸມັດເອງບໍ່ໄດ້');
+    if (c.by === me.id && changeNeedsSecondPerson(hr.settings)) return setMsg('ຄົນສ້າງຄຳຂໍ ອະນຸມັດເອງບໍ່ໄດ້ (ເປີດກວດ 2 ຄົນຢູ່)');
     if (c.field === 'hire' || c.field === 'terminate') {
       if (ok) {
         // re-check at approval time: the roster may have changed since the request was made
@@ -497,7 +510,8 @@ function Staff() {
     if (ok && c.field === 'bankAccount') setMsg(`ແຈ້ງເຕືອນ ${e.name} ແລ້ວວ່າເລກບັນຊີຖືກປ່ຽນ`);
   };
 
-  const pendingHires = changes.filter(c => c.status === 'pending' && c.field === 'hire' && c.by !== me.id);
+  const pendingHires = changes.filter(c => c.status === 'pending' && c.field === 'hire' && (c.by !== me.id || !changeNeedsSecondPerson(hr.settings)));
+  const otherDecider = hr.employees.some(x => x.id !== me.id && !x.endDate && canDo(x.roles, 'staff.change.decide'));
   const [approvingAll, setApprovingAll] = useState(false);
   const approveAllHires = async () => {
     setApprovingAll(true);
@@ -521,6 +535,23 @@ function Staff() {
   return (
     <>
       <div className="row wrap"><h1 className="grow">ພະນັກງານ</h1>{canEdit && <button className="btn ghost" onClick={() => { setHire(null); setEdit(null); setImporting(true); }}>⬆ ນຳເຂົ້າຈາກ Excel</button>}{canEdit && <button className="btn" onClick={() => { setImporting(false); startHire(); }}>+ ເພີ່ມພະນັກງານ</button>}</div>
+      {canEdit && !bulk && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => { setEdit(null); setHire(null); setBulk({ dept: '*', shiftId: sharedShifts(hr.shifts)[0]?.id ?? '', dayOff: null }); }}>🕘 ຕັ້ງເວລາເຂົ້າ-ອອກໃຫ້ຫຼາຍຄົນ</button>}
+      {bulk && (() => { const who = bulkTargets(hr.employees, bulk.dept, today); return (
+        <div className="card col">
+          <div className="row"><h2 className="grow">ຕັ້ງກະ / ເວລາເຂົ້າ-ອອກ ໃຫ້ຫຼາຍຄົນພ້ອມກັນ</h2><button className="btn ghost" onClick={() => setBulk(null)}>ປິດ</button></div>
+          <span className="muted small">ໃຊ້ກະດຽວກັນກັບທັງອົງກອນ ຫຼື ທັງພະແນກ. ຢາກປ່ຽນເວລາຂອງກະເອງ (ເຊັ່ນ 08:00 → 07:30) ໃຫ້ແກ້ໃນ ກົດເກນ & ຕັ້ງຄ່າ → ກະວຽກ — ທຸກຄົນໃນກະນັ້ນປ່ຽນຕາມ. ຄົນທີ່ມີເວລາສະເພາະ ຈະຖືກຍ້າຍມາໃຊ້ກະນີ້.</span>
+          <div className="row wrap">
+            <label className="field">ໃຜ<select className="input" value={bulk.dept} onChange={e => setBulk({ ...bulk, dept: e.target.value })}><option value="*">ທຸກຄົນ</option>{depts.map(d => <option key={d} value={d}>ພະແນກ {d}</option>)}</select></label>
+            <label className="field">ກະ<select className="input" value={bulk.shiftId} onChange={e => setBulk({ ...bulk, shiftId: e.target.value })}>{sharedShifts(hr.shifts).map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
+          </div>
+          <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={bulk.dayOff !== null} onChange={e => setBulk({ ...bulk, dayOff: e.target.checked ? [0] : null })} />ປ່ຽນວັນພັກປະຈຳອາທິດນຳ</label>
+          {bulk.dayOff && <div className="row wrap">{['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'].map((d, i) => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={bulk.dayOff!.includes(i)} onChange={() => setBulk({ ...bulk, dayOff: bulk.dayOff!.includes(i) ? bulk.dayOff!.filter(x => x !== i) : [...bulk.dayOff!, i] })} />{d}</label>)}</div>}
+          <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={!who.length || !bulk.shiftId} onClick={async () => {
+            if (!confirm(`ຕັ້ງກະນີ້ໃຫ້ ${who.length} ຄົນ?`)) return;
+            for (const e of who) await hr.save('employees', { ...e, shiftId: bulk.shiftId, ...(bulk.dayOff ? { dayOff: bulk.dayOff } : {}) }, 'shift-bulk');
+            setMsg(`ຕັ້ງກະໃຫ້ ${who.length} ຄົນແລ້ວ`); setBulk(null);
+          }}>ໃຊ້ກັບ {who.length} ຄົນ</button>
+        </div>); })()}
       {importing && <StaffImport onClose={() => setImporting(false)} onDone={m => { setImporting(false); setMsg(m); }} />}
       {msg && <div className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {changes.filter(c => c.status === 'pending').length > 0 && (
@@ -529,7 +560,13 @@ function Staff() {
           {changes.filter(c => c.status === 'pending').map(c => (
             <div key={c.id} className="row wrap"><span className="grow">{changeText(c, hr.employees)} · ໂດຍ {nameOf(hr.employees, c.by)}</span>
               {canDecideChange && c.by !== me.id && <><button className="btn danger" onClick={() => decideChange(c, false)}>ປະຕິເສດ</button><button className="btn" onClick={() => decideChange(c, true)}>ອະນຸມັດ</button></>}
-              {c.by === me.id && <span className="muted small">ລໍຄົນອື່ນອະນຸມັດ</span>}</div>))}
+              {c.by === me.id && changeNeedsSecondPerson(hr.settings) && <span className="muted small">ລໍຄົນອື່ນອະນຸມັດ</span>}
+              {c.by === me.id && !changeNeedsSecondPerson(hr.settings) && canDecideChange && <><button className="btn danger" onClick={() => decideChange(c, false)}>ຍົກເລີກຄຳຂໍ</button><button className="btn" onClick={() => decideChange(c, true)}>ນຳໃຊ້ເລີຍ</button></>}</div>))}
+          {changeNeedsSecondPerson(hr.settings) && !otherDecider && changes.some(c => c.status === 'pending' && c.by === me.id) && (
+            <div className="row wrap" style={{ background: 'var(--warn-bg)', borderRadius: 12, padding: '8px 12px' }}>
+              <span className="grow small">ບໍ່ມີຄົນອື່ນທີ່ອະນຸມັດໄດ້ (ເຈົ້າຂອງ ຫຼື ບັນຊີ). ຖ້າບໍ່ຕ້ອງການກວດ 2 ຄົນ ໃຫ້ປິດ ແລ້ວກົດ "ນຳໃຊ້ເລີຍ" — ມີບັນທຶກໃນ Audit log.</span>
+              {canDo(me.roles, 'settings.edit') && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
+            </div>)}
         </div>)}
       <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th><th /></tr></thead><tbody>
         {hr.employees.map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
@@ -542,7 +579,16 @@ function Staff() {
           <h2>ແກ້ໄຂ: {edit.name}</h2>
           <label className="field">ເງິນເດືອນພື້ນຖານ<input className="input" inputMode="numeric" value={salary} onChange={e => setSalary(e.target.value.replace(/\D/g, ''))} /></label>
           <label className="field">ເລກບັນຊີທະນາຄານ<input className="input" value={acct} onChange={e => setAcct(e.target.value)} /></label>
-          <label className="field">ກະປະຈຳ<select className="input" value={shiftSel} onChange={e => setShiftSel(e.target.value)}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
+          <label className="field">ກະປະຈຳ / ເວລາເຂົ້າ-ອອກ<select className="input" value={shiftSel} onChange={e => setShiftSel(e.target.value)}>{sharedShifts(hr.shifts).map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}<option value={CUSTOM}>ກຳນົດເວລາສະເພາະຄົນນີ້…</option></select></label>
+          {shiftSel === CUSTOM && (
+            <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12, gap: 8 }}>
+              <span className="muted small">ເວລາເຂົ້າ-ອອກຂອງ {edit.name} ຄົນດຽວ. ຄິດມາຊ້າ, OT ແລະ ລືມລົງເວລາອອກ ຈາກເວລານີ້. ອອກກາຍທ່ຽງຄືນໄດ້ (ເຊັ່ນ 22:00 → 06:00).</span>
+              <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={!!own.flexible} onChange={e => setOwn({ ...own, flexible: e.target.checked, dailyHours: own.dailyHours ?? 8 })} />ຢືດຢຸ່ນ (ບໍ່ກຳນົດເວລາ, ບໍ່ຄິດມາຊ້າ)</label>
+              {own.flexible
+                ? <label className="field" style={{ maxWidth: 160 }}>ຊົ່ວໂມງ/ມື້<input className="input" inputMode="decimal" value={Number.isFinite(own.dailyHours) ? own.dailyHours : ''} onChange={e => setOwn({ ...own, dailyHours: e.target.value === '' ? NaN : Number(e.target.value.replace(/[^\d.]/g, '')) })} /></label>
+                : <div className="row wrap">{([['start', 'ເຂົ້າ'], ['end', 'ອອກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
+                  <label key={k} className="field">{l}<input className="input" type="time" value={own[k]} onChange={e => setOwn({ ...own, [k]: e.target.value })} /></label>))}</div>}
+            </div>)}
           <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ວັນພັກປະຈຳອາທິດ</legend>
             <div className="row wrap">{['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'].map((d, i) => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={dayOffSel.includes(i)} onChange={() => setDayOffSel(dayOffSel.includes(i) ? dayOffSel.filter(x => x !== i) : [...dayOffSel, i])} />{d}</label>)}</div></fieldset>
           {canRoles && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ບົດບາດ (ສະເພາະເຈົ້າຂອງ ກຳນົດໄດ້ · ມີຜົນທັນທີ ແລະ ເກັບໃນ audit log)</legend>
@@ -577,7 +623,7 @@ function Staff() {
           <label className="field">ຕຳແໜ່ງ<input className="input" value={hire.position} onChange={e => setH({ position: e.target.value })} /></label>
           <label className="field">ວັນເລີ່ມວຽກ<input className="input" type="date" value={hire.startDate} onChange={e => setH({ startDate: e.target.value })} /></label>
           <label className="field">ສາຂາຫຼັກ<select className="input" value={hire.homeBranchId} onChange={e => setH({ homeBranchId: e.target.value })}>{hr.branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label>
-          <label className="field">ກະປະຈຳ<select className="input" value={hire.shiftId} onChange={e => setH({ shiftId: e.target.value })}>{hr.shifts.map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
+          <label className="field">ກະປະຈຳ<select className="input" value={hire.shiftId} onChange={e => setH({ shiftId: e.target.value })}>{sharedShifts(hr.shifts).map(s => <option key={s.id} value={s.id}>{s.name} {shiftRange(s)}</option>)}</select></label>
           <label className="field">ເງິນເດືອນພື້ນຖານ<input className="input" inputMode="numeric" value={hire.baseSalary || ''} onChange={e => setH({ baseSalary: Number(e.target.value.replace(/\D/g, '')) })} /></label>
           <label className="field">ເບ້ຍລ້ຽງ<input className="input" inputMode="numeric" value={hire.allowance || ''} onChange={e => setH({ allowance: Number(e.target.value.replace(/\D/g, '')) })} /></label>
           <label className="field">ຮັບເງິນ<select className="input" value={hire.payMethod} onChange={e => setH({ payMethod: e.target.value as Employee['payMethod'] })}><option value="bank">ໂອນທະນາຄານ</option><option value="cash">ເງິນສົດ</option></select></label>
@@ -787,7 +833,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       </div>
       {tab === 'summary' && <>
         <div className="muted small">ກົດເກນທີ່ໃຊ້ຢູ່ຕອນນີ້ (ທີ່ບັນທຶກແລ້ວ) ອ່ານເປັນປະໂຫຍກ</div>
-        {rulesSummary(hr.settings, hr.shifts, hr.branches).map(sec => (
+        {rulesSummary(hr.settings, sharedShifts(hr.shifts), hr.branches).map(sec => (
           <div key={sec.title} className="card col">
             <div className="row"><h2 className="grow">{sec.title}</h2><button className="btn ghost" onClick={() => setTab(sec.tab)}>{readOnly ? 'ເບິ່ງ' : 'ແກ້ໄຂ'} ›</button></div>
             {sec.lines.map(l => <span key={l}>• {l}</span>)}
@@ -835,7 +881,8 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       </div>}
       {tab === 'shifts' && <div className="card col"><h2>ກະວຽກ</h2>
         <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ. ກະຢືດຢຸ່ນ: ເຂົ້າ-ອອກເວລາໃດກໍໄດ້ ບໍ່ຄິດມາຊ້າ</span>
-        {shiftRows.map(sh => (
+        {hr.shifts.some(s => s.personal) && <span className="muted small">ມີ {hr.shifts.filter(s => s.personal && hr.employees.some(e => e.shiftId === s.id)).length} ຄົນ ທີ່ໃຊ້ເວລາເຂົ້າ-ອອກສະເພາະຕົວ (ແກ້ໃນ ພະນັກງານ → ແກ້ໄຂ).</span>}
+        {shiftRows.filter(sh => !sh.personal).map(sh => (
           <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
             <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
             <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={!!sh.flexible} aria-label={`${sh.name} ຢືດຢຸ່ນ`} onChange={e => setShift(sh.id, { flexible: e.target.checked, dailyHours: sh.dailyHours ?? 8 })} />ຢືດຢຸ່ນ (ບໍ່ກຳນົດເວລາ)</label>

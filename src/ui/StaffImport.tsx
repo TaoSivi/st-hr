@@ -7,6 +7,7 @@ import { parseStaffRows, staffTemplate, type ImportResult } from '../domain/staf
 import { countedEmployees, limitsOf } from '../domain/company';
 import { changeNeedsSecondPerson } from '../domain/payroll';
 import { downloadBytes, money, ymd } from './format';
+import { sharedShifts } from '../domain/personalShift';
 
 /** Bring a staff list in from Excel: download the template, pick the filled file, check every row, then add the good ones. */
 export default function StaffImport({ onClose, onDone }: { onClose: () => void; onDone: (msg: string) => void }) {
@@ -20,14 +21,14 @@ export default function StaffImport({ onClose, onDone }: { onClose: () => void; 
   const branchName = (id: string) => hr.branches.find(b => b.id === id)?.name ?? '—';
   const shiftName = (id: string) => hr.shifts.find(s => s.id === id)?.name ?? '—';
 
-  const template = () => downloadBytes('ແບບຟອມ_ລາຍຊື່ພະນັກງານ.xlsx', buildXlsx(staffTemplate({ branches: hr.branches, shifts: hr.shifts })), XLSX_MIME);
+  const template = () => downloadBytes('ແບບຟອມ_ລາຍຊື່ພະນັກງານ.xlsx', buildXlsx(staffTemplate({ branches: hr.branches, shifts: sharedShifts(hr.shifts) })), XLSX_MIME);
   const pick = async (f?: File) => {
     if (!f) return;
     setErr(''); setRes(null); setFile(f.name);
     try {
       const bytes = new Uint8Array(await f.arrayBuffer());
       const table = /\.csv$/i.test(f.name) ? readCsvRows(new TextDecoder('utf-8').decode(bytes)) : readXlsxRows(bytes);
-      setRes(parseStaffRows(table, { existing: hr.employees, shifts: hr.shifts, branches: hr.branches, companyId: me.companyId, newId: uid }));
+      setRes(parseStaffRows(table, { existing: hr.employees, shifts: sharedShifts(hr.shifts), branches: hr.branches, companyId: me.companyId, newId: uid }));
     } catch (e: any) { setErr(e?.message || 'ອ່ານໄຟລ໌ບໍ່ໄດ້'); }
   };
 

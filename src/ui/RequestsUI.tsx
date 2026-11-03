@@ -10,6 +10,7 @@ import { getDeviceId, deviceLabel } from '../device/deviceId';
 import { deviceChangeBlock } from '../domain/device';
 import { faceResetBlock, POSES } from '../domain/face';
 import { shiftRange } from '../domain/leavePart';
+import { shiftsFor } from '../domain/personalShift';
 
 export const EXPENSE_CATEGORIES = ['ເດີນທາງ', 'ອາຫານ / ຮັບແຂກ', 'ຊື້ເຄື່ອງໃຫ້ຮ້ານ', 'ໂທລະສັບ / ອິນເຕີເນັດ', 'ອື່ນໆ'];
 
@@ -101,7 +102,7 @@ export function RequestSheet({ kind, onClose: closeNow, initial }: { kind: Reque
         {kind === 'schedule' && <>
           <div className="row"><label className="field grow">ແຕ່ວັນທີ<input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
             <label className="field grow">ຫາວັນທີ<input className="input" type="date" value={date2} onChange={e => setDate2(e.target.value)} /></label></div>
-          <div className="row wrap">{[...hr.shifts.map(s => [s.id, `${s.name} ${shiftRange(s)}`]), ['off', 'ພັກ']].map(([id, label]) =>
+          <div className="row wrap">{[...shiftsFor(hr.shifts, me.id).map(s => [s.id, `${s.personal ? 'ເວລາຂອງຂ້ອຍ' : s.name} ${shiftRange(s)}`]), ['off', 'ພັກ']].map(([id, label]) =>
             <button key={id} className={`btn ${shiftId === id ? '' : 'ghost'}`} aria-pressed={shiftId === id} onClick={() => setShiftId(id)}>{label}</button>)}</div>
         </>}
         {kind === 'expense' && <>

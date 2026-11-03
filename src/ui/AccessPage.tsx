@@ -43,9 +43,9 @@ export default function AccessPage() {
 
   // approvals + menus are edited together and saved with one button
   const [draft, setDraft] = useState(() => ({ ...hr.settings }));
-  const stored = JSON.stringify([hr.settings.leaveApproverRoles, hr.settings.approverRoles, hr.settings.employeeMenus, hr.settings.leaveApproversRequired]);
+  const stored = JSON.stringify([hr.settings.leaveApproverRoles, hr.settings.approverRoles, hr.settings.employeeMenus, hr.settings.leaveApproversRequired, hr.settings.makerChecker]);
   useEffect(() => { setDraft({ ...hr.settings }); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
-  const dirty = JSON.stringify([draft.leaveApproverRoles, draft.approverRoles, draft.employeeMenus, draft.leaveApproversRequired]) !== stored;
+  const dirty = JSON.stringify([draft.leaveApproverRoles, draft.approverRoles, draft.employeeMenus, draft.leaveApproversRequired, draft.makerChecker]) !== stored;
   const errors = validateSettings(draft);
 
   const toggleApprover = (key: ApprovalKey | 'leave', role: Role) => setDraft(d => {
@@ -65,7 +65,7 @@ export default function AccessPage() {
   });
   const saveRules = async () => {
     if (readOnly || errors.length) return;
-    await hr.save('settings', { ...hr.settings, leaveApproverRoles: draft.leaveApproverRoles, approverRoles: draft.approverRoles, employeeMenus: draft.employeeMenus, leaveApproversRequired: draft.leaveApproversRequired, id: hr.settings.companyId }, 'settings-update');
+    await hr.save('settings', { ...hr.settings, leaveApproverRoles: draft.leaveApproverRoles, approverRoles: draft.approverRoles, employeeMenus: draft.employeeMenus, leaveApproversRequired: draft.leaveApproversRequired, makerChecker: draft.makerChecker, id: hr.settings.companyId }, 'settings-update');
     setMsg('ບັນທຶກສິດການອະນຸມັດ ແລະ ເມນູແລ້ວ');
   };
 
@@ -144,6 +144,8 @@ export default function AccessPage() {
               {PICKABLE.map(r => <td key={r} style={{ textAlign: 'center' }}><input type="checkbox" aria-label={`${label} — ${ROLE_NAMES[r]}`} disabled={readOnly} checked={roles.includes(r)} onChange={() => toggleApprover(key, r)} /></td>)}
               <td style={{ textAlign: 'center' }}><input type="checkbox" checked disabled aria-label={`${label} — ເຈົ້າຂອງ (ສະເໝີ)`} /></td></tr>); })}
         </tbody></table></div>
+        <label className="row" style={{ minHeight: 44 }}><input type="checkbox" disabled={readOnly} checked={draft.makerChecker} onChange={e => setDraft({ ...draft, makerChecker: e.target.checked })} />ການຈ້າງ, ປິດບັນຊີ, ປ່ຽນເງິນເດືອນ / ເລກບັນຊີ ຕ້ອງໃຫ້ອີກຄົນອະນຸມັດ (ກວດ 2 ຄົນ)</label>
+        {!draft.makerChecker && <span className="small" style={{ color: 'var(--warn)' }}>ປິດຢູ່: ຄົນທີ່ແກ້ໄຂ ບັນທຶກໄດ້ເລີຍ ບໍ່ຕ້ອງລໍໃຜອະນຸມັດ (ຍັງມີບັນທຶກໃນ Audit log). ເໝາະກັບຮ້ານທີ່ມີເຈົ້າຂອງຄົນດຽວ.</span>}
         <label className="field" style={{ maxWidth: 320 }}>ຕ້ອງອະນຸມັດຈັກຄົນ (ທຸກເລື່ອງ)
           <select className="input" disabled={readOnly} value={draft.leaveApproversRequired} onChange={e => setDraft({ ...draft, leaveApproversRequired: Number(e.target.value) as 1 | 2 })}><option value={1}>1 ຄົນ</option><option value={2}>2 ຄົນ</option></select></label>
       </div>
