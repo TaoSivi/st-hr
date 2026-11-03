@@ -377,6 +377,7 @@ function CalendarTab() {
           })}
         </div>
       </div>
+      <div key={sel} className="stagger">
       <div ref={dayHead} className="row" style={{ alignItems: 'baseline', scrollMarginTop: 84 }}>
         <h2 className="grow">{laoDate(selDate)}</h2>
         {DAY_STYLE[selStatus] && <span className={`status-pill ${DAY_STYLE[selStatus]!.cls}`}>{DAY_STYLE[selStatus]!.label}</span>}
@@ -392,6 +393,7 @@ function CalendarTab() {
               <span className="muted" aria-hidden="true">›</span>
             </button>))}
         </div>)}
+      </div>
       <div className="card col" style={{ gap: 6 }}>
         <button className="row" style={{ border: 'none', background: 'none', padding: 0, justifyContent: 'space-between' }} onClick={() => setLegend(!legend)} aria-expanded={legend}>
           <b>ໝາຍເຫດ</b><span className="muted">{legend ? '▴' : '▾'}</span>

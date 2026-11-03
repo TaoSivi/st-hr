@@ -274,3 +274,44 @@ table.t td.num, table.t th.num { text-align: right; }
 .day-action { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 8px 10px; border: none; border-radius: 16px; background: transparent; text-align: left; transition: background .15s; }
 .day-action:hover, .day-action:active { background: var(--ok-bg); }
 .day-ico { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; background: var(--ok-bg); flex-shrink: 0; }
+
+/* ---------- press and motion: spring press, ripple from the finger, rise-in lists, sheets that slide up, screens that open from the tap ---------- */
+:root { --spring: cubic-bezier(.34, 1.56, .64, 1); --ease-out: cubic-bezier(.2, .8, .2, 1); --tap-x: 50vw; --tap-y: 60vh; }
+.btn, .clock-btn, .day-action, .bottomnav button, .loc-chip, .tabs button, .subtabs button, .drawer button, .mgr nav button, .cal-d { position: relative; overflow: hidden; }
+.fab { overflow: hidden; }
+.btn, .clock-btn, .day-action, .bottomnav button, .tabs button, .subtabs button, .cal-d, .fab, .loc-chip { -webkit-user-select: none; user-select: none; touch-action: manipulation; }
+.btn, .clock-btn, .day-action, .bottomnav button, .cal-d, .fab { transition: transform .38s var(--spring), background .15s, box-shadow .15s, color .15s, filter .15s; }
+.btn:active:not(:disabled), .clock-btn:active:not(:disabled), .day-action:active, .bottomnav button:active, .cal-d:active, .fab:active { transform: scale(.95); transition: transform .08s ease-out, background .15s; }
+.ripple-dot { position: absolute; border-radius: 50%; background: currentColor; opacity: .26; transform: scale(0); pointer-events: none; animation: ripple .62s var(--ease-out) forwards; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+@keyframes riseIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes popIn { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@keyframes selPop { 0% { transform: scale(.7); } 55% { transform: scale(1.14); } 100% { transform: scale(1); } }
+@keyframes navBounce { 0% { transform: scale(.65); } 60% { transform: scale(1.18); } 100% { transform: scale(1); } }
+@keyframes sheetUp { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes drawerIn { from { transform: translateX(-100%); } to { transform: none; } }
+@keyframes growFromTap { from { clip-path: circle(0px at var(--tap-x) var(--tap-y)); } to { clip-path: circle(160vmax at var(--tap-x) var(--tap-y)); } }
+
+.phone .screen > *:not(.sheet-back):not(.drawer-back):not(.fullscreen):not(.stagger), .stagger > * { animation: riseIn .42s var(--ease-out) both; }
+.phone .screen > *:nth-child(2), .stagger > *:nth-child(2) { animation-delay: .05s; }
+.phone .screen > *:nth-child(3), .stagger > *:nth-child(3) { animation-delay: .1s; }
+.phone .screen > *:nth-child(4), .stagger > *:nth-child(4) { animation-delay: .15s; }
+.phone .screen > *:nth-child(5) { animation-delay: .2s; }
+.phone .screen > *:nth-child(6) { animation-delay: .25s; }
+.phone .screen > *:nth-child(n+7) { animation-delay: .3s; }
+.stagger { display: flex; flex-direction: column; gap: 14px; }
+
+.sheet-back, .drawer-back { animation: fadeIn .25s ease-out both; }
+.sheet { animation: sheetUp .5s cubic-bezier(.2, .9, .25, 1.02) both; }
+.drawer { animation: drawerIn .38s var(--ease-out) both; }
+.fullscreen.scan { animation: growFromTap .6s var(--ease-out) both; }
+.fullscreen.result { animation: fadeIn .3s ease-out both; }
+.result .circle { animation: popIn .6s var(--spring) .1s both; }
+.cal-d.sel { animation: selPop .4s var(--ease-out); }
+.bottomnav button[aria-selected='true'] .ico { animation: navBounce .5s var(--spring); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
