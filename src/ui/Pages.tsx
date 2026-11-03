@@ -5,6 +5,8 @@ import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/expor
 import { featureBlock } from '../domain/company';
 import { shiftRange } from '../domain/leavePart';
 import { getDeviceId } from '../device/deviceId';
+import { squarePhoto } from '../device/photo';
+import Avatar from './Avatar';
 import { faceResetBlock, faceTemplates, POSES } from '../domain/face';
 import { effectiveShift, type HRRequest } from '../domain/requests';
 import MapCard, { type MapMark } from './MapCard';
@@ -19,14 +21,26 @@ export function Profile() {
   const me = hr.me!;
   const shift = hr.shifts.find(s => s.id === me.shiftId)!;
   const branch = hr.branches.find(b => b.id === me.homeBranchId);
+  const [photoErr, setPhotoErr] = useState('');
+  const pickPhoto = async (f?: File) => {
+    if (!f) return;
+    setPhotoErr('');
+    try { await hr.save('employees', { ...me, photo: await squarePhoto(f) }, 'profile-photo'); } catch (e: any) { setPhotoErr(e?.message || 'ບັນທຶກຮູບບໍ່ໄດ້'); }
+  };
   const row = (k: string, v: string) => <div className="row"><span className="grow muted">{k}</span><b style={{ textAlign: 'right' }}>{v}</b></div>;
   const mask = (a?: string) => (a && a.length > 4 ? '•••• ' + a.slice(-4) : a || '—');
   return (
     <div className="screen">
       <div className="card dark col" style={{ alignItems: 'center', textAlign: 'center' }}>
-        <span className="avatar" style={{ width: 84, height: 84, fontSize: 28 }}>{initials(me.name)}</span>
+        <Avatar e={me} size={96} />
         <b style={{ fontSize: 22 }}>{me.name}</b>
         <span style={{ color: '#9fd8d4' }}>{me.position} · {me.code}</span>
+        <div className="row wrap" style={{ justifyContent: 'center' }}>
+          <label className="btn ghost" style={{ cursor: 'pointer', background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }}>{me.photo ? 'ປ່ຽນຮູບໂປຟາຍ' : 'ເພີ່ມຮູບໂປຟາຍ'}
+            <input type="file" accept="image/*" hidden aria-label="ເລືອກຮູບໂປຟາຍ" onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} /></label>
+          {me.photo && <button className="btn ghost" style={{ background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }} onClick={() => hr.save('employees', { ...me, photo: undefined }, 'profile-photo')}>ລຶບຮູບ</button>}
+        </div>
+        {photoErr && <span className="error" role="alert">{photoErr}</span>}
       </div>
       <div className="card col">
         {row('ພະແນກ', me.dept)}{row('ສາຂາຫຼັກ', branch?.name ?? '—')}{row('ກະປະຈຳ', `${shift.name} ${shiftRange(shift)}`)}

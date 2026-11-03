@@ -13,6 +13,7 @@ import { getDeviceId } from '../device/deviceId';
 import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
+import Avatar from './Avatar';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
 import { MyRequests, RequestSheet } from './RequestsUI';
@@ -184,6 +185,7 @@ function ClockTab() {
   const [locating, setLocating] = useState(true);
   const [manual, setManual] = useState<Branch | null>(null);
   const [picking, setPicking] = useState(false);
+  const [showMap, setShowMap] = useState(false); // the map and the manual branch choice live inside the GPS row
   const [flow, setFlow] = useState<null | { kind: ScanKind; enroll: boolean }>(null);
   const workDay = useWorkDay(now);
   const todays = workDay.scans;
@@ -208,10 +210,16 @@ function ClockTab() {
   const shift = shifts.find(s => s.id === (todaysShift ?? me!.shiftId))!;
   const start = (kind: ScanKind) => setFlow({ kind, enroll: kind === 'in' && needsEnroll(me!) });
 
-  const chip = locating ? <span className="loc-chip">ກຳລັງຫາຕຳແໜ່ງ…</span>
-    : manual ? <button className="loc-chip warn" onClick={() => setPicking(true)}>ເລືອກເອງ: {manual.name} (ລໍຫົວໜ້າກວດ)</button>
-    : inside ? <span className="loc-chip ok">{near!.branch.name} · {Math.round(near!.distanceM)} ມ.</span>
-    : <button className="loc-chip" onClick={() => setPicking(true)}>{pos ? `ບໍ່ພົບສາຂາໃກ້ຄຽງ (${near ? Math.round(near.distanceM) + ' ມ.' : ''}) — ກົດເລືອກເອງ` : 'ບໍ່ມີ GPS — ກົດເລືອກສາຂາເອງ'}</button>;
+  const [chipTone, chipText] = locating ? ['', 'ກຳລັງຫາຕຳແໜ່ງ…']
+    : manual ? ['warn', `ເລືອກເອງ: ${manual.name} (ລໍຫົວໜ້າກວດ)`]
+    : inside ? ['ok', `${near!.branch.name} · ${Math.round(near!.distanceM)} ມ.`]
+    : ['', pos ? `ບໍ່ພົບສາຂາໃກ້ຄຽງ (${near ? Math.round(near.distanceM) + ' ມ.' : ''})` : 'ບໍ່ມີ GPS'];
+  const chip = (
+    <button className={`loc-chip ${chipTone}`} aria-expanded={showMap} aria-controls="gps-panel" onClick={() => setShowMap(v => !v)}>
+      <span className="grow">{chipText}</span>
+      <span className="muted small" style={{ whiteSpace: 'nowrap' }}>{showMap ? 'ເຊື່ອງແຜນທີ່ ▲' : 'ເບິ່ງແຜນທີ່ ▼'}</span>
+    </button>
+  );
 
   return (
     <div className="screen" style={{ paddingTop: 14 }}>
@@ -225,10 +233,11 @@ function ClockTab() {
                 : <button className="btn ghost" onClick={() => setFixing(d)}>ຂໍແກ້ເວລາອອກ</button>}</div>))}
         </div>)}
       {fixing && <RequestSheet kind="clockFix" initial={{ date: fixing, scanKind: 'out', time: shifts.find(s => s.id === (effectiveShift(me!, fixing, overrides) ?? me!.shiftId))?.end }} onClose={() => setFixing(null)} />}
-      <MapCard branches={branches} pos={pos}>
+      <div className="clock-hero">
+        <div className="who"><Avatar e={me!} size={64} /><div className="col" style={{ gap: 0, minWidth: 0 }}><b style={{ fontSize: 19 }}>{me!.name}</b><span className="small" style={{ color: '#9fd8d4' }}>{me!.position} · {me!.code}</span></div></div>
         <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
         <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>
-      </MapCard>
+      </div>
       <div className="row">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg>
         <div className="grow">{chip}</div>
@@ -236,12 +245,20 @@ function ClockTab() {
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" /></svg>
         </button>
       </div>
-      {picking && (
-        <div className="card col">
-          <b>ເລືອກສາຂາທີ່ເຈົ້າຢູ່</b>
-          <span className="muted small">ການເລືອກເອງຈະຖືກສົ່ງໃຫ້ຫົວໜ້າກວດ</span>
-          {branches.map(b => <button key={b.id} className="btn ghost" onClick={() => { setManual(b); setPicking(false); }}>{b.name}</button>)}
-          {manual && <button className="btn ghost" onClick={() => { setManual(null); setPicking(false); }}>ໃຊ້ GPS ຄືເກົ່າ</button>}
+      {showMap && (
+        <div id="gps-panel" className="col">
+          <MapCard branches={branches} pos={pos} />
+          {!inside && !picking && <button className="btn ghost" onClick={() => setPicking(true)}>{pos ? 'ບໍ່ຢູ່ໃນສາຂາ — ເລືອກສາຂາເອງ' : 'ບໍ່ມີ GPS — ເລືອກສາຂາເອງ'}</button>}
+          {manual && !picking && <button className="btn ghost" onClick={() => setManual(null)}>ໃຊ້ GPS ຄືເກົ່າ</button>}
+          {picking && (
+            <div className="card col">
+              <b>ເລືອກສາຂາທີ່ເຈົ້າຢູ່</b>
+              <span className="muted small">ການເລືອກເອງຈະຖືກສົ່ງໃຫ້ຫົວໜ້າກວດ</span>
+              {branches.map(b => <button key={b.id} className="btn ghost" onClick={() => { setManual(b); setPicking(false); }}>{b.name}</button>)}
+              {manual && <button className="btn ghost" onClick={() => { setManual(null); setPicking(false); }}>ໃຊ້ GPS ຄືເກົ່າ</button>}
+              <button className="btn ghost" onClick={() => setPicking(false)}>ຍົກເລີກ</button>
+            </div>
+          )}
         </div>
       )}
       <div className="clock-grid">

@@ -48,6 +48,7 @@ export interface Employee {
   facePoses?: number[][]; // descriptors turned slightly to each side; a scan is matched against all of them
   faceReenroll?: boolean; // a manager approved taking the face again; the next clock-in does it
   faceConsentAt?: string;
+  photo?: string; // profile photo (small square JPEG data URL), shown on the clock screen and the profile
   deviceId?: string; // the phone this account is bound to; a scan from another phone goes to review
   deviceBoundAt?: string;
 }
