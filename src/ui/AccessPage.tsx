@@ -105,7 +105,7 @@ export default function AccessPage() {
 
   return (
     <>
-      <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ສະເພາະເຈົ້າຂອງ ປ່ຽນໄດ້ · ທຸກການປ່ຽນມີບັນທຶກໃນ Audit log'}</span><h1>ສິດ & ການອະນຸມັດ</h1></div>
+      <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ສະເພາະເຈົ້າຂອງ ປ່ຽນໄດ້ · ທຸກການປ່ຽນມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ'}</span><h1>ສິດ & ການອະນຸມັດ</h1></div>
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
 
       {hr.online && canRoles && (
@@ -164,7 +164,7 @@ export default function AccessPage() {
               <td style={{ textAlign: 'center' }}><input type="checkbox" checked disabled aria-label={`${label} — ເຈົ້າຂອງ (ສະເໝີ)`} /></td></tr>); })}
         </tbody></table></div>
         <label className="row" style={{ minHeight: 44 }}><input type="checkbox" disabled={readOnly} checked={draft.makerChecker} onChange={e => setDraft({ ...draft, makerChecker: e.target.checked })} />ການຈ້າງ, ປິດບັນຊີ, ປ່ຽນເງິນເດືອນ / ເລກບັນຊີ ຕ້ອງໃຫ້ອີກຄົນອະນຸມັດ (ກວດ 2 ຄົນ)</label>
-        {!draft.makerChecker && <span className="small" style={{ color: 'var(--warn)' }}>ປິດຢູ່: ຄົນທີ່ແກ້ໄຂ ບັນທຶກໄດ້ເລີຍ ບໍ່ຕ້ອງລໍໃຜອະນຸມັດ (ຍັງມີບັນທຶກໃນ Audit log). ເໝາະກັບຮ້ານທີ່ມີເຈົ້າຂອງຄົນດຽວ.</span>}
+        {!draft.makerChecker && <span className="small" style={{ color: 'var(--warn)' }}>ປິດຢູ່: ຄົນທີ່ແກ້ໄຂ ບັນທຶກໄດ້ເລີຍ ບໍ່ຕ້ອງລໍໃຜອະນຸມັດ (ຍັງມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ). ເໝາະກັບຮ້ານທີ່ມີເຈົ້າຂອງຄົນດຽວ.</span>}
         <label className="field" style={{ maxWidth: 320 }}>ຕ້ອງອະນຸມັດຈັກຄົນ (ທຸກເລື່ອງ)
           <select className="input" disabled={readOnly} value={draft.leaveApproversRequired} onChange={e => setDraft({ ...draft, leaveApproversRequired: Number(e.target.value) as 1 | 2 })}><option value={1}>1 ຄົນ</option><option value={2}>2 ຄົນ</option></select></label>
       </div>

@@ -103,7 +103,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
         </div>
         {page === 'clock' && <div className="greet"><span>{greeting(new Date())}</span><b>ມື້ນີ້ພ້ອມເຮັດວຽກແລ້ວບໍ?</b></div>}
         {!isMain && (
-          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 36, padding: '0 12px' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
+          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 44, padding: '0 14px' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
         )}
       </header>
       {isMain && (
@@ -439,7 +439,7 @@ function LeaveTab() {
   const comp = compBalanceFor(hr, me!, today);
   const mine = leaves.filter(l => l.employeeId === me!.id).sort((a, b) => b.from.localeCompare(a.from));
   const shown = tab === 'all' ? mine : mine.filter(l => l.status === tab);
-  const subs: [typeof tab, string][] = [['pending', 'ລໍ'], ['approved', 'ອະນຸມັດແລ້ວ'], ['rejected', 'ບໍ່ອະນຸມັດ'], ['all', 'ທັງໝົດ']];
+  const subs: [typeof tab, string][] = [['pending', 'ລໍຖ້າ'], ['approved', 'ອະນຸມັດແລ້ວ'], ['rejected', 'ບໍ່ອະນຸມັດ'], ['all', 'ທັງໝົດ']];
   const pill = (s: string) => <span className={`status-pill ${s}`}>{s === 'approved' ? 'ອະນຸມັດແລ້ວ' : s === 'rejected' ? 'ບໍ່ອະນຸມັດ' : 'ລໍອະນຸມັດ'}</span>;
   return (
     <>
@@ -503,10 +503,12 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
     <div className={`sheet-back${closing ? ' closing' : ''}`} onClick={onClose}>
       <div className="sheet col" onClick={e => e.stopPropagation()} role="dialog" aria-label="ຂໍລາ">
         <h2>ຂໍລາ</h2>
+        <div className="col" style={{ gap: 6 }}><span className="muted small">ປະເພດການລາ</span>
         <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
-          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}</button>))}</div>
+          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}</button>))}</div></div>
+        <div className="col" style={{ gap: 6 }}><span className="muted small">ລາເທົ່າໃດ</span>
         <div className="row wrap">{([['full', 'ເຕັມວັນ'], ['am', PART_LABEL.am], ['pm', PART_LABEL.pm], ['hours', PART_LABEL.hours]] as [LeavePart | 'full', string][]).map(([p, label]) => (
-          <button key={p} className={`btn ${part === p ? '' : 'ghost'}`} onClick={() => pickPart(p)} aria-pressed={part === p}>{label}</button>))}</div>
+          <button key={p} className={`btn ${part === p ? '' : 'ghost'}`} onClick={() => pickPart(p)} aria-pressed={part === p}>{label}</button>))}</div></div>
         <div className="row"><label className="field grow">{partial ? 'ວັນທີ' : 'ແຕ່ວັນທີ'}<input className="input" type="date" value={from} onChange={e => { setFrom(e.target.value); if (partial) setTo(e.target.value); }} /></label>
           {!partial && <label className="field grow">ຫາວັນທີ<input className="input" type="date" value={to} onChange={e => setTo(e.target.value)} /></label>}
           {part === 'hours' && <label className="field" style={{ width: 110 }}>ຊົ່ວໂມງ<input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value.replace(/[^\d.]/g, ''))} /></label>}</div>

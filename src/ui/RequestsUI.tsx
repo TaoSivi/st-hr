@@ -155,7 +155,7 @@ export function MyRequests({ kinds, onPrint }: { kinds: RequestKind[]; onPrint?:
   const nameOf = (id: string) => hr.employees.find(e => e.id === id)?.name ?? id;
   return (
     <div className="screen">
-      <div className="row wrap">{kinds.map(k => <button key={k} className="btn" onClick={() => setSheet(k)}>+ {REQUEST_LABEL[k]}</button>)}</div>
+      <div className="req-grid">{kinds.map(k => <button key={k} className="btn" onClick={() => setSheet(k)}>+ {REQUEST_LABEL[k]}</button>)}</div>
       {mine.length === 0 && <div className="empty">ຍັງບໍ່ມີຄຳຂໍ</div>}
       {mine.map(r => (
         <div key={r.id} className="card col" style={{ gap: 4 }}>

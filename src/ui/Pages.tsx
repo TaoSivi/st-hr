@@ -30,7 +30,7 @@ export function Profile() {
     try { await hr.save('employees', { ...me, photo: await squarePhoto(f) }, 'profile-photo'); } catch (e: any) { setPhotoErr(e?.message || 'ບັນທຶກຮູບບໍ່ໄດ້'); }
   };
   const row = (k: string, v: string) => <div className="row"><span className="grow muted">{k}</span><b style={{ textAlign: 'right' }}>{v}</b></div>;
-  const mask = (a?: string) => (a && a.length > 4 ? '•••• ' + a.slice(-4) : a || '—');
+  const mask = (a?: string) => (a && /^d{5,}$/.test(a) ? '•••• ' + a.slice(-4) : a || '—'); // only a real number is cut to its last digits; text is shown whole
   return (
     <div className="screen">
       <div className="card dark col" style={{ alignItems: 'center', textAlign: 'center' }}>
@@ -38,8 +38,8 @@ export function Profile() {
         <b style={{ fontSize: 22 }}>{me.name}</b>
         <span style={{ color: '#9fd8d4' }}>{me.position} · {me.code}</span>
         <div className="row wrap" style={{ justifyContent: 'center' }}>
-          <label className="btn ghost" style={{ cursor: 'pointer', background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }}>{me.photo ? 'ປ່ຽນຮູບໂປຟາຍ' : 'ເພີ່ມຮູບໂປຟາຍ'}
-            <input type="file" accept="image/*" hidden aria-label="ເລືອກຮູບໂປຟາຍ" onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} /></label>
+          <label className="btn ghost" style={{ cursor: 'pointer', background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }}>{me.photo ? 'ປ່ຽນຮູບໂປຣໄຟລ໌' : 'ເພີ່ມຮູບໂປຣໄຟລ໌'}
+            <input type="file" accept="image/*" hidden aria-label="ເລືອກຮູບໂປຣໄຟລ໌" onChange={e => { pickPhoto(e.target.files?.[0]); e.target.value = ''; }} /></label>
           {me.photo && <button className="btn ghost" style={{ background: 'transparent', color: '#fff', borderColor: 'var(--mint)' }} onClick={() => hr.save('employees', { ...me, photo: undefined }, 'profile-photo')}>ລຶບຮູບ</button>}
         </div>
         {photoErr && <span className="error" role="alert">{photoErr}</span>}

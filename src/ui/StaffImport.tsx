@@ -86,7 +86,7 @@ export default function StaffImport({ onClose, onDone }: { onClose: () => void; 
                 <td className="small">{r.errors.length ? <span style={{ color: 'var(--bad)' }}>{r.errors.join(' · ')}</span> : <span className="pill ok">ພ້ອມ</span>}</td>
               </tr>); })}
           </tbody></table></div>
-          <span className="muted small">{twoPeople ? 'ເປີດ "ກວດ 2 ຄົນ" ຢູ່: ການຈ້າງແຕ່ລະຄົນຈະລໍອີກຄົນ (ເຈົ້າຂອງ ຫຼື ບັນຊີ) ອະນຸມັດ ກ່ອນເຂົ້າລາຍຊື່.' : 'ພະນັກງານຈະເຂົ້າລາຍຊື່ທັນທີ ໃນບົດບາດ "ພະນັກງານ". ບົດບາດອື່ນໃຫ້ກຳນົດຕໍ່ໃນ ແກ້ໄຂ.'} ທຸກລາຍການຖືກບັນທຶກໃນ Audit log.</span>
+          <span className="muted small">{twoPeople ? 'ເປີດ "ກວດ 2 ຄົນ" ຢູ່: ການຈ້າງແຕ່ລະຄົນຈະລໍອີກຄົນ (ເຈົ້າຂອງ ຫຼື ບັນຊີ) ອະນຸມັດ ກ່ອນເຂົ້າລາຍຊື່.' : 'ພະນັກງານຈະເຂົ້າລາຍຊື່ທັນທີ ໃນບົດບາດ "ພະນັກງານ". ບົດບາດອື່ນໃຫ້ກຳນົດຕໍ່ໃນ ແກ້ໄຂ.'} ທຸກລາຍການຖືກບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ.</span>
           <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={busy || !res.ok.length} onClick={go}>{busy ? 'ກຳລັງບັນທຶກ…' : twoPeople ? `ສົ່ງ ${res.ok.length} ຄົນ ໃຫ້ອະນຸມັດ` : `ນຳເຂົ້າ ${res.ok.length} ຄົນ`}</button>
         </>
       )}

@@ -38,7 +38,7 @@ import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, s
 type Page = ManagerPage;
 const PAGE_LABEL: Record<Page, string> = {
   overview: 'ພາບລວມ', review: 'ກວດການລົງເວລາ', approvals: 'ອະນຸມັດຄຳຂໍ', time: 'ລົງເວລາມື້ນີ້', reports: 'ລາຍງານທີມ', map: 'ແຜນທີ່',
-  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'Audit log'
+  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'ບັນທຶກການແກ້ໄຂ'
 };
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
 const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', access: 'privacy', settings: 'settings', audit: 'audit' };
@@ -582,7 +582,7 @@ function Staff() {
               {c.by === me.id && !(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) && canDecideChange && <><button className="btn danger" onClick={() => decideChange(c, false)}>ຍົກເລີກຄຳຂໍ</button><button className="btn" onClick={() => decideChange(c, true)}>ນຳໃຊ້ເລີຍ</button></>}</div>))}
           {(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) && !otherDecider && changes.some(c => c.status === 'pending' && c.by === me.id) && (
             <div className="row wrap" style={{ background: 'var(--warn-bg)', borderRadius: 12, padding: '8px 12px' }}>
-              <span className="grow small">ບໍ່ມີຄົນອື່ນທີ່ອະນຸມັດໄດ້ (ເຈົ້າຂອງ ຫຼື ບັນຊີ). ຖ້າບໍ່ຕ້ອງການກວດ 2 ຄົນ ໃຫ້ປິດ ແລ້ວກົດ "ນຳໃຊ້ເລີຍ" — ມີບັນທຶກໃນ Audit log.</span>
+              <span className="grow small">ບໍ່ມີຄົນອື່ນທີ່ອະນຸມັດໄດ້ (ເຈົ້າຂອງ ຫຼື ບັນຊີ). ຖ້າບໍ່ຕ້ອງການກວດ 2 ຄົນ ໃຫ້ປິດ ແລ້ວກົດ "ນຳໃຊ້ເລີຍ" — ມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ.</span>
               {canDo(me.roles, 'settings.edit') && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
             </div>)}
         </div>)}
@@ -876,7 +876,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
     if (!saved) return setShiftRows(rows => rows.filter(r => r.id !== sh.id)); // never saved: just drop the row
     const block = shiftDeleteBlock(saved, { shifts: hr.shifts, employees: hr.employees, overrides: hr.overrides, requests: hr.requests });
     if (block) return setMsg(`ລຶບກະ "${sh.name || '—'}" ບໍ່ໄດ້: ${block}`);
-    if (!confirm(`ລຶບກະ "${saved.name}" ຖາວອນ? ການລຶບມີບັນທຶກໃນ Audit log.`)) return;
+    if (!confirm(`ລຶບກະ "${saved.name}" ຖາວອນ? ການລຶບມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ.`)) return;
     await hr.remove('shifts', saved.id, 'shift-delete');
     setShiftRows(rows => rows.filter(r => r.id !== sh.id));
     setMsg(`ລຶບກະ "${saved.name}" ແລ້ວ`);
@@ -1012,7 +1012,7 @@ function Audit() {
   useEffect(() => { hr.store.audit().then(r => setRows([...r].reverse())); }, [hr.store, hr.employees, hr.scans, hr.leaves, hr.payrollRuns, hr.settings]);
   return (
     <>
-      <div className="col" style={{ gap: 0 }}><span className="muted">ບັນທຶກທຸກການປ່ຽນແປງ · ລຶບ ແລະ ແກ້ບໍ່ໄດ້</span><h1>Audit log</h1></div>
+      <div className="col" style={{ gap: 0 }}><span className="muted">ບັນທຶກທຸກການປ່ຽນແປງ · ລຶບ ແລະ ແກ້ບໍ່ໄດ້</span><h1>ບັນທຶກການແກ້ໄຂ</h1></div>
       <div className="card scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ໂດຍ</th><th>ການກະທຳ</th><th>ຂໍ້ມູນ</th><th>ID</th></tr></thead><tbody>
         {rows.filter(r => r.action !== 'seed').slice(0, 200).map(r => <tr key={r.id}><td className="small">{ymd(new Date(r.at))} {new Date(r.at).toTimeString().slice(0, 8)}</td><td>{nameOf(hr.employees, r.by)}</td><td><span className="pill info">{r.action}</span></td><td>{r.entity}</td><td className="small muted">{r.entityId}</td></tr>)}
       </tbody></table>{rows.filter(r => r.action !== 'seed').length === 0 && <div className="empty">ຍັງບໍ່ມີການປ່ຽນແປງ</div>}</div>

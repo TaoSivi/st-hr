@@ -60,7 +60,7 @@ export default function BackupCard({ readOnly }: { readOnly: boolean }) {
             <input type="file" accept=".json,application/json" hidden aria-label="ເລືອກໄຟລ໌ສຳຮອງ" onChange={e => { restore(e.target.files?.[0]); e.target.value = ''; }} />
           </label>
         </div>
-        <span className="muted small">ໄຟລ໌ສຳຮອງມີທຸກຢ່າງຂອງບໍລິສັດນີ້: ພະນັກງານ, ການລົງເວລາ (ລວມຮູບ), ການລາ, ເງິນເດືອນ, ກົດເກນ ແລະ Audit log. ໃຊ້ກູ້ຄືນໃນເຄື່ອງໃໝ່ໄດ້.</span>
+        <span className="muted small">ໄຟລ໌ສຳຮອງມີທຸກຢ່າງຂອງບໍລິສັດນີ້: ພະນັກງານ, ການລົງເວລາ (ລວມຮູບ), ການລາ, ເງິນເດືອນ, ກົດເກນ ແລະ ບັນທຶກການແກ້ໄຂ. ໃຊ້ກູ້ຄືນໃນເຄື່ອງໃໝ່ໄດ້.</span>
       </>}
       {msg && <div className="pill ok" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
       {err && <div className="error" role="alert">{err}</div>}
