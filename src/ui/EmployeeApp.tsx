@@ -15,6 +15,7 @@ import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
 import Icon, { type IconName } from './Icon';
+import { DAY_ACTION_TEXT, dayActions, type DayAction } from '../domain/dayActions';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
 import { MyRequests, RequestSheet } from './RequestsUI';
@@ -36,7 +37,7 @@ const KIND_COLOR: Record<ScanKind, string> = { in: 'var(--primary)', breakStart:
 type Page = 'clock' | 'calendar' | 'leave' | 'pay' | 'advance' | 'profile' | 'directory' | 'notifications' | 'reports' | 'clockFix'
   | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'map' | 'about' | 'privacy' | 'settings' | `approve:${ApprovalSection}`;
 
-const MAIN_TABS: [Page, string][] = [['clock', 'ລົງເວລາ'], ['calendar', 'ປະຕິທິນ'], ['leave', 'ລາ']];
+const MAIN_TABS: [Page, string, IconName][] = [['clock', 'ລົງເວລາ', 'clock'], ['calendar', 'ປະຕິທິນ', 'schedule'], ['leave', 'ລາ', 'leave']];
 
 /** The greeting that fits the hour. */
 const greeting = (d: Date) => (d.getHours() < 12 ? 'ສະບາຍດີຕອນເຊົ້າ' : d.getHours() < 17 ? 'ສະບາຍດີຕອນບ່າຍ' : 'ສະບາຍດີຕອນແລງ');
@@ -93,14 +94,15 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
           </button>
         </div>
         {page === 'clock' && <div className="greet"><span>{greeting(new Date())}</span><b>ມື້ນີ້ພ້ອມເຮັດວຽກແລ້ວບໍ?</b></div>}
-        {isMain ? (
-          <nav className="toptabs" role="tablist">
-            {MAIN_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}>{label}</button>)}
-          </nav>
-        ) : (
+        {!isMain && (
           <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 36, padding: '0 12px' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
         )}
       </header>
+      {isMain && (
+        <nav className="bottomnav" role="tablist" aria-label="ໜ້າຫຼັກ">
+          {MAIN_TABS.map(([id, label, icon]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}><Icon name={icon} size={22} /><span>{label}</span></button>)}
+        </nav>
+      )}
       {page === 'clock' && <ClockTab />}
       {page === 'calendar' && <CalendarTab />}
       {page === 'leave' && <LeaveTab />}
@@ -321,7 +323,10 @@ function CalendarTab() {
   const now = new Date();
   const [ym, setYm] = useState({ y: now.getFullYear(), m: now.getMonth() });
   const [sel, setSel] = useState(ymd(now));
-  const [legend, setLegend] = useState(true);
+  const [legend, setLegend] = useState(false);
+  const dayHead = useRef<HTMLDivElement>(null);
+  const pick = (date: string) => { setSel(date); setTimeout(() => dayHead.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }; // bring the chosen day and its actions into view
+  const [doing, setDoing] = useState<DayAction | null>(null); // the request being made from the selected day
   const shift = shifts.find(s => s.id === me!.shiftId)!;
   const mine = scans.filter(s => s.employeeId === me!.id);
   const myLeaves = leaves.filter(l => l.employeeId === me!.id);
@@ -338,6 +343,14 @@ function CalendarTab() {
   const move = (d: number) => setYm(({ y, m }) => { const t = new Date(y, m + d, 1); return { y: t.getFullYear(), m: t.getMonth() }; });
   const selDate = new Date(sel + 'T12:00:00');
   const selScans = [...scansOn(sessions, sel), ...mine.filter(s => s.status === 'rejected' && ymd(new Date(s.deviceTime)) === sel)].sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
+  const selStatus = statusOf(sel);
+  const selLeave = myLeaves.find(l => (l.status === 'pending' || l.status === 'approved') && l.from <= sel && l.to >= sel);
+  const actions = dayActions({
+    date: sel, today: ymd(now), startDate: me!.startDate, endDate: me!.endDate,
+    isDayOff: !effectiveShift(me!, sel, hr.overrides), isHoliday: (settings.holidays ?? []).includes(sel),
+    leave: selLeave ? { from: selLeave.from, to: selLeave.to, part: !!selLeave.part } : undefined
+  });
+  const ACTION_ICON: Record<DayAction, IconName> = { leave: 'leave', leaveCancel: 'leaveCancel', shiftSwap: 'shift', dayOffSwap: 'shift', schedule: 'schedule', clockFix: 'clockFix', ot: 'ot' };
   const counts = grid.filter(c => c.inMonth).reduce((a, c) => { const s = statusOf(c.date); a[s] = (a[s] ?? 0) + 1; return a; }, {} as Record<string, number>);
 
   return (
@@ -356,7 +369,7 @@ function CalendarTab() {
             const style = DAY_STYLE[st];
             return (
               <button key={c.date} className={`cal-d ${c.inMonth ? '' : 'out'} ${dow === 0 || st === 'holiday' ? 'red' : ''} ${c.date === ymd(now) ? 'today' : ''} ${c.date === sel ? 'sel' : ''}`}
-                onClick={() => setSel(c.date)} aria-label={`${c.date}${style ? ' ' + style.label : ''}`} aria-pressed={c.date === sel}>
+                onClick={() => pick(c.date)} aria-label={`${c.date}${style ? ' ' + style.label : ''}`} aria-pressed={c.date === sel}>
                 <span>{+c.date.slice(8)}</span>
                 {style && c.inMonth && <i className={`cal-dot ${style.cls}`} />}
               </button>
@@ -364,6 +377,21 @@ function CalendarTab() {
           })}
         </div>
       </div>
+      <div ref={dayHead} className="row" style={{ alignItems: 'baseline', scrollMarginTop: 84 }}>
+        <h2 className="grow">{laoDate(selDate)}</h2>
+        {DAY_STYLE[selStatus] && <span className={`status-pill ${DAY_STYLE[selStatus]!.cls}`}>{DAY_STYLE[selStatus]!.label}</span>}
+      </div>
+      <TimeCard date={selDate} scans={selScans} shift={shift} />
+      {actions.length > 0 && (
+        <div className="card col" style={{ gap: 4, padding: '14px 10px' }}>
+          <b style={{ padding: '0 10px 6px' }}>ເຮັດຫຍັງໄດ້ໃນມື້ນີ້</b>
+          {actions.map(a => (
+            <button key={a} className="day-action" onClick={() => setDoing(a)}>
+              <span className="day-ico"><Icon name={ACTION_ICON[a]} size={22} /></span>
+              <span className="col grow" style={{ gap: 0, textAlign: 'left' }}><b>{DAY_ACTION_TEXT[a].label}</b><span className="muted small">{DAY_ACTION_TEXT[a].hint}</span></span>
+              <span className="muted" aria-hidden="true">›</span>
+            </button>))}
+        </div>)}
       <div className="card col" style={{ gap: 6 }}>
         <button className="row" style={{ border: 'none', background: 'none', padding: 0, justifyContent: 'space-between' }} onClick={() => setLegend(!legend)} aria-expanded={legend}>
           <b>ໝາຍເຫດ</b><span className="muted">{legend ? '▴' : '▾'}</span>
@@ -377,8 +405,11 @@ function CalendarTab() {
           </div>
         )}
       </div>
-      <h2>{laoDate(selDate)}</h2>
-      <TimeCard date={selDate} scans={selScans} shift={shift} />
+      {doing === 'leave' && <LeaveForm left={leaveBalance(hr, me!, ymd(now)).left} compLeft={compBalanceFor(hr, me!, ymd(now)).left} initialDate={sel} onClose={() => setDoing(null)} />}
+      {doing && doing !== 'leave' && (
+        <RequestSheet kind={doing} onClose={() => setDoing(null)}
+          initial={{ date: sel, date2: sel, leaveId: selLeave?.id }} />
+      )}
     </div>
   );
 }
@@ -426,12 +457,12 @@ function LeaveTab() {
   );
 }
 
-function LeaveForm({ left, compLeft, onClose }: { left: number; compLeft: number; onClose: () => void }) {
+function LeaveForm({ left, compLeft, initialDate, onClose }: { left: number; compLeft: number; initialDate?: string; onClose: () => void }) {
   const { me, save, settings, leaves, shifts, overrides } = useHR();
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
-  const [from, setFrom] = useState(today);
-  const [to, setTo] = useState(today);
+  const [from, setFrom] = useState(initialDate ?? today);
+  const [to, setTo] = useState(initialDate ?? today);
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const [part, setPart] = useState<LeavePart | 'full'>('full');

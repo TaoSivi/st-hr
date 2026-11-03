@@ -13,12 +13,12 @@ import { shiftRange } from '../domain/leavePart';
 export const EXPENSE_CATEGORIES = ['ເດີນທາງ', 'ອາຫານ / ຮັບແຂກ', 'ຊື້ເຄື່ອງໃຫ້ຮ້ານ', 'ໂທລະສັບ / ອິນເຕີເນັດ', 'ອື່ນໆ'];
 
 /** One sheet for every request kind; the fields change, the submit path and rules do not. */
-export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; onClose: () => void; initial?: { date?: string; scanKind?: ScanKind; time?: string } }) {
+export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; onClose: () => void; initial?: { date?: string; date2?: string; scanKind?: ScanKind; time?: string; leaveId?: string } }) {
   const hr = useHR();
   const me = hr.me!;
   const today = ymd(new Date());
   const [date, setDate] = useState(initial?.date ?? today);
-  const [date2, setDate2] = useState(today);
+  const [date2, setDate2] = useState(initial?.date2 ?? today);
   const [time, setTime] = useState(initial?.time ?? '08:00');
   const [scanKind, setScanKind] = useState<ScanKind>(initial?.scanKind ?? 'in');
   const [minutes, setMinutes] = useState('60');
@@ -28,7 +28,7 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
   const [amount, setAmount] = useState('');
   const [receipt, setReceipt] = useState<string | undefined>();
   const [certType, setCertType] = useState<'salary' | 'employment'>('employment');
-  const [leaveId, setLeaveId] = useState('');
+  const [leaveId, setLeaveId] = useState(initial?.leaveId ?? '');
   const [reason, setReason] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
