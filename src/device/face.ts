@@ -1,5 +1,6 @@
 // Face matching runs on the phone; only the 128-number descriptors and a photo leave the device.
 import { yawOf } from '../domain/face';
+import { exposureBoost, frameStats, type FrameStats } from '../domain/faceQuality';
 export { matchScore } from '../domain/face';
 type FaceApi = typeof import('@vladmandic/face-api');
 
@@ -22,19 +23,51 @@ export function loadFaceModels(): Promise<FaceApi> {
   return loading;
 }
 
-/** Descriptor of the single most prominent face in the frame, and how far its head is turned, or null if none. */
-export async function describeFacePose(video: HTMLVideoElement): Promise<{ descriptor: number[]; yaw: number } | null> {
-  const faceapi = await loadFaceModels();
-  const res = await faceapi
-    .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
-    .withFaceLandmarks(true)
-    .withFaceDescriptor();
-  return res ? { descriptor: Array.from(res.descriptor), yaw: yawOf(res.landmarks.positions) } : null;
-}
+// face-api's default detector (320 / 0.5), then a more sensitive one: measured on real faces the second finds more of them when they are far or low-contrast,
+// and it did not invent faces in pictures that had none.
+const DETECTORS = [{ inputSize: 320, scoreThreshold: 0.5 }, { inputSize: 416, scoreThreshold: 0.3 }]; // the default first; the sensitive one only when the default finds nothing, so nothing it found before is lost
+const WORK_WIDTH = 640;
 
-/** Descriptor of the single most prominent face in the frame, or null if none. */
-export async function describeFace(video: HTMLVideoElement): Promise<number[] | null> {
-  return (await describeFacePose(video))?.descriptor ?? null;
+export interface SeenFace { descriptor: number[]; yaw: number; faceFrac: number }
+export interface FrameLook { stats: FrameStats; face: SeenFace | null }
+
+/**
+ * One look at the camera: the single most prominent face (its descriptor, how far the head is turned, how big it is in the frame)
+ * and how bright and sharp the frame is. A dark frame is brightened first, so a dim room still finds the face;
+ * enrolment and scanning both go through here, so both see the same kind of picture.
+ */
+export async function readFrame(source: HTMLVideoElement | HTMLCanvasElement): Promise<FrameLook> {
+  const faceapi = await loadFaceModels();
+  const sw = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+  const sh = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+  const scale = Math.min(1, WORK_WIDTH / (sw || WORK_WIDTH));
+  const work = document.createElement('canvas');
+  work.width = Math.max(1, Math.round(sw * scale)); work.height = Math.max(1, Math.round(sh * scale));
+  const g = work.getContext('2d', { willReadFrequently: true })!;
+  g.drawImage(source, 0, 0, work.width, work.height);
+
+  const small = document.createElement('canvas');
+  small.width = 160; small.height = 120;
+  small.getContext('2d', { willReadFrequently: true })!.drawImage(work, 0, 0, 160, 120);
+  const stats = frameStats(small.getContext('2d')!.getImageData(0, 0, 160, 120).data, 160, 120);
+
+  const boost = exposureBoost(stats.luma);
+  if (boost > 1) { // done on the pixels, not with a canvas filter, which iPhones' Safari does not support
+    const img = g.getImageData(0, 0, work.width, work.height);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) { d[i] = Math.min(255, d[i] * boost); d[i + 1] = Math.min(255, d[i + 1] * boost); d[i + 2] = Math.min(255, d[i + 2] * boost); }
+    g.putImageData(img, 0, 0);
+  }
+
+  let res = null;
+  for (const opts of DETECTORS) {
+    res = await faceapi.detectSingleFace(work, new faceapi.TinyFaceDetectorOptions(opts)).withFaceLandmarks(true).withFaceDescriptor();
+    if (res) break;
+  }
+  return {
+    stats,
+    face: res ? { descriptor: Array.from(res.descriptor), yaw: yawOf(res.landmarks.positions), faceFrac: res.detection.box.width / work.width } : null
+  };
 }
 
 export function snapshot(video: HTMLVideoElement, width = 240): string {

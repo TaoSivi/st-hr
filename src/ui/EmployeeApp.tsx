@@ -6,7 +6,8 @@ import { evaluateScan, nearestBranch } from '../domain/attendance';
 import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
 import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
-import { describeFace, describeFacePose, loadFaceModels, openFrontCamera, snapshot, stopCamera } from '../device/face';
+import { loadFaceModels, openFrontCamera, readFrame, snapshot, stopCamera } from '../device/face';
+import { frameAdvice, ISSUE_TEXT } from '../domain/faceQuality';
 import { averageDescriptors, bestFaceScore, faceTemplates, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE } from '../domain/face';
 import { getPosition, type Position } from '../device/geo';
 import { getDeviceId } from '../device/deviceId';
@@ -557,9 +558,12 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
       for (const [n, pose] of POSES.entries()) {
         const samples: number[][] = [];
         const front = pose.id === 'front';
+        let tip = ''; // what is wrong with the picture, once it has been wrong for a few tries
         for (let tries = 0; samples.length < SAMPLES_PER_POSE && tries < (front ? 30 : 45) && !cancelled.current; tries++) {
-          setMsg(`ທ່າ ${n + 1}/${POSES.length}: ${pose.hint}`);
-          const f = await describeFacePose(video.current!);
+          setMsg(tip || `ທ່າ ${n + 1}/${POSES.length}: ${pose.hint}`);
+          const look = await readFrame(video.current!);
+          const f = look.face;
+          if (!f && tries >= 2) { const issue = frameAdvice(look.stats, null); tip = issue ? ISSUE_TEXT[issue] : ''; } else if (f) tip = '';
           if (f && poseOk(pose.id, f.yaw, firstSideYaw)) {
             samples.push(f.descriptor);
             if (!front && firstSideYaw === undefined) firstSideYaw = f.yaw;
@@ -568,7 +572,7 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
         }
         if (cancelled.current) return;
         if (samples.length < SAMPLES_PER_POSE) {
-          if (front) throw new Error('ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
+          if (front) throw new Error(tip || 'ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
           continue; // a side pose that did not work is skipped; the face is still saved with the poses that did
         }
         done.push(averageDescriptors(samples));
@@ -630,6 +634,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
   const [face, setFace] = useState<Check>('wait');
   const [gps, setGps] = useState<Check>('wait');
   const [gpsLabel, setGpsLabel] = useState('ກຳລັງກວດບ່ອນຢູ່…');
+  const [hint, setHint] = useState(''); // what to fix when the face is not being found or matched
   const [result, setResult] = useState<ScanRecord | null>(null);
   const color = KIND_COLOR[kind];
 
@@ -647,12 +652,14 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
         if (self.cancelled) { stopCamera(self.stream); return; }
         await loadFaceModels();
         for (let i = 0; i < 20 && !self.cancelled; i++) {
-          const d = await describeFace(video.current!);
+          const look = await readFrame(video.current!);
+          const d = look.face?.descriptor;
           if (d && faceTemplates(me!).length) {
             score = Math.max(score ?? 0, bestFaceScore(d, me!) ?? 0);
             photo = snapshot(video.current!);
-            if (score >= settings.faceMinScore) break;
+            if (score >= settings.faceMinScore) { setHint(''); break; }
           }
+          if (i >= 2) { const issue = frameAdvice(look.stats, look.face?.faceFrac ?? null); setHint(issue ? ISSUE_TEXT[issue] : ''); }
           await new Promise(r => setTimeout(r, 250));
         }
       } catch { /* camera denied or unavailable → face stays null, scan goes to review */ }
@@ -736,6 +743,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
           <b style={{ fontSize: 22 }}>ລໍຫົວໜ້າກວດ</b>
           <div className="row wrap" style={{ justifyContent: 'center' }}>{result.reasons.map(r => <span key={r} className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 36, fontSize: 15 }}>{r}</span>)}</div>
           <span style={{ fontSize: 18 }}>ບໍ່ຕ້ອງເປັນຫ່ວງ<br />ເວລາ {hhmm(result.deviceTime)} ຂອງເຈົ້າຖືກບັນທຶກໄວ້ແລ້ວ</span>
+          {hint && <span style={{ fontSize: 16 }}>ເທື່ອຕໍ່ໄປ: {hint}</span>}
           {result.offline && <span className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 'auto', padding: '8px 14px', whiteSpace: 'normal', fontSize: 15 }}>ບໍ່ມີເນັດ — ຈະສົ່ງເມື່ອມີເນັດ</span>}
         </div>
         <button className="btn block" style={{ background: 'var(--warn)' }} onClick={onClose}>ຕົກລົງ</button>
@@ -753,6 +761,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       <div className={`facering ${face === 'ok' ? 'ok' : ''}`}><video ref={video} playsInline muted /></div>
       <div className="col" style={{ width: '100%', maxWidth: 420 }}>
         <div className="check"><span className={`dot ${face}`}>{face === 'ok' && <Tick />}{face === 'no' && '!'}</span>{face === 'wait' ? 'ກຳລັງຊອກໃບໜ້າ…' : face === 'ok' ? 'ພົບໃບໜ້າແລ້ວ' : 'ໜ້າບໍ່ຊັດ'}</div>
+        {hint && face === 'wait' && <div className="check" role="status" style={{ background: 'rgba(244,183,64,.2)', borderRadius: 12 }}><span className="dot no">!</span>{hint}</div>}
         <div className="check"><span className={`dot ${gps}`}>{gps === 'ok' && <Tick />}{gps === 'no' && '!'}</span>{gpsLabel}</div>
       </div>
       <div style={{ flex: 1 }} />
