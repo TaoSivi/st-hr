@@ -22,7 +22,7 @@ import { activeSession, scansOn, toSessions } from '../domain/sessions';
 import { effectiveShift } from '../domain/requests';
 import { getPosition } from '../device/geo';
 import { uid } from '../data/store';
-import { faceTemplates } from '../domain/face';
+import { faceCountOf } from '../data/remote';
 import { KIND_LABEL } from './labels';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { Reports, TeamMap } from './Pages';
@@ -589,7 +589,7 @@ function Staff() {
       <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th><th /></tr></thead><tbody>
         {hr.employees.map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
           <td className="num">{money(e.baseSalary)}</td><td className="small">{e.payMethod === 'cash' ? 'ເງິນສົດ' : `${e.bankName} ${e.bankAccount ?? ''}`}</td>
-          <td>{e.faceEnrolled ? <span className="pill ok">ລົງທະບຽນແລ້ວ · {faceTemplates(e).length} ທ່າ</span> : <span className="pill">ຍັງ</span>}</td>
+          <td>{faceCountOf(e) > 0 ? <span className="pill ok">ລົງທະບຽນແລ້ວ · {faceCountOf(e)} ທ່າ</span> : <span className="pill">ຍັງ</span>}</td>
           <td>{canEdit && !(e.endDate && e.endDate < today) && <button className="btn ghost" onClick={() => { setHire(null); open(e); }}>ແກ້ໄຂ</button>}</td></tr>)}
       </tbody></table></div>
       {edit && (

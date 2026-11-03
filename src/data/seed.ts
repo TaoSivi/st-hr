@@ -59,17 +59,22 @@ export async function seed(store: LocalStore) {
  * A fresh company: default shifts and settings, one branch (its GPS point is set in Settings), and the owner as the first person.
  * The owner has no salary, so they stay out of payroll until one is set.
  */
-export async function seedNewCompany(store: LocalStore, companyId: string, ownerName: string, today: string) {
-  if (store.isSeeded()) return;
-  const by = 'system';
+export function newCompanyRecords(companyId: string, ownerName: string, today: string) {
   const branch: Branch = { id: 'b-main', companyId, name: 'ສາຂາຫຼັກ', lat: 17.9757, lng: 102.6331, radiusM: 100 };
   const owner: Employee = {
     id: 'e-owner', companyId, code: 'ST-001', name: ownerName.trim() || 'ເຈົ້າຂອງ', dept: 'ບໍລິຫານ', position: 'ເຈົ້າຂອງ', roles: ['employee', 'owner'],
     homeBranchId: branch.id, shiftId: shifts[0].id, startDate: today, baseSalary: 0, allowance: 0, payMethod: 'cash'
   };
-  await store.put('branches', branch, by, 'seed');
-  await store.put('employees', owner, by, 'seed');
-  for (const sh of shifts) await store.put('shifts', sh, by, 'seed');
-  await store.put('settings', { id: companyId, ...defaultSettings(companyId) }, by, 'seed');
+  return { branch, owner, shifts, settings: { id: companyId, ...defaultSettings(companyId) } };
+}
+
+export async function seedNewCompany(store: LocalStore, companyId: string, ownerName: string, today: string) {
+  if (store.isSeeded()) return;
+  const by = 'system';
+  const r = newCompanyRecords(companyId, ownerName, today);
+  await store.put('branches', r.branch, by, 'seed');
+  await store.put('employees', r.owner, by, 'seed');
+  for (const sh of r.shifts) await store.put('shifts', sh, by, 'seed');
+  await store.put('settings', r.settings, by, 'seed');
   store.markSeeded();
 }

@@ -81,26 +81,45 @@ export default function AccessPage() {
   };
   const resetPins = async (list: Employee[]) => {
     const out: { code: string; name: string; pin: string }[] = [];
-    for (const e of list) {
-      const pin = tempPin();
-      await hr.save('employees', { ...e, ...(await pinFields(pin, true)) }, 'pin-reset');
-      out.push({ code: e.code, name: e.name, pin });
+    setMsg('');
+    try {
+      for (const e of list) {
+        const pin = tempPin();
+        if (hr.online) {
+          // an online login is made (or its PIN replaced) on the server; the flag makes the person choose their own PIN at first sign-in
+          await (hr.online.logins.has(e.id) ? hr.online.resetPin(e, pin) : hr.online.createLogin(e, pin));
+          await hr.save('employees', { ...e, pinMustChange: true }, 'pin-reset');
+        } else await hr.save('employees', { ...e, ...(await pinFields(pin, true)) }, 'pin-reset');
+        out.push({ code: e.code, name: e.name, pin });
+      }
+    } catch (e: any) {
+      setIssued(out);
+      return setMsg(`ອອກ PIN ໄດ້ ${out.length} ຄົນ ແລ້ວຢຸດ: ${e?.message || ''}`);
     }
     setIssued(out);
     setMsg(`ອອກ PIN ຊົ່ວຄາວ ${out.length} ຄົນ — ໃຫ້ແຕ່ລະຄົນ ແລ້ວເຂົາຕ້ອງຕັ້ງ PIN ເອງຕອນເຂົ້າເທື່ອທຳອິດ`);
   };
-  const noPin = people.filter(e => !e.pinHash && e.id !== me.id);
-  const pinState = (e: Employee) => (!e.pinHash ? <span className="pill warn">ຍັງບໍ່ມີ PIN</span> : e.pinMustChange ? <span className="pill info">PIN ຊົ່ວຄາວ</span> : <span className="pill ok">ມີ PIN</span>);
+  const hasLogin = (e: Employee) => (hr.online ? hr.online.logins.has(e.id) : !!e.pinHash);
+  const noPin = people.filter(e => !hasLogin(e) && e.id !== me.id);
+  const pinState = (e: Employee) => (!hasLogin(e) ? <span className="pill warn">ຍັງບໍ່ມີ PIN</span> : e.pinMustChange ? <span className="pill info">PIN ຊົ່ວຄາວ</span> : <span className="pill ok">ມີ PIN</span>);
 
   return (
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ສະເພາະເຈົ້າຂອງ ປ່ຽນໄດ້ · ທຸກການປ່ຽນມີບັນທຶກໃນ Audit log'}</span><h1>ສິດ & ການອະນຸມັດ</h1></div>
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
 
+      {hr.online && canRoles && (
+        <div className="card col">
+          <h2>ລິ້ງຕັ້ງຄ່າມືຖືພະນັກງານ</h2>
+          <span className="muted small">ສົ່ງລິ້ງນີ້ໃຫ້ພະນັກງານ (LINE / WhatsApp). ເປີດລິ້ງໃນມືຖືຂອງຕົນເອງ ແລ້ວເຂົ້າດ້ວຍລະຫັດພະນັກງານ + PIN. ລິ້ງບໍ່ມີຄວາມລັບ — PIN ເປັນຄວາມລັບ ຕ້ອງໃຫ້ແຕ່ລະຄົນແຍກ.</span>
+          <input className="input" readOnly value={hr.online.joinLink()} onFocus={e => e.target.select()} aria-label="ລິ້ງຕັ້ງຄ່າມືຖື" />
+          <div className="row wrap"><button className="btn" onClick={() => { navigator.clipboard?.writeText(hr.online!.joinLink()); setMsg('ຄັດລອກລິ້ງແລ້ວ'); }}>ຄັດລອກລິ້ງ</button><span className="muted small">ລະຫັດບໍລິສັດ: <b>{hr.companyId}</b></span></div>
+        </div>)}
+
       {issued.length > 0 && (
         <div className="card col" style={{ borderColor: 'var(--warn)', background: 'var(--warn-bg)' }}>
           <div className="row wrap"><h2 className="grow">PIN ຊົ່ວຄາວ (ສະແດງເທື່ອດຽວ)</h2><button className="btn ghost no-print" onClick={() => window.print()}>ພິມ</button><button className="btn no-print" onClick={() => setIssued([])}>ແຈກແລ້ວ — ປິດ</button></div>
-          <span className="small">ໃຫ້ແຕ່ລະຄົນເປັນສ່ວນຕົວ. ເຂົ້າເທື່ອທຳອິດດ້ວຍລະຫັດພະນັກງານ + PIN ນີ້ ແລ້ວລະບົບຈະໃຫ້ຕັ້ງ PIN ຂອງຕົນເອງ. ປິດກ່ອນຍ່າງໜີຈາກເຄື່ອງ.</span>
+          <span className="small">ໃຫ້ແຕ່ລະຄົນເປັນສ່ວນຕົວ{hr.online ? ' (ພ້ອມລິ້ງຂ້າງເທິງ)' : ''}. ເຂົ້າເທື່ອທຳອິດດ້ວຍລະຫັດພະນັກງານ + PIN ນີ້ ແລ້ວລະບົບຈະໃຫ້ຕັ້ງ PIN ຂອງຕົນເອງ. ປິດກ່ອນຍ່າງໜີຈາກເຄື່ອງ.</span>
           <table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>PIN ຊົ່ວຄາວ</th></tr></thead><tbody>
             {issued.map(i => <tr key={i.code}><td>{i.code}</td><td>{i.name}</td><td><b style={{ fontSize: 18, letterSpacing: 3 }}>{i.pin}</b></td></tr>)}
           </tbody></table>

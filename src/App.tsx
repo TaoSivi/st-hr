@@ -12,7 +12,9 @@ import { seedNewCompany } from './data/seed';
 import { landsInBackOffice } from './domain/permissions';
 import { IDLE_LOGOUT_MIN, pinFields, pinProblem } from './domain/pin';
 import type { Employee } from './domain/types';
-import Login from './ui/Login';
+import Login, { NewPin } from './ui/Login';
+import OnlineApp from './ui/Online';
+import { readOnlineCompany, readServerConfig, setOnlineCompany, takeJoinLink } from './data/server';
 
 const ACTIVE_KEY = 'sthr-company';
 const isWideScreen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 900px)').matches;
@@ -23,6 +25,10 @@ const readActive = () => {
 };
 
 export default function App() {
+  // a set-up link opened on this phone (…#join=…) takes it straight to its online company
+  const [online, setOnline] = useState<boolean>(() => !!takeJoinLink() || (!!readOnlineCompany() && !!readServerConfig()));
+  const goOnline = () => { setOnline(true); };
+  const leaveOnline = () => { setOnlineCompany(null); setOnline(false); };
   const [companyId, setCompanyId] = useState(readActive);
   const [platform, setPlatform] = useState(false);
   const choose = (id: string) => {
@@ -30,9 +36,16 @@ export default function App() {
     setCompanyId(id);
     setPlatform(false);
   };
+  if (online) {
+    return (
+      <OnlineApp companyId={readOnlineCompany()} onLeave={leaveOnline}>
+        {({ companyId: cid, online: session }) => <HRProvider key={cid} companyId={cid} online={session}><Shell onChooseCompany={() => {}} onPlatform={() => {}} onGoOnline={goOnline} /></HRProvider>}
+      </OnlineApp>
+    );
+  }
   if (platform) return <PlatformAdmin onClose={() => setPlatform(false)} onOpen={choose} />;
   // the key remounts the provider, so switching company never shows the previous company's data for a moment
-  return <HRProvider key={companyId} companyId={companyId}><Shell onChooseCompany={choose} onPlatform={() => setPlatform(true)} /></HRProvider>;
+  return <HRProvider key={companyId} companyId={companyId}><Shell onChooseCompany={choose} onPlatform={() => setPlatform(true)} onGoOnline={goOnline} /></HRProvider>;
 }
 
 function CompanyPicker({ current, onChoose, onPlatform, onClose }: { current: string; onChoose: (id: string) => void; onPlatform: () => void; onClose: () => void }) {
@@ -80,8 +93,8 @@ function CompanyPicker({ current, onChoose, onPlatform, onClose }: { current: st
   );
 }
 
-function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) => void; onPlatform: () => void }) {
-  const { me, setMe, employees, company, companyId } = useHR();
+function Shell({ onChooseCompany, onPlatform, onGoOnline }: { onChooseCompany: (id: string) => void; onPlatform: () => void; onGoOnline: () => void }) {
+  const { me, setMe, employees, company, companyId, online, save } = useHR();
   // phone: everyone opens on the clock screen and managers reach the back office from the menu; computer: managers open in the back office.
   // null = nobody has chosen yet, so the screen decides
   const [chosenView, setChosenView] = useState<boolean | null>(null);
@@ -107,6 +120,7 @@ function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) 
           ? <CompanyPicker current={companyId} onChoose={onChooseCompany} onPlatform={onPlatform} onClose={() => setPicking(false)} />
           : <button className="card row" style={{ border: 'none', textAlign: 'left', minHeight: 52 }} onClick={() => setPicking(true)}><span className="muted small">ບໍລິສັດ</span><b className="grow">{company.name}</b><span className="muted">ປ່ຽນ ›</span></button>}
         {!isDemo && <Login />}
+        <button className="btn ghost" onClick={onGoOnline}>🌐 ເຂົ້າບໍລິສັດອອນລາຍ (ທຸກຄົນໃຊ້ມືຖືຂອງຕົນເອງ)</button>
         {isDemo && <>
         <h1>ເຂົ້າໃຊ້ເປັນ</h1>
         <span className="muted">ໂໝດສາທິດ: ເລືອກຜູ້ໃຊ້ເພື່ອລອງແຕ່ລະບົດບາດ. ບໍລິສັດຈິງເຂົ້າດ້ວຍລະຫັດພະນັກງານ + PIN.</span>
@@ -130,6 +144,15 @@ function Shell({ onChooseCompany, onPlatform }: { onChooseCompany: (id: string) 
         <h1>ບັນຊີນີ້ຖືກປິດແລ້ວ</h1>
         <span className="muted">{me.endDate ? `ສິ້ນສຸດການເຮັດວຽກວັນທີ ${me.endDate}` : `ເລີ່ມເຮັດວຽກວັນທີ ${me.startDate}`} · ຕິດຕໍ່ຝ່າຍບຸກຄົນ</span>
         <button className="btn" onClick={() => setMe(null)}>ກັບຄືນ</button>
+      </div></div>
+    );
+  }
+  // signed in with a PIN the owner set: choose your own before anything else
+  if (online && me.pinMustChange) {
+    return (
+      <div className="phone"><div className="screen">
+        <NewPin who={me} online title="ຕັ້ງ PIN ຂອງເຈົ້າເອງ" note="PIN ທີ່ໄດ້ຮັບເປັນ PIN ຊົ່ວຄາວ. ຕັ້ງ PIN 6 ຕົວເລກທີ່ມີແຕ່ເຈົ້າຮູ້ ກ່ອນເຂົ້າໃຊ້."
+          onSet={async p => { await online.changeOwnPin(p); await save('employees', { ...me, pinMustChange: undefined }, 'pin-change'); }} onCancel={() => setMe(null)} />
       </div></div>
     );
   }

@@ -12,7 +12,7 @@ export interface Notification {
   read: boolean;
   link?: string; // page id to open
 }
-import { LocalStore, uid } from '../data/store';
+import { LocalStore, uid, type DataStore } from '../data/store';
 import { seed, shifts } from '../data/seed';
 import { DEMO_COMPANY_ID, getCompany, meKey, storePrefix } from '../data/companies';
 import { ownerSelfOk } from '../domain/permissions';
@@ -59,9 +59,23 @@ interface Ctx extends HRData {
   setMe: (id: string | null) => void;
   save: <T extends { id: string }>(collection: string, item: T, action: string, asId?: string) => Promise<void>;
   remove: (collection: string, id: string, action: string) => Promise<void>;
-  store: LocalStore;
+  store: DataStore;
   resetDemo: () => void;
+  /** Set when the company lives on the online database: sign-in accounts and the phone set-up link. */
+  online?: OnlineApi;
 }
+
+export interface OnlineApi {
+  logins: Set<string>; // employee ids that already have a login (only the owner can read the list)
+  refreshLogins: () => Promise<void>;
+  createLogin: (e: Employee, pin: string) => Promise<void>;
+  resetPin: (e: Employee, pin: string) => Promise<void>;
+  changeOwnPin: (pin: string) => Promise<void>;
+  joinLink: () => string;
+}
+
+/** What the app is given when the company is online: its store, the company record, who signed in, and how to sign out. */
+export interface OnlineSession { store: DataStore & { flush?: () => Promise<number> }; company: Company; meId: string; onSignOut: () => void; api: OnlineApi }
 
 const HRContext = createContext<Ctx | null>(null);
 export const useHR = () => {
@@ -70,11 +84,12 @@ export const useHR = () => {
   return c;
 };
 
-export function HRProvider({ companyId, children }: { companyId: string; children: ReactNode }) {
-  const store = useMemo(() => new LocalStore(companyId, storePrefix(companyId)), [companyId]);
-  const company = getCompany(companyId);
+export function HRProvider({ companyId, children, online }: { companyId: string; children: ReactNode; online?: OnlineSession }) {
+  const store = useMemo<DataStore>(() => (online ? online.store : new LocalStore(companyId, storePrefix(companyId))), [companyId, online?.store]); // eslint-disable-line react-hooks/exhaustive-deps
+  const company = online ? online.company : getCompany(companyId);
   const [data, setData] = useState<HRData | null>(null);
   const [meId, setMeId] = useState<string | null>(() => {
+    if (online) return online.meId;
     try { return localStorage.getItem(meKey(companyId)); } catch { return null; }
   });
 
@@ -92,7 +107,17 @@ export function HRProvider({ companyId, children }: { companyId: string; childre
   }, [store]);
 
   // only the demo company is seeded with sample people here; every other company was seeded when it was created
-  useEffect(() => { (companyId === DEMO_COMPANY_ID ? seed(store) : Promise.resolve()).then(load); }, [store, load, companyId]);
+  useEffect(() => { (companyId === DEMO_COMPANY_ID && !online ? seed(store as LocalStore) : Promise.resolve()).then(load); }, [store, load, companyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Online: send what was saved with no signal, and look for other people's changes every so often.
+  useEffect(() => {
+    if (!online) return;
+    const tick = () => { if (document.visibilityState === 'hidden') return; (online.store.flush?.() ?? Promise.resolve(0)).catch(() => { /* kept for the next try */ }).then(() => load()).catch(() => { /* offline: keep showing what we have */ }); };
+    const t = setInterval(tick, 20_000);
+    window.addEventListener('online', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => { clearInterval(t); window.removeEventListener('online', tick); document.removeEventListener('visibilitychange', tick); };
+  }, [online, load]);
 
   // Offline scans get their server time and a fresh clock check once the phone reaches the server.
   useEffect(() => {
@@ -137,6 +162,7 @@ export function HRProvider({ companyId, children }: { companyId: string; childre
     me,
     approver: me ? { ...me, selfOk: ownerSelfOk(me, data.settings, data.employees) } : null,
     setMe: id => {
+      if (online) { if (id === null) online.onSignOut(); return; } // online, who you are is whoever signed in
       setMeId(id);
       try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }
     },
@@ -150,7 +176,8 @@ export function HRProvider({ companyId, children }: { companyId: string; childre
     },
     store,
     // wipes only this company's own keys; refused for any company but the demo, whose sample people it re-creates
-    resetDemo: () => { if (companyId !== DEMO_COMPANY_ID) return; store.reset(); seed(store).then(load); }
+    resetDemo: () => { if (companyId !== DEMO_COMPANY_ID || online) return; (store as LocalStore).reset(); seed(store as LocalStore).then(load); },
+    online: online?.api
   };
 
   if (!company) return <div className="empty">ບໍ່ພົບບໍລິສັດນີ້</div>;

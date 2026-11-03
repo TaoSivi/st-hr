@@ -17,13 +17,13 @@ const pinInput = (value: string, set: (v: string) => void, label: string, auto?:
 );
 
 /** Choose a PIN twice; used for the first owner PIN and after a reset. */
-function NewPin({ who, title, note, onSet, onCancel }: { who: Employee; title: string; note: string; onSet: (pin: string) => Promise<void>; onCancel: () => void }) {
+export function NewPin({ who, title, note, onSet, onCancel, online }: { who: Employee; title: string; note: string; onSet: (pin: string) => Promise<void>; onCancel: () => void; online?: boolean }) {
   const [a, setA] = useState('');
   const [b, setB] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const go = async () => {
-    const p = pinProblem(a);
+    const p = pinProblem(a, online);
     if (p) return setErr(p);
     if (a !== b) return setErr('PIN ທັງສອງບໍ່ກົງກັນ');
     setBusy(true);
@@ -34,7 +34,7 @@ function NewPin({ who, title, note, onSet, onCancel }: { who: Employee; title: s
       <h2>{title}</h2>
       <span className="muted">{who.name} ({who.code})</span>
       <span className="muted small">{note}</span>
-      {pinInput(a, setA, 'PIN ໃໝ່ (4–6 ຕົວເລກ)', 'new-password')}
+      {pinInput(a, setA, online ? 'PIN ໃໝ່ (6 ຕົວເລກ)' : 'PIN ໃໝ່ (4–6 ຕົວເລກ)', 'new-password')}
       {pinInput(b, setB, 'ໃສ່ PIN ອີກເທື່ອ', 'new-password')}
       {err && <div className="error" role="alert">{err}</div>}
       <div className="row"><button className="btn ghost grow" onClick={onCancel}>ຍົກເລີກ</button><button className="btn grow" disabled={busy || !a || !b} onClick={go}>ບັນທຶກ PIN</button></div>

@@ -51,6 +51,7 @@ export interface Employee {
   faceConsentAt?: string;
   pinHash?: string; // salted SHA-256 of the sign-in PIN; the PIN itself is never stored
   pinSalt?: string;
+  faceCount?: number; // online: how many face poses are enrolled, visible to everyone; the templates themselves are private to the person
   pinMustChange?: boolean; // set by a PIN reset: the person picks their own PIN at the next sign-in
   photo?: string; // profile photo (small square JPEG data URL), shown on the clock screen and the profile
   deviceId?: string; // the phone this account is bound to; a scan from another phone goes to review

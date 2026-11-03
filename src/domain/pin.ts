@@ -10,9 +10,13 @@ export const LOCK_MINUTES = 5;
 /** On a shared device the session ends by itself after this long without a touch. */
 export const IDLE_LOGOUT_MIN = 3;
 
-/** Why a PIN cannot be used, or null. */
-export function pinProblem(pin: string): string | null {
+/** On the online system a PIN is the account password and can be tried over the internet, so it must be the full 6 digits. */
+export const ONLINE_PIN_LEN = 6;
+
+/** Why a PIN cannot be used, or null. `online` asks for exactly 6 digits. */
+export function pinProblem(pin: string, online = false): string | null {
   if (!/^\d+$/.test(pin)) return 'PIN ຕ້ອງເປັນຕົວເລກເທົ່ານັ້ນ';
+  if (online && pin.length !== ONLINE_PIN_LEN) return `PIN ຕ້ອງມີ ${ONLINE_PIN_LEN} ຕົວເລກ`;
   if (pin.length < PIN_MIN || pin.length > PIN_MAX) return `PIN ຕ້ອງມີ ${PIN_MIN}–${PIN_MAX} ຕົວເລກ`;
   if (/^(\d)\1+$/.test(pin)) return 'PIN ເປັນເລກດຽວກັນໝົດ ເດົາງ່າຍເກີນໄປ';
   const up = '0123456789', down = '9876543210';

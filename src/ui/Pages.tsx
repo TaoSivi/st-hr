@@ -265,12 +265,13 @@ function ChangePin() {
   const digits = (v: string) => v.replace(/D/g, '').slice(0, 6);
   const save = async () => {
     setErr('');
-    if (me.pinHash && !(await pinMatches(me, cur))) return setErr('PIN ປັດຈຸບັນບໍ່ຖືກ');
-    const p = pinProblem(a);
+    if (!hr.online && me.pinHash && !(await pinMatches(me, cur))) return setErr('PIN ປັດຈຸບັນບໍ່ຖືກ');
+    const p = pinProblem(a, !!hr.online);
     if (p) return setErr(p);
     if (a !== b) return setErr('PIN ທັງສອງບໍ່ກົງກັນ');
     if (me.pinHash && a === cur) return setErr('PIN ໃໝ່ຕ້ອງບໍ່ຊ້ຳກັບ PIN ເກົ່າ');
-    await hr.save('employees', { ...me, ...(await pinFields(a, false)) }, 'pin-change');
+    if (hr.online) { try { await hr.online.changeOwnPin(a); } catch (e: any) { return setErr(e?.message || 'ປ່ຽນ PIN ບໍ່ໄດ້'); } }
+    else await hr.save('employees', { ...me, ...(await pinFields(a, false)) }, 'pin-change');
     setOpen(false); setCur(''); setA(''); setB(''); setMsg('ປ່ຽນ PIN ແລ້ວ');
   };
   const box = (label: string, v: string, set: (x: string) => void, auto: string) => <label className="field">{label}<input className="input" type="password" inputMode="numeric" autoComplete={auto} maxLength={6} value={v} onChange={e => set(digits(e.target.value))} /></label>;
@@ -278,8 +279,8 @@ function ChangePin() {
     <div className="card col">
       <b>PIN ເຂົ້າລະບົບ</b>
       <span className="muted small">ເຂົ້າລະບົບດ້ວຍລະຫັດ {me.code} + PIN. ຢ່າບອກ PIN ໃຫ້ຄົນອື່ນ.</span>
-      {!open ? <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => { setOpen(true); setMsg(''); }}>{me.pinHash ? 'ປ່ຽນ PIN' : 'ຕັ້ງ PIN'}</button> : <>
-        {me.pinHash && box('PIN ປັດຈຸບັນ', cur, setCur, 'current-password')}
+      {!open ? <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => { setOpen(true); setMsg(''); }}>{me.pinHash || hr.online ? 'ປ່ຽນ PIN' : 'ຕັ້ງ PIN'}</button> : <>
+        {me.pinHash && !hr.online && box('PIN ປັດຈຸບັນ', cur, setCur, 'current-password')}
         {box('PIN ໃໝ່ (4–6 ຕົວເລກ)', a, setA, 'new-password')}
         {box('ໃສ່ PIN ໃໝ່ອີກເທື່ອ', b, setB, 'new-password')}
         {err && <div className="error" role="alert">{err}</div>}
