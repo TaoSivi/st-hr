@@ -1,9 +1,9 @@
-import type { Role, Settings } from './types';
-import { APPROVER_ROLES, type RequestKind } from './requests';
+import type { Role, SelfMenu, Settings } from './types';
+import { requestApprovers, withOwner, type RequestKind } from './requests';
 
 /** Single source of truth for who may see and do what. UI and tests both read this. */
 
-export type ManagerPage = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'settings' | 'audit';
+export type ManagerPage = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'access' | 'settings' | 'audit';
 
 export const PAGE_ROLES: Record<ManagerPage, Role[]> = {
   overview: ['head', 'accountant', 'owner', 'auditor'],
@@ -15,6 +15,7 @@ export const PAGE_ROLES: Record<ManagerPage, Role[]> = {
   leave: ['head', 'owner', 'auditor'],
   staff: ['owner', 'accountant', 'auditor'],
   pay: ['owner', 'accountant', 'auditor'],
+  access: ['owner', 'auditor'],
   settings: ['owner', 'auditor'],
   audit: ['owner', 'auditor']
 };
@@ -42,9 +43,23 @@ export const ACTION_ROLES: Record<Action, Role[]> = {
 
 const intersects = (a: Role[], b: Role[]) => a.some(r => b.includes(r));
 
+type ApproverSettings = Partial<Pick<Settings, 'leaveApproverRoles' | 'approverRoles'>>;
+/** Roles for an action. Reviewing scans and deciding salary advances follow the company's choice when it made one. */
+export function actionRoles(action: Action, s?: ApproverSettings): Role[] {
+  if (action === 'scan.review' || action === 'advance.decide') { const o = s?.approverRoles?.[action]; if (o && o.length) return withOwner(o); }
+  return ACTION_ROLES[action];
+}
+export const canDoIn = (roles: Role[], action: Action, s?: ApproverSettings) => intersects(roles, actionRoles(action, s));
+
+/** Self-service menus, in drawer order, and whether the company uses each (on unless switched off). */
+export const SELF_MENUS: SelfMenu[] = ['directory', 'reports', 'clockFix', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'pay', 'advance'];
+export const menuOn = (m: SelfMenu, s?: Partial<Pick<Settings, 'employeeMenus'>>) => s?.employeeMenus?.[m] !== false;
+
 /** The leave page also opens for whoever Admin made a leave approver in Settings. */
-export const canViewPage = (roles: Role[], page: ManagerPage, s?: Pick<Settings, 'leaveApproverRoles'>) =>
-  intersects(roles, PAGE_ROLES[page]) || (page === 'leave' && !!s && intersects(roles, s.leaveApproverRoles));
+export const canViewPage = (roles: Role[], page: ManagerPage, s?: ApproverSettings) =>
+  intersects(roles, PAGE_ROLES[page])
+  || (page === 'leave' && !!s && (intersects(roles, s.leaveApproverRoles ?? []) || canDoIn(roles, 'advance.decide', s)))
+  || (page === 'review' && !!s && canDoIn(roles, 'scan.review', s));
 export const canDo = (roles: Role[], action: Action) => intersects(roles, ACTION_ROLES[action]);
 /** True for someone who can look at the back office but change nothing in it. */
 export const isReadOnly = (roles: Role[]) => roles.includes('auditor') && !intersects(roles, ['owner', 'head', 'accountant']);
@@ -60,10 +75,10 @@ export const SECTION_KINDS: Record<ApprovalSection, RequestKind[]> = {
   expense: ['expense'], certificate: ['certificate'], leaveCancel: ['leaveCancel'], device: ['deviceChange'], face: ['faceReset']
 };
 
-export function sectionActRoles(section: ApprovalSection, s: Pick<Settings, 'leaveApproverRoles'>): Role[] {
-  if (section === 'scan') return ACTION_ROLES['scan.review'];
-  if (section === 'leave') return s.leaveApproverRoles;
-  return [...new Set(SECTION_KINDS[section].flatMap(k => APPROVER_ROLES[k]))];
+export function sectionActRoles(section: ApprovalSection, s: ApproverSettings): Role[] {
+  if (section === 'scan') return [...new Set([...actionRoles('scan.review', s), ...requestApprovers('clockFix', s)])];
+  if (section === 'leave') return s.leaveApproverRoles ?? [];
+  return [...new Set(SECTION_KINDS[section].flatMap(k => requestApprovers(k, s)))];
 }
 
 export type Access = 'act' | 'view' | 'none';
@@ -73,7 +88,7 @@ export type Access = 'act' | 'view' | 'none';
  * view = read-only (auditor)
  * The owner always gets 'act': after the escalation window the owner may decide anything.
  */
-export function approvalAccess(roles: Role[], section: ApprovalSection, s: Pick<Settings, 'leaveApproverRoles'>): Access {
+export function approvalAccess(roles: Role[], section: ApprovalSection, s: ApproverSettings): Access {
   if (roles.includes('owner') || intersects(roles, sectionActRoles(section, s))) return 'act';
   return roles.includes('auditor') ? 'view' : 'none';
 }

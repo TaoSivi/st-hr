@@ -25,6 +25,9 @@ export function validateSettings(s: Settings): string[] {
   if (s.leaveApproversRequired !== 1 && s.leaveApproversRequired !== 2) e.push('ຈຳນວນຄົນອະນຸມັດ ຕ້ອງເປັນ 1 ຫຼື 2');
   if (!s.leaveApproverRoles.length) e.push('ຕ້ອງເລືອກຜູ້ອະນຸມັດການລາຢ່າງໜ້ອຍ 1 ບົດບາດ');
   if (s.leaveApproverRoles.some(r => !ASSIGNABLE_APPROVER_ROLES.includes(r))) e.push('ຜູ້ກວດສອບ ແລະ ພະນັກງານທົ່ວໄປ ອະນຸມັດບໍ່ໄດ້');
+  // the auditor stays independent and a plain employee never approves, whatever the company picks
+  if (Object.values(s.approverRoles ?? {}).some(rs => !rs || rs.some(r => !ASSIGNABLE_APPROVER_ROLES.includes(r)))) e.push('ຜູ້ອະນຸມັດຕ້ອງເປັນ ຫົວໜ້າ, ບັນຊີ ຫຼື ເຈົ້າຂອງ ເທົ່ານັ້ນ');
+  if (Object.values(s.employeeMenus ?? {}).some(v => typeof v !== 'boolean')) e.push('ເມນູພະນັກງານ ຕ້ອງເປັນ ເປີດ ຫຼື ປິດ');
 
   const b = s.taxBrackets;
   if (!b.length) e.push('ຕ້ອງມີຂັ້ນອາກອນຢ່າງໜ້ອຍ 1 ຂັ້ນ');

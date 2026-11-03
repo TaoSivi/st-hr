@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useHR } from '../app/state';
 import { decideAndApply } from '../app/workflow';
 import { requestBlock, requestEscalated, REQUEST_LABEL, type HRRequest, type RequestPayloads } from '../domain/requests';
-import { ACTION_ROLES, APPROVAL_SECTIONS, approvalAccess, canDo, scopeBlock, SECTION_KINDS, sectionActRoles, type ApprovalSection } from '../domain/permissions';
+import { actionRoles, APPROVAL_SECTIONS, approvalAccess, canDoIn, scopeBlock, SECTION_KINDS, sectionActRoles, type ApprovalSection } from '../domain/permissions';
 import { deptOf, inMyScope } from '../app/scope';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
 import type { LeaveRequest, ScanRecord } from '../domain/types';
@@ -25,7 +25,7 @@ export function actionableCount(hr: ReturnType<typeof useHR>, section: ApprovalS
   const now = new Date();
   const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && !requestBlock(r, me, hr.settings, now, deptOf(hr.employees, r.employeeId))).length;
   if (section === 'leave') return hr.leaves.filter(l => !approvalBlock(l, me, hr.settings, now, deptOf(hr.employees, l.employeeId))).length;
-  if (section === 'scan' && canDo(me.roles, 'scan.review')) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id && inMyScope(me, hr.employees, s.employeeId, ACTION_ROLES['scan.review'])).length;
+  if (section === 'scan' && canDoIn(me.roles, 'scan.review', hr.settings)) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id && inMyScope(me, hr.employees, s.employeeId, actionRoles('scan.review', hr.settings))).length;
   return reqs;
 }
 
@@ -96,7 +96,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
           {head(s.employeeId, `${KIND_LABEL[s.kind]} · ${hhmm(s.deviceTime)}`, laoDate(new Date(s.deviceTime)), s.status === 'pending' ? null : statusPill(s.status === 'approved' ? 'approved' : 'rejected'))}
           {s.photo && <img src={s.photo} alt="ຮູບຕອນສະແກນ" style={{ width: 120, borderRadius: 12 }} />}
           <div className="row wrap">{s.reasons.map(r => <span key={r} className="pill warn">{r}</span>)}</div>
-          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDo(me.roles, 'scan.review') ? 'ບໍ່ມີສິດ' : scopeBlock(me, deptOf(hr.employees, s.employeeId), ACTION_ROLES['scan.review']),
+          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDoIn(me.roles, 'scan.review', hr.settings) ? 'ບໍ່ມີສິດ' : scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings)),
             () => hr.save('scans', { ...s, status: 'approved', reviewedBy: me.id }, 'scan-approve'),
             async note => { if (!note.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອບໍ່ອະນຸມັດ'); await hr.save('scans', { ...s, status: 'rejected', reviewedBy: me.id, reviewNote: note }, 'scan-reject'); })}
         </div>

@@ -48,6 +48,9 @@ export interface Employee {
   facePoses?: number[][]; // descriptors turned slightly to each side; a scan is matched against all of them
   faceReenroll?: boolean; // a manager approved taking the face again; the next clock-in does it
   faceConsentAt?: string;
+  pinHash?: string; // salted SHA-256 of the sign-in PIN; the PIN itself is never stored
+  pinSalt?: string;
+  pinMustChange?: boolean; // set by a PIN reset: the person picks their own PIN at the next sign-in
   photo?: string; // profile photo (small square JPEG data URL), shown on the clock screen and the profile
   deviceId?: string; // the phone this account is bound to; a scan from another phone goes to review
   deviceBoundAt?: string;
@@ -124,6 +127,11 @@ export interface TaxBracket {
   rate: number; // 0.05 = 5%
 }
 
+/** Approvals whose approvers the company can choose. */
+export type ApprovalKey = import('./requests').RequestKind | 'scan.review' | 'advance.decide';
+/** Self-service menus a company can switch off for everyone. */
+export type SelfMenu = 'directory' | 'reports' | 'clockFix' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'pay' | 'advance';
+
 export type AccrualMethod = 'monthly' | 'yearStart' | 'anniversary';
 
 export interface Settings {
@@ -149,6 +157,8 @@ export interface Settings {
   holidays: string[]; // YYYY-MM-DD public holidays, entered by HR each year
   leavePayoutOnExit: boolean; // pay unused annual / compensatory leave days when someone leaves
   compLeaveExpiryDays: number; // compensatory days off expire this long after the holiday worked; 0 = never
+  approverRoles: Partial<Record<ApprovalKey, Role[]>>; // who may approve each kind of request, when the company changed the default; the owner always may
+  employeeMenus: Partial<Record<SelfMenu, boolean>>; // self-service menus the company switched off (false); missing = on
 }
 
 export interface AuditEntry {

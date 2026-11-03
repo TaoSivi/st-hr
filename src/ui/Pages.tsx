@@ -7,6 +7,7 @@ import { shiftRange } from '../domain/leavePart';
 import { getDeviceId } from '../device/deviceId';
 import { squarePhoto } from '../device/photo';
 import { useClosing } from './closing';
+import { pinFields, pinMatches, pinProblem } from '../domain/pin';
 import Avatar from './Avatar';
 import { faceResetBlock, faceTemplates, POSES } from '../domain/face';
 import { effectiveShift, type HRRequest } from '../domain/requests';
@@ -251,6 +252,44 @@ export function Privacy() {
   );
 }
 
+/** Change one's own PIN: the current one first (when there is one), then the new one twice. */
+function ChangePin() {
+  const hr = useHR();
+  const me = hr.me!;
+  const [open, setOpen] = useState(false);
+  const [cur, setCur] = useState('');
+  const [a, setA] = useState('');
+  const [b, setB] = useState('');
+  const [msg, setMsg] = useState('');
+  const [err, setErr] = useState('');
+  const digits = (v: string) => v.replace(/D/g, '').slice(0, 6);
+  const save = async () => {
+    setErr('');
+    if (me.pinHash && !(await pinMatches(me, cur))) return setErr('PIN ປັດຈຸບັນບໍ່ຖືກ');
+    const p = pinProblem(a);
+    if (p) return setErr(p);
+    if (a !== b) return setErr('PIN ທັງສອງບໍ່ກົງກັນ');
+    if (me.pinHash && a === cur) return setErr('PIN ໃໝ່ຕ້ອງບໍ່ຊ້ຳກັບ PIN ເກົ່າ');
+    await hr.save('employees', { ...me, ...(await pinFields(a, false)) }, 'pin-change');
+    setOpen(false); setCur(''); setA(''); setB(''); setMsg('ປ່ຽນ PIN ແລ້ວ');
+  };
+  const box = (label: string, v: string, set: (x: string) => void, auto: string) => <label className="field">{label}<input className="input" type="password" inputMode="numeric" autoComplete={auto} maxLength={6} value={v} onChange={e => set(digits(e.target.value))} /></label>;
+  return (
+    <div className="card col">
+      <b>PIN ເຂົ້າລະບົບ</b>
+      <span className="muted small">ເຂົ້າລະບົບດ້ວຍລະຫັດ {me.code} + PIN. ຢ່າບອກ PIN ໃຫ້ຄົນອື່ນ.</span>
+      {!open ? <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => { setOpen(true); setMsg(''); }}>{me.pinHash ? 'ປ່ຽນ PIN' : 'ຕັ້ງ PIN'}</button> : <>
+        {me.pinHash && box('PIN ປັດຈຸບັນ', cur, setCur, 'current-password')}
+        {box('PIN ໃໝ່ (4–6 ຕົວເລກ)', a, setA, 'new-password')}
+        {box('ໃສ່ PIN ໃໝ່ອີກເທື່ອ', b, setB, 'new-password')}
+        {err && <div className="error" role="alert">{err}</div>}
+        <div className="row"><button className="btn ghost grow" onClick={() => setOpen(false)}>ຍົກເລີກ</button><button className="btn grow" onClick={save}>ບັນທຶກ</button></div>
+      </>}
+      {msg && <span className="pill ok" style={{ alignSelf: 'flex-start' }}>{msg}</span>}
+    </div>
+  );
+}
+
 export function EmpSettings({ onLogout }: { onLogout: () => void }) {
   const hr = useHR();
   const me = hr.me!;
@@ -281,6 +320,7 @@ export function EmpSettings({ onLogout }: { onLogout: () => void }) {
         {me.faceEnrolled && <button className="btn danger" onClick={async () => { await hr.save('employees', { ...me, faceEnrolled: undefined, facePoses: undefined, faceReenroll: undefined, faceConsentAt: undefined }, 'face-consent-withdraw'); setMsg('ລຶບຂໍ້ມູນໃບໜ້າແລ້ວ'); }}>ຖອນຄວາມຍິນຍອມ ແລະ ລຶບຂໍ້ມູນໃບໜ້າ</button>}
         {msg && <span className="pill ok" style={{ alignSelf: 'flex-start' }}>{msg}</span>}
       </div>
+      <ChangePin />
       <button className="btn ghost" onClick={onLogout}>ອອກຈາກລະບົບ</button>
     </div>
   );

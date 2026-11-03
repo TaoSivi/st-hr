@@ -8,10 +8,11 @@ import { accruedLeave, annualLeaveBalance, approvalBlock, decide, isEscalated, l
 import { dayStatus } from './day';
 import { compBalance } from './comp';
 import { finalSettlement } from './settlement';
-import { approvalAccess, canViewPage } from './permissions';
+import { approvalAccess, canDoIn, canViewPage, menuOn } from './permissions';
+import { requestBlock, type HRRequest } from './requests';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings } from './settingsCheck';
 import { seed } from '../data/seed';
-import type { Branch, LeaveRequest, ScanRecord, Settings } from './types';
+import type { Branch, LeaveRequest, Role, ScanRecord, Settings } from './types';
 
 const S = defaultSettings('c1');
 type Key = Exclude<keyof Settings, 'companyId'>;
@@ -153,6 +154,21 @@ const EFFECT: Record<Key, () => void> = {
     expect(left(0)).toBe(1); // never expires
     expect(left(90)).toBe(0); // 1 Aug + 90 days = 30 Oct, already gone
     expect(left(120)).toBe(1);
+  },
+  approverRoles: () => {
+    const head = { id: 'h', roles: ['employee', 'head'] as Role[] }, acc = { id: 'a', roles: ['employee', 'accountant'] as Role[] };
+    const r: HRRequest = { id: 'r', companyId: 'c1', kind: 'expense', employeeId: 'e', payload: { date: '2026-11-01', category: 'x', amount: 1 }, reason: 'x', createdAt: '2026-11-02T09:00:00', approvals: [], status: 'pending' };
+    expect(requestBlock(r, acc, S, NOW)).toBeNull(); // default: accountants approve expenses
+    const onlyHeads = { ...S, approverRoles: { expense: ['head'] as Role[] } };
+    expect(requestBlock(r, acc, onlyHeads, NOW)).not.toBeNull();
+    expect(requestBlock(r, head, onlyHeads, NOW)).toBeNull();
+    expect(canDoIn(acc.roles, 'advance.decide', S)).toBe(false);
+    expect(canDoIn(acc.roles, 'advance.decide', { ...S, approverRoles: { 'advance.decide': ['accountant'] } })).toBe(true);
+  },
+  employeeMenus: () => {
+    expect(menuOn('advance', S)).toBe(true);
+    expect(menuOn('advance', { ...S, employeeMenus: { advance: false } })).toBe(false);
+    expect(menuOn('ot', { ...S, employeeMenus: { advance: false } })).toBe(true);
   }
 };
 
@@ -165,7 +181,8 @@ describe('every Admin setting really changes behaviour', () => {
 
 // ------------------------- the Admin screen against the same list of settings -------------------------
 const src = (f: string) => readFileSync(join(__dirname, '..', f), 'utf8');
-const settingsPage = (() => { const t = src('ui/ManagerApp.tsx'); return t.slice(t.indexOf('function SettingsPage'), t.indexOf('function Audit')); })();
+// the rules screen, plus the access screen where approvers and employee menus are set
+const settingsPage = (() => { const t = src('ui/ManagerApp.tsx'); return t.slice(t.indexOf('function SettingsPage'), t.indexOf('function Audit')) + src('ui/AccessPage.tsx'); })();
 
 describe('the Admin settings screen matches the settings', () => {
   for (const key of Object.keys(EFFECT) as Key[]) {

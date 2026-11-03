@@ -31,5 +31,7 @@ export const defaultSettings = (companyId: string): Settings => ({
   randomSamplePerDay: 5,
   holidays: [],
   leavePayoutOnExit: true,
-  compLeaveExpiryDays: 90
+  compLeaveExpiryDays: 90,
+  approverRoles: {},
+  employeeMenus: {}
 });

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useHR, type PayrollRun } from '../app/state';
 import type { Advance, AuditEntry, Branch, Employee, LeaveRequest, Role, ScanRecord, Settings, Shift, TaxBracket } from '../domain/types';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings, validateShifts } from '../domain/settingsCheck';
-import { ACTION_ROLES, approvalAccess, canDo, canGrantRoles, canViewPage, isReadOnly, roleChangeBlock, scopeBlock, type ManagerPage } from '../domain/permissions';
+import { actionRoles, approvalAccess, canDo, canDoIn, canGrantRoles, canViewPage, isReadOnly, roleChangeBlock, scopeBlock, type ManagerPage } from '../domain/permissions';
 import { deptOf, inMyScope } from '../app/scope';
 import { dailySample, lateMinutes } from '../domain/attendance';
 import { approvalBlock, decide, isEscalated } from '../domain/leave';
@@ -29,16 +29,17 @@ import { Reports, TeamMap } from './Pages';
 import Icon, { type IconName } from './Icon';
 import StaffImport from './StaffImport';
 import BackupCard from './BackupCard';
+import AccessPage from './AccessPage';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
 type Page = ManagerPage;
 const PAGE_LABEL: Record<Page, string> = {
   overview: 'ພາບລວມ', review: 'ກວດການລົງເວລາ', approvals: 'ອະນຸມັດຄຳຂໍ', time: 'ລົງເວລາມື້ນີ້', reports: 'ລາຍງານທີມ', map: 'ແຜນທີ່',
-  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'Audit log'
+  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'Audit log'
 };
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
-const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', settings: 'settings', audit: 'audit' };
+const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', access: 'privacy', settings: 'settings', audit: 'audit' };
 
 /** A blocking message as a list, so it can be spread next to other messages (spreading the string itself would split it into letters). */
 const asList = (m: string | null) => (m ? [m] : []);
@@ -53,8 +54,8 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const readOnly = isReadOnly(me.roles);
   // badges count only what this person could decide: a head's own departments
   const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
-  const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, ACTION_ROLES['scan.review'])).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, ACTION_ROLES['scan.review'])).length;
-  const pendingLeave = hr.leaves.filter(l => l.status === 'pending' && inScope(l.employeeId, hr.settings.leaveApproverRoles)).length + hr.advances.filter(a => a.status === 'pending' && inScope(a.employeeId, ACTION_ROLES['advance.decide'])).length;
+  const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, actionRoles('scan.review', hr.settings))).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, actionRoles('scan.review', hr.settings))).length;
+  const pendingLeave = hr.leaves.filter(l => l.status === 'pending' && inScope(l.employeeId, hr.settings.leaveApproverRoles)).length + hr.advances.filter(a => a.status === 'pending' && inScope(a.employeeId, actionRoles('advance.decide', hr.settings))).length;
   const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
@@ -76,7 +77,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
         {!canViewPage(me.roles, page, hr.settings) && <NoAccess />}
         {canViewPage(me.roles, page, hr.settings) && <>
           {page === 'overview' && <Overview />}
-          {page === 'review' && <Review readOnly={!canDo(me.roles, 'scan.review')} />}
+          {page === 'review' && <Review readOnly={!canDoIn(me.roles, 'scan.review', hr.settings)} />}
           {page === 'approvals' && <ApprovalsHub />}
           {page === 'time' && <TimeToday />}
           {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
@@ -84,6 +85,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
           {page === 'leave' && <Leaves />}
           {page === 'staff' && <Staff />}
           {page === 'pay' && <Payroll />}
+          {page === 'access' && <AccessPage />}
           {page === 'settings' && <SettingsPage readOnly={!canDo(me.roles, 'settings.edit')} />}
           {page === 'audit' && <Audit />}
         </>}
@@ -167,14 +169,14 @@ function Review({ readOnly }: { readOnly: boolean }) {
   const [err, setErr] = useState('');
   const todayKey = ymd(new Date());
   const sample = useMemo(() => dailySample(hr.scans.filter(s => s.status === 'ok' && sameDay(s.deviceTime, new Date())), hr.settings.randomSamplePerDay, todayKey), [hr.scans, hr.settings.randomSamplePerDay, todayKey]);
-  const mine = (id: string) => inMyScope(me, hr.employees, id, ACTION_ROLES['scan.review']);
+  const mine = (id: string) => inMyScope(me, hr.employees, id, actionRoles('scan.review', hr.settings));
   const list = tab === 'pending' ? hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)) : tab === 'sample' ? sample.filter(s => mine(s.employeeId)) : [];
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find(s => s.id === selId) ?? list[0];
 
   const decideScan = async (s: ScanRecord, ok: boolean) => {
     setErr('');
-    const sb = scopeBlock(me, deptOf(hr.employees, s.employeeId), ACTION_ROLES['scan.review']);
+    const sb = scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings));
     if (sb) return setErr(sb);
     if (s.employeeId === me.id) return setErr('ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້');
     if (!ok && !note.trim()) return setErr('ຕ້ອງໃສ່ໝາຍເຫດເມື່ອປະຕິເສດ');
@@ -229,7 +231,7 @@ function Review({ readOnly }: { readOnly: boolean }) {
 function OtList({ readOnly }: { readOnly: boolean }) {
   const hr = useHR();
   const me = hr.me!;
-  const mine = hr.employees.filter(e => isActiveOn(e, ymd(new Date())) && inMyScope(me, hr.employees, e.id, ACTION_ROLES['ot.preapprove']));
+  const mine = hr.employees.filter(e => isActiveOn(e, ymd(new Date())) && inMyScope(me, hr.employees, e.id, actionRoles('ot.preapprove')));
   const [emp, setEmp] = useState(mine[0]?.id ?? '');
   const [mins, setMins] = useState('60');
   const pending = hr.ots.filter(o => o.status === 'pending' && mine.some(e => e.id === o.employeeId));
@@ -285,7 +287,7 @@ function Leaves() {
   const now = new Date();
   // leave and advances have different approvers: Settings decides the first, the permission table the second
   const readOnly = approvalAccess(me.roles, 'leave', hr.settings) !== 'act';
-  const advReadOnly = !canDo(me.roles, 'advance.decide');
+  const advReadOnly = !canDoIn(me.roles, 'advance.decide', hr.settings);
   const act = async (l: LeaveRequest, d: 'approve' | 'reject') => {
     setErr('');
     try {
@@ -296,8 +298,8 @@ function Leaves() {
   };
   const actAdv = async (a: Advance, d: 'approve' | 'reject') => {
     setErr('');
-    if (!canDo(me.roles, 'advance.decide')) return setErr('ບໍ່ມີສິດອະນຸມັດ');
-    const sb = scopeBlock(me, deptOf(hr.employees, a.employeeId), ACTION_ROLES['advance.decide']);
+    if (!canDoIn(me.roles, 'advance.decide', hr.settings)) return setErr('ບໍ່ມີສິດອະນຸມັດ');
+    const sb = scopeBlock(me, deptOf(hr.employees, a.employeeId), actionRoles('advance.decide', hr.settings));
     if (sb) return setErr(sb);
     if (a.employeeId === me.id) return setErr('ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້');
     if (a.approvals.some(x => x.by === me.id)) return setErr('ທ່ານອະນຸມັດແລ້ວ');
@@ -335,8 +337,8 @@ function Leaves() {
       </div>
       <div className="card col">
         <h2>ຄຳຂໍເບີກເງິນລ່ວງໜ້າ</h2>
-        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, ACTION_ROLES['advance.decide'])).length === 0 && <div className="empty">ບໍ່ມີຄຳຂໍ</div>}
-        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, ACTION_ROLES['advance.decide'])).map(a => (
+        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, actionRoles('advance.decide', hr.settings))).length === 0 && <div className="empty">ບໍ່ມີຄຳຂໍ</div>}
+        {hr.advances.filter(a => a.status === 'pending' && seeMine(a.employeeId, actionRoles('advance.decide', hr.settings))).map(a => (
           <div key={a.id} className="row wrap"><span className="grow"><b>{nameOf(hr.employees, a.employeeId)}</b> · {money(a.amount)} ₭ · {a.createdAt.slice(0, 10)}</span>
             {!advReadOnly && a.employeeId !== me.id && <>
               <input className="input" style={{ width: 180 }} placeholder="ເຫດຜົນ (ຖ້າປະຕິເສດ)" value={note[a.id] ?? ''} onChange={e => setNote({ ...note, [a.id]: e.target.value })} aria-label="ເຫດຜົນ" />

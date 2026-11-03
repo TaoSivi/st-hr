@@ -1,4 +1,7 @@
 import type { Employee, Role, ScanKind, Settings } from './types';
+
+/** The owner is always among the approvers: escalations and a one-person shop depend on it. */
+export const withOwner = (roles: Role[]): Role[] => (roles.includes('owner') ? roles : [...roles, 'owner']);
 import { scopeBlock } from './scope';
 
 /** Every "ask a manager" flow except leave shares this shape and the same approval rules. */
@@ -44,6 +47,12 @@ export const APPROVER_ROLES: Record<RequestKind, Role[]> = {
   faceReset: ['head', 'owner'] // the head of the department can see the person has changed (weight, glasses, beard)
 };
 
+/** Who may approve a kind of request: the company's choice if it made one, else the default above. */
+export function requestApprovers(kind: RequestKind, s?: Partial<Pick<Settings, 'approverRoles'>>): Role[] {
+  const o = s?.approverRoles?.[kind];
+  return o && o.length ? withOwner(o) : APPROVER_ROLES[kind];
+}
+
 export const REQUEST_LABEL: Record<RequestKind, string> = {
   clockFix: 'ຂໍລົງເວລາ', ot: 'ຂໍລ່ວງເວລາ (OT)', shiftSwap: 'ສະລັບກະ', dayOffSwap: 'ສະລັບວັນພັກ', schedule: 'ຕາຕະລາງວຽກ',
   expense: 'ຄ່າໃຊ້ຈ່າຍ', certificate: 'ໜັງສືຮັບຮອງ', leaveCancel: 'ຍົກເລີກການລາ', deviceChange: 'ປ່ຽນເຄື່ອງ', faceReset: 'ລົງທະບຽນໃບໜ້າໃໝ່'
@@ -58,7 +67,7 @@ export function requestBlock(r: HRRequest, approver: Pick<Employee, 'id' | 'role
   if (r.employeeId === approver.id) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
   if (r.kind === 'shiftSwap' && (r.payload as RequestPayloads['shiftSwap']).withEmployeeId === approver.id) return 'ທ່ານເປັນຄູ່ສະລັບ ອະນຸມັດບໍ່ໄດ້';
   if (r.approvals.some(a => a.by === approver.id)) return 'ທ່ານອະນຸມັດຄຳຂໍນີ້ແລ້ວ';
-  const roles: Role[] = requestEscalated(r, s, now) ? [...APPROVER_ROLES[r.kind], 'owner'] : APPROVER_ROLES[r.kind];
+  const roles: Role[] = requestEscalated(r, s, now) ? withOwner(requestApprovers(r.kind, s)) : requestApprovers(r.kind, s);
   if (!approver.roles.some(x => roles.includes(x))) return 'ບໍ່ມີສິດອະນຸມັດ';
   if (approver.dept !== undefined) return scopeBlock({ roles: approver.roles, dept: approver.dept, headOf: approver.headOf }, targetDept, roles);
   return null;

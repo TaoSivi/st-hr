@@ -18,6 +18,8 @@ import Icon, { type IconName } from './Icon';
 import { useClosing } from './closing';
 import { prefersReducedMotion } from './press';
 import { DAY_ACTION_TEXT, dayActions, type DayAction } from '../domain/dayActions';
+import { menuOn, SELF_MENUS } from '../domain/permissions';
+import type { SelfMenu } from '../domain/types';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
 import { MyRequests, RequestSheet } from './RequestsUI';
@@ -66,12 +68,14 @@ const Ico = ({ n }: { n: IconName }) => <Icon name={n} />;
 export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () => void; onManagerView?: () => void }) {
   const hr = useHR();
   const { me } = hr;
-  const [page, setPage] = useState<Page>('clock');
+  const [pageAsked, setPage] = useState<Page>('clock');
   const [drawer, setDrawer] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const closeDrawer = () => { if (drawerClosing) return; setDrawerClosing(true); setTimeout(() => { setDrawer(false); setDrawerClosing(false); }, prefersReducedMotion() ? 0 : 280); };
   const [cert, setCert] = useState<HRRequest<'certificate'> | null>(null);
   if (!me) return null;
+  // a menu the company switched off cannot be opened, even from a notification link
+  const page = (SELF_MENUS.includes(pageAsked as SelfMenu) && !menuOn(pageAsked as SelfMenu, hr.settings) ? 'blocked' : pageAsked) as Page;
   const go = (p: Page) => { setPage(p); closeDrawer(); };
   const isMain = MAIN_TABS.some(([id]) => id === page);
   const notifOn = (() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } })();
@@ -108,6 +112,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
         </nav>
       )}
       {page === 'clock' && <ClockTab />}
+      {(page as string) === 'blocked' && <div className="screen"><div className="card empty" role="alert">ບໍລິສັດປິດເມນູນີ້ໄວ້</div></div>}
       {page === 'calendar' && <CalendarTab />}
       {page === 'leave' && <LeaveTab />}
       {page === 'pay' && <Pay />}
@@ -136,7 +141,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
               <b style={{ color: '#fff', fontSize: 18 }}>{me.name} ({me.code})</b>
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
-            {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
+            {PERSONAL.filter(([id]) => !SELF_MENUS.includes(id as SelfMenu) || menuOn(id as SelfMenu, hr.settings)).map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
             {isManager(me.roles) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
               {onManagerView && <button onClick={() => { closeDrawer(); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
@@ -349,11 +354,13 @@ function CalendarTab() {
   const selScans = [...scansOn(sessions, sel), ...mine.filter(s => s.status === 'rejected' && ymd(new Date(s.deviceTime)) === sel)].sort((a, b) => a.deviceTime.localeCompare(b.deviceTime));
   const selStatus = statusOf(sel);
   const selLeave = myLeaves.find(l => (l.status === 'pending' || l.status === 'approved') && l.from <= sel && l.to >= sel);
-  const actions = dayActions({
+  const dayActionsAll = dayActions({
     date: sel, today: ymd(now), startDate: me!.startDate, endDate: me!.endDate,
     isDayOff: !effectiveShift(me!, sel, hr.overrides), isHoliday: (settings.holidays ?? []).includes(sel),
     leave: selLeave ? { from: selLeave.from, to: selLeave.to, part: !!selLeave.part } : undefined
   });
+  const ACTION_MENU: Partial<Record<DayAction, SelfMenu>> = { clockFix: 'clockFix', ot: 'ot', shiftSwap: 'shift', dayOffSwap: 'shift', schedule: 'schedule' };
+  const actions = dayActionsAll.filter(a => !ACTION_MENU[a] || menuOn(ACTION_MENU[a]!, settings));
   const ACTION_ICON: Record<DayAction, IconName> = { leave: 'leave', leaveCancel: 'leaveCancel', shiftSwap: 'shift', dayOffSwap: 'shift', schedule: 'schedule', clockFix: 'clockFix', ot: 'ot' };
   const counts = grid.filter(c => c.inMonth).reduce((a, c) => { const s = statusOf(c.date); a[s] = (a[s] ?? 0) + 1; return a; }, {} as Record<string, number>);
 

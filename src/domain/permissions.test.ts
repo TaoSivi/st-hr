@@ -4,7 +4,9 @@ import {
   ACTION_ROLES, APPROVAL_SECTIONS, PAGE_ROLES, SECTION_KINDS, approvalAccess, canDo, canViewPage, isManager, isReadOnly,
   type Access, type Action, type ApprovalSection, type ManagerPage
 } from './permissions';
-import { REQUEST_LABEL, requestBlock, type HRRequest, type RequestKind } from './requests';
+import { REQUEST_LABEL, requestBlock, requestApprovers as requestApproversOf, type HRRequest, type RequestKind } from './requests';
+import { canDoIn, menuOn, SELF_MENUS } from './permissions';
+import { validateSettings } from './settingsCheck';
 import { approvalBlock } from './leave';
 import type { LeaveRequest, Role } from './types';
 
@@ -26,6 +28,7 @@ const PAGES_SPEC: Record<ManagerPage, boolean[]> = {
   leave: [false, true, false, true, true],
   staff: [false, false, true, true, true],
   pay: [false, false, true, true, true],
+  access: [false, false, false, true, true], // who has which role and who approves what: the owner sets it, the auditor reads it
   settings: [false, false, false, true, true],
   audit: [false, false, false, true, true]
 };
@@ -331,5 +334,33 @@ describe('the owner is never limited by department, even when Settings does not 
     const s = { ...defaultSettings('c1'), leaveApproverRoles: ['head' as const] };
     const l: LeaveRequest = { id: 'l', companyId: 'c1', employeeId: 'x', type: 'annual', from: '2026-11-04', to: '2026-11-05', days: 2, reason: 'x', createdAt: '2026-11-02T09:00:00', approvals: [], status: 'pending' };
     expect(approvalBlock(l, owner, s, new Date('2026-11-04T10:00:00'), 'ຄົວ')).toBeNull();
+  });
+});
+
+describe('the company chooses who approves what (Access page)', () => {
+  const acc: Role[] = ['employee', 'accountant'], head: Role[] = ['employee', 'head'], owner: Role[] = ['employee', 'owner'];
+  it('nothing changes until the company changes something', () => {
+    for (const k of Object.keys(REQUEST_LABEL) as RequestKind[]) expect(requestApproversOf(k, S)).toEqual(requestApproversOf(k, { ...S, approverRoles: {} }));
+  });
+  it('giving accountants scan review opens the review page and the scan approvals for them', () => {
+    const s = { ...S, approverRoles: { 'scan.review': ['accountant'] as Role[] } };
+    expect(canViewPage(acc, 'review', S)).toBe(false);
+    expect(canViewPage(acc, 'review', s)).toBe(true);
+    expect(approvalAccess(acc, 'scan', s)).toBe('act');
+    expect(canDoIn(head, 'scan.review', s)).toBe(false); // heads were taken off it
+    expect(canDoIn(owner, 'scan.review', s)).toBe(true); // the owner always keeps it
+  });
+  it('the owner is added back if a company leaves them out', () => {
+    expect(requestApproversOf('certificate', { ...S, approverRoles: { certificate: ['head'] } })).toEqual(['head', 'owner']);
+  });
+  it('the auditor or a plain employee can never be made an approver: the settings are refused', () => {
+    expect(validateSettings({ ...S, approverRoles: { expense: ['auditor'] } }).join()).toMatch('ຜູ້ອະນຸມັດ');
+    expect(validateSettings({ ...S, approverRoles: { ot: ['employee'] } }).join()).toMatch('ຜູ້ອະນຸມັດ');
+    expect(validateSettings({ ...S, approverRoles: { ot: ['head'] } })).toEqual([]);
+  });
+  it('a switched-off menu is off, everything else stays on', () => {
+    const s = { ...S, employeeMenus: { advance: false, directory: false } };
+    expect(SELF_MENUS.filter(m => !menuOn(m, s))).toEqual(['directory', 'advance']);
+    expect(SELF_MENUS.every(m => menuOn(m, S))).toBe(true);
   });
 });

@@ -50,7 +50,12 @@ export class LocalStore implements DataStore {
     else rows.push(item);
     this.write(collection, rows);
     // append-only audit. Photos are left out: they are large and already live on the record itself.
-    const strip = (v: unknown) => (v && typeof v === 'object' && (v as any).photo ? { ...(v as any), photo: '[ຮູບ]' } : v);
+    const strip = (v: unknown) => {
+      if (!v || typeof v !== 'object') return v;
+      const o = v as any;
+      if (!o.photo && !o.pinHash && !o.pinSalt) return v;
+      return { ...o, ...(o.photo ? { photo: '[ຮູບ]' } : {}), ...(o.pinHash ? { pinHash: '[PIN]' } : {}), ...(o.pinSalt ? { pinSalt: '[PIN]' } : {}) };
+    };
     try {
       const log = this.read<AuditEntry>('audit');
       log.push({ id: uid(), companyId: this.companyId, at: new Date().toISOString(), by, action, entity: collection, entityId: item.id, before: strip(before), after: strip(item) });
