@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateBranch } from './branches';
+import { branchDeleteBlock, validateBranch } from './branches';
 
 const existing = [{ id: 'b1', name: 'ສາຂາໜ້າຮ້ານ' }];
 const ok = { id: 'new', name: 'ສາຂາໃໝ່', lat: 17.97, lng: 102.63, radiusM: 100 };
@@ -22,4 +22,15 @@ describe('validateBranch', () => {
     for (const radiusM of [9, 2001, 50.5, NaN, 0]) expect(validateBranch({ ...ok, radiusM }, existing).join(), String(radiusM)).toMatch('ລັດສະໝີ');
     for (const radiusM of [10, 2000]) expect(validateBranch({ ...ok, radiusM }, existing)).toEqual([]);
   });
+});
+
+describe('deleting a branch', () => {
+  const b = { id: 'b2' }, main = { id: 'b1' };
+  const ctx = (over: Partial<Parameters<typeof branchDeleteBlock>[1]> = {}) => ({ branches: [main, b], employees: [{ homeBranchId: 'b1' }], scans: [{ branchId: 'b1' }], ...over });
+  it('an unused branch can go', () => expect(branchDeleteBlock(b, ctx())).toBeNull());
+  it('not while someone has it as their branch, and not once it holds scan history', () => {
+    expect(branchDeleteBlock(b, ctx({ employees: [{ homeBranchId: 'b2' }] }))).toMatch('ມີ 1 ຄົນ');
+    expect(branchDeleteBlock(b, ctx({ scans: [{ branchId: 'b2' }, { branchId: 'b2' }] }))).toMatch('ມີການລົງເວລາ 2');
+  });
+  it('the last branch stays', () => expect(branchDeleteBlock(b, ctx({ branches: [b] }))).toMatch('ຢ່າງໜ້ອຍ 1 ສາຂາ'));
 });

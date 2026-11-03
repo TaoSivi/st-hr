@@ -118,7 +118,7 @@ describe('the re-enrolment request', () => {
   it('approving it lets the person take the face again but keeps the old face until then, once', async () => {
     const saved: { collection: string; item: any }[] = [];
     const enrolled: Employee = { ...kl, faceEnrolled: vec(0), facePoses: [vec(1)] };
-    const hr: any = { me: owner, settings: S, employees: [owner, enrolled], overrides: [], leaves: [], save: async (collection: string, item: any) => { saved.push({ collection, item }); }, notify: async () => {} };
+    const hr: any = { me: owner, approver: { ...owner, selfOk: false }, settings: S, employees: [owner, enrolled], overrides: [], leaves: [], save: async (collection: string, item: any) => { saved.push({ collection, item }); }, notify: async () => {} };
     await decideAndApply(hr, req(), 'approve');
     const emps = saved.filter(s => s.collection === 'employees');
     expect(emps).toHaveLength(1);
@@ -129,7 +129,7 @@ describe('the re-enrolment request', () => {
   });
   it('rejecting it changes nothing on the account and needs a reason', async () => {
     const saved: { collection: string }[] = [];
-    const hr: any = { me: owner, settings: S, employees: [owner, kl], overrides: [], leaves: [], save: async (collection: string) => { saved.push({ collection }); }, notify: async () => {} };
+    const hr: any = { me: owner, approver: { ...owner, selfOk: false }, settings: S, employees: [owner, kl], overrides: [], leaves: [], save: async (collection: string) => { saved.push({ collection }); }, notify: async () => {} };
     await expect(decideAndApply(hr, req(), 'reject')).rejects.toThrow();
     await decideAndApply(hr, req(), 'reject', 'ຍັງຄືເກົ່າ');
     expect(saved.some(s => s.collection === 'employees')).toBe(false);

@@ -59,3 +59,22 @@ export function terminationBlock(target: Employee, employees: Employee[], endDat
   if (target.roles.includes('owner') && owners <= 1) return 'ຕ້ອງມີເຈົ້າຂອງຢ່າງໜ້ອຍ 1 ຄົນ';
   return null;
 }
+
+/** What the owner may change on an existing person's profile. Pay-related parts (allowance, how they are paid) go through the same approval as salary. */
+export interface ProfileEdit { name: string; code: string; dept: string; position: string; homeBranchId: string; startDate: string; allowance: number; payMethod: Employee['payMethod']; bankName?: string }
+
+/** Everything wrong with a profile edit, in Lao. `others` is everyone except the person being edited. */
+export function profileProblems(p: ProfileEdit, others: Employee[], branches: Branch[], bankAccount?: string): string[] {
+  const err: string[] = [];
+  if (!p.name.trim()) err.push('ຕ້ອງໃສ່ຊື່');
+  if (!p.code.trim()) err.push('ຕ້ອງມີລະຫັດ');
+  else if (others.some(x => x.code.trim().toLowerCase() === p.code.trim().toLowerCase())) err.push(`ລະຫັດ ${p.code.trim()} ຊ້ຳກັບຄົນອື່ນ`);
+  if (!p.dept.trim()) err.push('ຕ້ອງໃສ່ພະແນກ');
+  if (!p.position.trim()) err.push('ຕ້ອງໃສ່ຕຳແໜ່ງ');
+  if (!validDate(p.startDate)) err.push('ວັນເລີ່ມວຽກບໍ່ຖືກຕ້ອງ');
+  if (!Number.isFinite(p.allowance) || p.allowance < 0) err.push('ເບ້ຍລ້ຽງຕ້ອງບໍ່ຕິດລົບ');
+  if (!branches.some(b => b.id === p.homeBranchId)) err.push('ເລືອກສາຂາຫຼັກ');
+  if (p.payMethod === 'bank' && (!p.bankName?.trim() || !bankAccount?.trim())) err.push('ຮັບເງິນໂອນ ຕ້ອງໃສ່ທະນາຄານ ແລະ ເລກບັນຊີ');
+  if (p.name.trim() && p.dept.trim() && others.some(x => !x.endDate && x.name.trim() === p.name.trim() && x.dept === p.dept.trim())) err.push('ມີພະນັກງານຊື່ ແລະ ພະແນກດຽວກັນຢູ່ແລ້ວ');
+  return err;
+}

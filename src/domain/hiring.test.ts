@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { employedFraction, isActiveOn, nextEmployeeCode, terminationBlock, validateNewEmployee } from './hiring';
+import { employedFraction, isActiveOn, nextEmployeeCode, profileProblems, terminationBlock, validateNewEmployee } from './hiring';
 import { computePayslip } from './payroll';
 import { defaultSettings } from './defaults';
 import { branches, employees, shifts } from '../data/seed';
@@ -125,5 +125,20 @@ describe('a closed owner does not count as an owner', () => {
     const owner = employees.find(e => e.id === 'e-owner')!;
     const list = [...employees, { ...owner, id: 'old', endDate: '2025-01-01' }];
     expect(roleChangeBlock(list, 'e-owner', ['employee'], 'e-acc')).toMatch('ເຈົ້າຂອງ');
+  });
+});
+
+describe('editing a profile', () => {
+  const me = employees.find(e => e.id === 'e-kl')!;
+  const others = employees.filter(e => e.id !== me.id);
+  const ok = { name: me.name, code: me.code, dept: me.dept, position: me.position, homeBranchId: me.homeBranchId, startDate: me.startDate, allowance: me.allowance, payMethod: me.payMethod, bankName: me.bankName };
+  it('leaving it as it is is fine, including keeping the same code and name', () => expect(profileProblems(ok, others, branches, me.bankAccount)).toEqual([]));
+  it('a code or a name+department already taken by someone else is refused', () => {
+    expect(profileProblems({ ...ok, code: others[0].code.toLowerCase() }, others, branches, me.bankAccount).join()).toMatch('ຊ້ຳ');
+    expect(profileProblems({ ...ok, name: others[0].name, dept: others[0].dept }, others, branches, me.bankAccount).join()).toMatch('ຊື່ ແລະ ພະແນກດຽວກັນ');
+  });
+  it('empty fields, a bad date, a missing branch, negative allowance and a bank pay with no account are each named', () => {
+    const e = profileProblems({ ...ok, name: ' ', dept: '', position: '', startDate: '2026-02-31', homeBranchId: 'zzz', allowance: -1, payMethod: 'bank', bankName: '' }, others, branches, '').join(' | ');
+    for (const m of ['ຊື່', 'ພະແນກ', 'ຕຳແໜ່ງ', 'ວັນເລີ່ມ', 'ສາຂາ', 'ເບ້ຍລ້ຽງ', 'ທະນາຄານ']) expect(e, m).toContain(m);
   });
 });

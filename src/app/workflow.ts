@@ -19,9 +19,8 @@ export async function submitRequest<K extends RequestKind>(hr: HR, kind: K, payl
 
 /** Record the decision; when the request becomes approved, apply its effect exactly once. */
 export async function decideAndApply(hr: HR, r: HRRequest, decision: 'approve' | 'reject', note?: string) {
-  const me = hr.me!;
   const now = new Date();
-  const next = decideRequest(r, me, decision, hr.settings, now, note, hr.employees.find(e => e.id === r.employeeId)?.dept);
+  const next = decideRequest(r, hr.approver!, decision, hr.settings, now, note, hr.employees.find(e => e.id === r.employeeId)?.dept);
   if (next.status === 'approved' && !next.appliedAt) {
     await applyEffect(hr, next);
     next.appliedAt = now.toISOString();

@@ -99,7 +99,7 @@ describe('moving an account to another phone', () => {
     const saved: { collection: string; item: any; action: string }[] = [];
     const bound: Employee = { ...kl, deviceId: 'd1', faceEnrolled: [0.1, 0.2], facePoses: [[0.3, 0.4]], faceReenroll: true };
     const hr: any = {
-      me: owner, settings: S, employees: [owner, bound], overrides: [], leaves: [],
+      me: owner, approver: { ...owner, selfOk: false }, settings: S, employees: [owner, bound], overrides: [], leaves: [],
       save: async (collection: string, item: any, action: string) => { saved.push({ collection, item, action }); },
       notify: async () => {}
     };
@@ -116,7 +116,7 @@ describe('moving an account to another phone', () => {
   });
   it('rejecting it changes nothing about the account but needs a reason', async () => {
     const saved: { collection: string }[] = [];
-    const hr: any = { me: owner, settings: S, employees: [owner, kl], overrides: [], leaves: [], save: async (collection: string) => { saved.push({ collection }); }, notify: async () => {} };
+    const hr: any = { me: owner, approver: { ...owner, selfOk: false }, settings: S, employees: [owner, kl], overrides: [], leaves: [], save: async (collection: string) => { saved.push({ collection }); }, notify: async () => {} };
     await expect(decideAndApply(hr, req(), 'reject')).rejects.toThrow();
     await decideAndApply(hr, req(), 'reject', 'ບໍ່ແນ່ໃຈວ່າແມ່ນຕົວຈິງ');
     expect(saved.some(s => s.collection === 'employees')).toBe(false);

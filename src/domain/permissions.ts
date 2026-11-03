@@ -49,11 +49,22 @@ export function actionRoles(action: Action, s?: ApproverSettings): Role[] {
   if (action === 'scan.review' || action === 'advance.decide') { const o = s?.approverRoles?.[action]; if (o && o.length) return withOwner(o); }
   return ACTION_ROLES[action];
 }
+/**
+ * Whether this person may approve their own requests. Only an owner can, and only when the company turned the two-person check off
+ * or there is no other manager (head, accountant or owner) who could take it, so a one-person shop is never stuck. It is still audited: the
+ * decision carries their own name next to their own request.
+ */
+export function ownerSelfOk(me: { id: string; roles: Role[] }, s: Pick<Settings, 'makerChecker'>, employees: { id: string; roles: Role[]; endDate?: string }[]): boolean {
+  if (!me.roles.includes('owner')) return false;
+  if (!s.makerChecker) return true;
+  return !employees.some(e => e.id !== me.id && !e.endDate && e.roles.some(r => r === 'head' || r === 'accountant' || r === 'owner'));
+}
+
 export const canDoIn = (roles: Role[], action: Action, s?: ApproverSettings) => intersects(roles, actionRoles(action, s));
 
 /** Self-service menus, in drawer order, and whether the company uses each (on unless switched off). */
 export const SELF_MENUS: SelfMenu[] = ['directory', 'reports', 'clockFix', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'pay', 'advance'];
-export const menuOn = (m: SelfMenu, s?: Partial<Pick<Settings, 'employeeMenus'>>) => s?.employeeMenus?.[m] !== false;
+export const menuOn = (m: SelfMenu, s?: Partial<Pick<Settings, 'employeeMenus'>>, roles?: Role[]) => roles?.includes('owner') || s?.employeeMenus?.[m] !== false; // the owner is never shut out of a menu
 
 /** The leave page also opens for whoever Admin made a leave approver in Settings. */
 export const canViewPage = (roles: Role[], page: ManagerPage, s?: ApproverSettings) =>

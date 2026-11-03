@@ -15,6 +15,7 @@ export interface Notification {
 import { LocalStore, uid } from '../data/store';
 import { seed, shifts } from '../data/seed';
 import { DEMO_COMPANY_ID, getCompany, meKey, storePrefix } from '../data/companies';
+import { ownerSelfOk } from '../domain/permissions';
 import type { Company } from '../domain/company';
 import { purgeExpiredPhotos } from '../domain/attendance';
 import { defaultSettings } from '../domain/defaults';
@@ -53,6 +54,8 @@ interface Ctx extends HRData {
   notify: (userIds: string[], text: string, link?: string) => Promise<void>;
   ready: boolean;
   me: Employee | null;
+  /** `me` plus whether they may approve their own requests; pass this, not `me`, to the approval rules. */
+  approver: (Employee & { selfOk: boolean }) | null;
   setMe: (id: string | null) => void;
   save: <T extends { id: string }>(collection: string, item: T, action: string, asId?: string) => Promise<void>;
   remove: (collection: string, id: string, action: string) => Promise<void>;
@@ -132,6 +135,7 @@ export function HRProvider({ companyId, children }: { companyId: string; childre
     company: company!,
     ready: true,
     me,
+    approver: me ? { ...me, selfOk: ownerSelfOk(me, data.settings, data.employees) } : null,
     setMe: id => {
       setMeId(id);
       try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }

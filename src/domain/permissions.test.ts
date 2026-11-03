@@ -5,9 +5,9 @@ import {
   type Access, type Action, type ApprovalSection, type ManagerPage
 } from './permissions';
 import { REQUEST_LABEL, requestBlock, requestApprovers as requestApproversOf, type HRRequest, type RequestKind } from './requests';
-import { canDoIn, menuOn, SELF_MENUS } from './permissions';
+import { canDoIn, menuOn, ownerSelfOk, SELF_MENUS } from './permissions';
 import { validateSettings } from './settingsCheck';
-import { approvalBlock } from './leave';
+import { approvalBlock, decide as decideLeave } from './leave';
 import type { LeaveRequest, Role } from './types';
 
 const S = defaultSettings('c1');
@@ -362,5 +362,48 @@ describe('the company chooses who approves what (Access page)', () => {
     const s = { ...S, employeeMenus: { advance: false, directory: false } };
     expect(SELF_MENUS.filter(m => !menuOn(m, s))).toEqual(['directory', 'advance']);
     expect(SELF_MENUS.every(m => menuOn(m, S))).toBe(true);
+  });
+});
+
+describe('an owner approving their own request', () => {
+  const ownerEmp = { id: 'o', roles: ['employee', 'owner'] as Role[] };
+  const head = { id: 'h', roles: ['employee', 'head'] as Role[] };
+  const emp = { id: 'e', roles: ['employee'] as Role[] };
+  const gone = { id: 'g', roles: ['employee', 'owner'] as Role[], endDate: '2026-10-01' };
+  const check = (s: Partial<typeof S>) => ({ ...S, ...s });
+
+  it('is allowed when the two-person check is off', () => {
+    expect(ownerSelfOk(ownerEmp, check({ makerChecker: false }), [ownerEmp, head])).toBe(true);
+  });
+  it('is allowed when the check is on but nobody else could approve (a one-person shop)', () => {
+    expect(ownerSelfOk(ownerEmp, check({ makerChecker: true }), [ownerEmp, emp, gone])).toBe(true);
+  });
+  it('is not allowed when the check is on and another manager exists', () => {
+    expect(ownerSelfOk(ownerEmp, check({ makerChecker: true }), [ownerEmp, head])).toBe(false);
+  });
+  it('is never allowed for anyone who is not an owner, whatever the setting', () => {
+    for (const m of [true, false]) expect(ownerSelfOk(head, check({ makerChecker: m }), [head, emp]), String(m)).toBe(false);
+    expect(ownerSelfOk(emp, check({ makerChecker: false }), [emp])).toBe(false);
+  });
+
+  const mine = (over: Partial<HRRequest> = {}): HRRequest => ({ id: 'r', companyId: 'c1', kind: 'ot', employeeId: 'o', payload: { date: '2026-11-01', minutes: 60 }, reason: 'x', createdAt: '2026-11-02T09:00:00', approvals: [], status: 'pending', ...over });
+  it('a request by the owner is refused to them by default and accepted once self-approval applies', () => {
+    expect(requestBlock(mine(), ownerEmp, S, NOW)).toMatch('ຕົນເອງ');
+    expect(requestBlock(mine(), { ...ownerEmp, selfOk: true }, S, NOW)).toBeNull();
+  });
+  it('self-approval does not open anyone else\'s ability: a head still cannot approve the owner\'s own request flow as theirs', () => {
+    expect(requestBlock(mine({ employeeId: 'h' }), { ...head, selfOk: false }, S, NOW)).toMatch('ຕົນເອງ');
+  });
+  it('on their own request one approval is enough, even when the company asks for two', () => {
+    const two = { ...S, leaveApproversRequired: 2 as const };
+    expect(decideRequest(mine(), { ...ownerEmp, selfOk: true }, 'approve', two, NOW).status).toBe('approved');
+    const other = mine({ employeeId: 'e' });
+    expect(decideRequest(other, { ...ownerEmp, selfOk: true }, 'approve', two, NOW).status).toBe('pending'); // someone else's request still needs both
+  });
+  it('the same for leave', () => {
+    const leave: LeaveRequest = { id: 'l', companyId: 'c1', employeeId: 'o', type: 'annual', from: '2026-11-04', to: '2026-11-04', days: 1, reason: 'x', createdAt: '2026-11-02T09:00:00', approvals: [], status: 'pending' };
+    const two = { ...S, leaveApproversRequired: 2 as const };
+    expect(approvalBlock(leave, ownerEmp, two, NOW)).toMatch('ຕົນເອງ');
+    expect(decideLeave(leave, { ...ownerEmp, selfOk: true }, 'approve', two, NOW).status).toBe('approved');
   });
 });

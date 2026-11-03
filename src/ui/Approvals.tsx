@@ -21,11 +21,12 @@ export const SECTION_LABEL: Record<ApprovalSection, string> = {
 /** Items in a section that this user can act on right now (used for menu badges). */
 export function actionableCount(hr: ReturnType<typeof useHR>, section: ApprovalSection): number {
   const me = hr.me!;
+  const ap = hr.approver!;
   if (approvalAccess(me.roles, section, hr.settings) !== 'act') return 0;
   const now = new Date();
-  const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && !requestBlock(r, me, hr.settings, now, deptOf(hr.employees, r.employeeId))).length;
-  if (section === 'leave') return hr.leaves.filter(l => !approvalBlock(l, me, hr.settings, now, deptOf(hr.employees, l.employeeId))).length;
-  if (section === 'scan' && canDoIn(me.roles, 'scan.review', hr.settings)) return reqs + hr.scans.filter(s => s.status === 'pending' && s.employeeId !== me.id && inMyScope(me, hr.employees, s.employeeId, actionRoles('scan.review', hr.settings))).length;
+  const reqs = hr.requests.filter(r => SECTION_KINDS[section].includes(r.kind) && !requestBlock(r, ap, hr.settings, now, deptOf(hr.employees, r.employeeId))).length;
+  if (section === 'leave') return hr.leaves.filter(l => !approvalBlock(l, ap, hr.settings, now, deptOf(hr.employees, l.employeeId))).length;
+  if (section === 'scan' && canDoIn(me.roles, 'scan.review', hr.settings)) return reqs + hr.scans.filter(s => s.status === 'pending' && (s.employeeId !== me.id || ap.selfOk) && inMyScope(me, hr.employees, s.employeeId, actionRoles('scan.review', hr.settings))).length;
   return reqs;
 }
 
@@ -41,6 +42,7 @@ export function NoAccess() {
 export default function Approvals({ section, readOnly: forcedReadOnly = false }: { section: ApprovalSection; readOnly?: boolean }) {
   const hr = useHR();
   const me = hr.me!;
+  const ap = hr.approver!;
   const now = new Date();
   const access = approvalAccess(me.roles, section, hr.settings);
   const readOnly = forcedReadOnly || access !== 'act';
@@ -96,7 +98,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
           {head(s.employeeId, `${KIND_LABEL[s.kind]} · ${hhmm(s.deviceTime)}`, laoDate(new Date(s.deviceTime)), s.status === 'pending' ? null : statusPill(s.status === 'approved' ? 'approved' : 'rejected'))}
           {s.photo && <img src={s.photo} alt="ຮູບຕອນສະແກນ" style={{ width: 120, borderRadius: 12 }} />}
           <div className="row wrap">{s.reasons.map(r => <span key={r} className="pill warn">{r}</span>)}</div>
-          {s.status === 'pending' && actions(s.id, s.employeeId === me.id ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDoIn(me.roles, 'scan.review', hr.settings) ? 'ບໍ່ມີສິດ' : scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings)),
+          {s.status === 'pending' && actions(s.id, s.employeeId === me.id && !ap.selfOk ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDoIn(me.roles, 'scan.review', hr.settings) ? 'ບໍ່ມີສິດ' : scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings)),
             () => hr.save('scans', { ...s, status: 'approved', reviewedBy: me.id }, 'scan-approve'),
             async note => { if (!note.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອບໍ່ອະນຸມັດ'); await hr.save('scans', { ...s, status: 'rejected', reviewedBy: me.id, reviewNote: note }, 'scan-reject'); })}
         </div>
@@ -105,9 +107,9 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
       {leaves.map(l => (
         <div key={l.id} className="card col">
           {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${leaveSpan(l)}`, `${l.from} → ${l.to} · “${l.reason}”`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(l.status))}
-          {l.status === 'pending' && actions(l.id, approvalBlock(l, me, hr.settings, now, deptOf(hr.employees, l.employeeId)),
-            async () => { const n = decide(l, me, 'approve', hr.settings, now, undefined, deptOf(hr.employees, l.employeeId)); await hr.save('leaves', n, 'leave-approve'); if (n.status === 'approved') await hr.notify([l.employeeId], 'ການລາ — ອະນຸມັດແລ້ວ', 'leave'); },
-            async note => { await hr.save('leaves', decide(l, me, 'reject', hr.settings, now, note, deptOf(hr.employees, l.employeeId)), 'leave-reject'); await hr.notify([l.employeeId], `ການລາ — ບໍ່ອະນຸມັດ: ${note}`, 'leave'); })}
+          {l.status === 'pending' && actions(l.id, approvalBlock(l, ap, hr.settings, now, deptOf(hr.employees, l.employeeId)),
+            async () => { const n = decide(l, ap, 'approve', hr.settings, now, undefined, deptOf(hr.employees, l.employeeId)); await hr.save('leaves', n, 'leave-approve'); if (n.status === 'approved') await hr.notify([l.employeeId], 'ການລາ — ອະນຸມັດແລ້ວ', 'leave'); },
+            async note => { await hr.save('leaves', decide(l, ap, 'reject', hr.settings, now, note, deptOf(hr.employees, l.employeeId)), 'leave-reject'); await hr.notify([l.employeeId], `ການລາ — ບໍ່ອະນຸມັດ: ${note}`, 'leave'); })}
         </div>
       ))}
 
@@ -117,7 +119,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
           {r.reason && r.kind !== 'certificate' && <span className="muted small">“{r.reason}”</span>}
           {r.kind === 'expense' && (r.payload as RequestPayloads['expense']).receipt && <img src={(r.payload as RequestPayloads['expense']).receipt} alt="ໃບບິນ" style={{ maxWidth: 200, borderRadius: 12 }} />}
           <span className="muted small">ອະນຸມັດແລ້ວ {r.approvals.filter(a => a.decision === 'approve').length}/{hr.settings.leaveApproversRequired}{r.approvals.length ? ' · ' + r.approvals.map(a => nameOf(a.by)).join(', ') : ''}</span>
-          {r.status === 'pending' && actions(r.id, requestBlock(r, me, hr.settings, now, deptOf(hr.employees, r.employeeId)), () => decideAndApply(hr, r, 'approve'), note => decideAndApply(hr, r, 'reject', note))}
+          {r.status === 'pending' && actions(r.id, requestBlock(r, ap, hr.settings, now, deptOf(hr.employees, r.employeeId)), () => decideAndApply(hr, r, 'approve'), note => decideAndApply(hr, r, 'reject', note))}
         </div>
       ))}
     </div>

@@ -35,12 +35,14 @@ export interface Approver {
   roles: Role[];
   dept?: string;
   headOf?: string[];
+  /** May approve their own request (see ownerSelfOk). */
+  selfOk?: boolean;
 }
 
 /** Why an approver may not act on a request, or null when they may. */
 export function approvalBlock(req: LeaveRequest, approver: Approver, s: Settings, now: Date, targetDept?: string): string | null {
   if (req.status !== 'pending') return 'ຄຳຂໍນີ້ຕັດສິນແລ້ວ';
-  if (req.employeeId === approver.id) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
+  if (req.employeeId === approver.id && !approver.selfOk) return 'ອະນຸມັດຄຳຂໍຂອງຕົນເອງບໍ່ໄດ້';
   if (req.approvals.some(a => a.by === approver.id)) return 'ທ່ານອະນຸມັດຄຳຂໍນີ້ແລ້ວ';
   const escalated = isEscalated(req, s, now);
   const allowed: Role[] = escalated ? [...s.leaveApproverRoles, 'owner'] : s.leaveApproverRoles;
@@ -60,7 +62,8 @@ export function decide(req: LeaveRequest, approver: Approver, decision: 'approve
   if (decision === 'reject' && !note?.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອປະຕິເສດ');
   const approvals = [...req.approvals, { by: approver.id, at: now.toISOString(), decision, note }];
   const approveCount = approvals.filter(a => a.decision === 'approve').length;
-  const status = decision === 'reject' ? 'rejected' : approveCount >= s.leaveApproversRequired ? 'approved' : 'pending';
+  const needed = req.employeeId === approver.id && approver.selfOk ? 1 : s.leaveApproversRequired; // on their own request an owner is the only approver there is
+  const status = decision === 'reject' ? 'rejected' : approveCount >= needed ? 'approved' : 'pending';
   return { ...req, approvals, status };
 }
 

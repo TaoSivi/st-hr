@@ -33,7 +33,7 @@ export default function StaffImport({ onClose, onDone }: { onClose: () => void; 
   };
 
   const room = limitsOf(hr.company, today).maxEmployees - countedEmployees(hr.employees, today);
-  const twoPeople = changeNeedsSecondPerson(hr.settings);
+  const twoPeople = changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk;
   const go = async () => {
     if (!res?.ok.length) return;
     if (res.ok.length > room) return setErr(`ແພັກເກັດນີ້ຮັບພະນັກງານໄດ້ອີກ ${Math.max(room, 0)} ຄົນ ແຕ່ໃນໄຟລ໌ມີ ${res.ok.length} ຄົນ — ຍົກລະດັບແພັກເກັດ ຫຼື ແບ່ງນຳເຂົ້າ`);

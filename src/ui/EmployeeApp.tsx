@@ -75,7 +75,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
   const [cert, setCert] = useState<HRRequest<'certificate'> | null>(null);
   if (!me) return null;
   // a menu the company switched off cannot be opened, even from a notification link
-  const page = (SELF_MENUS.includes(pageAsked as SelfMenu) && !menuOn(pageAsked as SelfMenu, hr.settings) ? 'blocked' : pageAsked) as Page;
+  const page = (SELF_MENUS.includes(pageAsked as SelfMenu) && !menuOn(pageAsked as SelfMenu, hr.settings, me.roles) ? 'blocked' : pageAsked) as Page;
   const go = (p: Page) => { setPage(p); closeDrawer(); };
   const isMain = MAIN_TABS.some(([id]) => id === page);
   const notifOn = (() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } })();
@@ -141,7 +141,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
               <b style={{ color: '#fff', fontSize: 18 }}>{me.name} ({me.code})</b>
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
-            {PERSONAL.filter(([id]) => !SELF_MENUS.includes(id as SelfMenu) || menuOn(id as SelfMenu, hr.settings)).map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
+            {PERSONAL.filter(([id]) => !SELF_MENUS.includes(id as SelfMenu) || menuOn(id as SelfMenu, hr.settings, me.roles)).map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
             {isManager(me.roles) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
               {onManagerView && <button onClick={() => { closeDrawer(); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
@@ -360,7 +360,7 @@ function CalendarTab() {
     leave: selLeave ? { from: selLeave.from, to: selLeave.to, part: !!selLeave.part } : undefined
   });
   const ACTION_MENU: Partial<Record<DayAction, SelfMenu>> = { clockFix: 'clockFix', ot: 'ot', shiftSwap: 'shift', dayOffSwap: 'shift', schedule: 'schedule' };
-  const actions = dayActionsAll.filter(a => !ACTION_MENU[a] || menuOn(ACTION_MENU[a]!, settings));
+  const actions = dayActionsAll.filter(a => !ACTION_MENU[a] || menuOn(ACTION_MENU[a]!, settings, me!.roles));
   const ACTION_ICON: Record<DayAction, IconName> = { leave: 'leave', leaveCancel: 'leaveCancel', shiftSwap: 'shift', dayOffSwap: 'shift', schedule: 'schedule', clockFix: 'clockFix', ot: 'ot' };
   const counts = grid.filter(c => c.inMonth).reduce((a, c) => { const s = statusOf(c.date); a[s] = (a[s] ?? 0) + 1; return a; }, {} as Record<string, number>);
 
