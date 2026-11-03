@@ -15,6 +15,7 @@ import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
 import Avatar from './Avatar';
+import Icon, { type IconName } from './Icon';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
 import { MyRequests, RequestSheet } from './RequestsUI';
@@ -45,33 +46,17 @@ const TITLES: Partial<Record<Page, string>> = {
 };
 
 // 24 menu entries, in the order of the reference app's drawer
-const PERSONAL: [Page, string, string][] = [
-  ['profile', 'ໂປຣໄຟລ໌', 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21a8 8 0 0 1 16 0'],
-  ['directory', 'ລາຍຊື່', 'M6 3h12v18H6zM10 8h4M9 13h6M9 17h6'],
-  ['notifications', 'ການແຈ້ງເຕືອນ', 'M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0'],
-  ['reports', 'ລາຍງານ', 'M4 20V10M10 20V4M16 20v-7M22 20H2'],
-  ['clockFix', 'ຂໍລົງເວລາ', 'M12 7v5l3 2M21 12a9 9 0 1 1-3-6.7M21 4v5h-5'],
-  ['shift', 'ສະລັບກະ ແລະ ວັນພັກ', 'M7 7h13l-3-3M17 17H4l3 3'],
-  ['schedule', 'ຈັດຕາຕະລາງວຽກ', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 13h6M9 17h3'],
-  ['ot', 'ຂໍລ່ວງເວລາ', 'M9 4h6v3H9zM6 6h12v15H6zM9 12h6M9 16h4'],
-  ['expense', 'ບັນທຶກຄ່າໃຊ້ຈ່າຍ', 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6'],
-  ['certificate', 'ຂໍໜັງສືຮັບຮອງ', 'M3 5h18v14H3zM8 11a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM5 16a3 3 0 0 1 6 0M14 9h4M14 13h4'],
-  ['pay', 'ເບິ່ງສະລິບເງິນເດືອນ', 'M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21zM9 8h6M9 12h6M9 16h3'],
-  ['advance', 'ເບີກເງິນລ່ວງໜ້າ', 'M3 7h18v12H3zM3 11h18M7 15h3']
+const PERSONAL: [Page, string, IconName][] = [
+  ['profile', 'ໂປຣໄຟລ໌', 'profile'], ['directory', 'ລາຍຊື່', 'directory'], ['notifications', 'ການແຈ້ງເຕືອນ', 'bell'], ['reports', 'ລາຍງານ', 'reports'],
+  ['clockFix', 'ຂໍລົງເວລາ', 'clockFix'], ['shift', 'ສະລັບກະ ແລະ ວັນພັກ', 'shift'], ['schedule', 'ຈັດຕາຕະລາງວຽກ', 'schedule'], ['ot', 'ຂໍລ່ວງເວລາ', 'ot'],
+  ['expense', 'ບັນທຶກຄ່າໃຊ້ຈ່າຍ', 'expense'], ['certificate', 'ຂໍໜັງສືຮັບຮອງ', 'certificate'], ['pay', 'ເບິ່ງສະລິບເງິນເດືອນ', 'pay'], ['advance', 'ເບີກເງິນລ່ວງໜ້າ', 'advance']
 ];
-const APPROVALS: [ApprovalSection, string][] = [
-  ['scan', 'M9 11l2 2 4-4M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z'], ['leave', 'M3 17l18-6-18-6v5l10 1-10 1z'],
-  ['shift', 'M7 7h13l-3-3M17 17H4l3 3'], ['schedule', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 15l2 2 4-4'],
-  ['ot', 'M9 4h6v3H9zM6 6h12v15H6zM9 14l2 2 4-4'], ['expense', 'M4 6h16v12H4zM4 7l8 6 8-6'],
-  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4'], ['device', 'M8 3h8v18H8zM11 18h2'],
-  ['face', 'M12 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM4 21c1-4 4-6 8-6s7 2 8 6']
+const APPROVALS: [ApprovalSection, IconName][] = [
+  ['scan', 'scan'], ['leave', 'leave'], ['shift', 'shift'], ['schedule', 'schedule'], ['ot', 'ot'], ['expense', 'expense'],
+  ['certificate', 'certificate'], ['leaveCancel', 'leaveCancel'], ['device', 'device'], ['face', 'face']
 ];
-const OTHER: [Page, string, string][] = [
-  ['about', 'ຂໍ້ມູນ', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5'],
-  ['privacy', 'Privacy policy', 'M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6zM9 12l2 2 4-4'],
-  ['settings', 'ຕັ້ງຄ່າ', 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19 12h2M3 12h2M12 3v2M12 19v2M17 7l1.4-1.4M5.6 18.4 7 17M17 17l1.4 1.4M5.6 5.6 7 7']
-];
-const Ico = ({ d }: { d: string }) => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
+const OTHER: [Page, string, IconName][] = [['about', 'ຂໍ້ມູນ', 'about'], ['privacy', 'Privacy policy', 'privacy'], ['settings', 'ຕັ້ງຄ່າ', 'settings']];
+const Ico = ({ n }: { n: IconName }) => <Icon name={n} />;
 
 export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () => void; onManagerView?: () => void }) {
   const hr = useHR();
@@ -97,11 +82,11 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       <header className="appbar">
         <div className="appbar-top">
           <button className="icon-btn" aria-label="ເມນູ" onClick={() => setDrawer(true)} style={{ position: 'relative' }}>
-            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+            <Icon name="menu" size={26} />
           </button>
           <b className="grow" style={{ fontSize: 20 }}>{isMain ? 'ST HR' : title}</b>
           <button className="icon-btn" aria-label={`ແຈ້ງເຕືອນ ${unread}`} onClick={() => go('notifications')} style={{ position: 'relative' }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8M10 20a2 2 0 0 0 4 0" /></svg>
+            <Icon name="bell" />
             {unread > 0 && <span className="badge red dot-badge">{unread > 99 ? '99' : unread}</span>}
           </button>
         </div>
@@ -142,16 +127,16 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
               <b style={{ color: '#fff', fontSize: 18 }}>{me.name} ({me.code})</b>
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
-            {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico d={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
+            {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
             {isManager(me.roles) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
-              {onManagerView && <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico d="M4 4h7v7H4zM13 4h7v4h-7zM13 10h7v10h-7zM4 13h7v7H4z" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
-              {APPROVALS.filter(([sec]) => sections.includes(sec)).map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico d={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
-              {canViewPage(me.roles, 'map') && <button onClick={() => go('map')}><Ico d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2zM9 4v14M15 6v14" /><span className="grow">ແຜນທີ່</span></button>}
+              {onManagerView && <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
+              {APPROVALS.filter(([sec]) => sections.includes(sec)).map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico n={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
+              {canViewPage(me.roles, 'map') && <button onClick={() => go('map')}><Ico n="map" /><span className="grow">ແຜນທີ່</span></button>}
             </>}
             <div className="drawer-sec" />
-            {OTHER.map(([id, label, d]) => <button key={id} onClick={() => go(id)}><Ico d={d} /><span className="grow">{label}</span></button>)}
-            <button onClick={onSwitch}><Ico d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" /><span className="grow">ອອກຈາກລະບົບ</span></button>
+            {OTHER.map(([id, label, d]) => <button key={id} onClick={() => go(id)}><Ico n={d} /><span className="grow">{label}</span></button>)}
+            <button onClick={onSwitch}><Ico n="logout" /><span className="grow">ອອກຈາກລະບົບ</span></button>
           </aside>
         </div>
       )}
@@ -240,10 +225,10 @@ function ClockTab() {
         <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>
       </div>
       <div className="row">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z" /><circle cx="12" cy="9.5" r="2.5" /></svg>
+        <Icon name="pin" size={26} />
         <div className="grow">{chip}</div>
         <button className="icon-btn dark" aria-label="ຫາຕຳແໜ່ງໃໝ່" onClick={locate}>
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5" /></svg>
+          <Icon name="refresh" size={22} />
         </button>
       </div>
       {showMap && (

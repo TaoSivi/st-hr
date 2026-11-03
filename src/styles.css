@@ -236,3 +236,10 @@ table.t td.num, table.t th.num { text-align: right; }
 /* ---------- small-screen comfort ---------- */
 @media (max-width: 380px) { h1 { font-size: 22px; } .clock-big { font-size: 48px; } .card { padding: 16px; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation-duration: .01ms !important; scroll-behavior: auto !important; } }
+
+/* ---------- two-tone icons: deep-teal line + bright-teal accent (light pages), white line + mint accent (dark menus) ---------- */
+.ico { flex-shrink: 0; }
+.ico .l { stroke: var(--ico-line, var(--dark)); }
+.ico .a { stroke: var(--ico-accent, var(--accent)); }
+.drawer, .mgr nav { --ico-line: #fff; --ico-accent: var(--mint); }
+.mgr nav button .nav-l { display: flex; align-items: center; gap: 12px; }

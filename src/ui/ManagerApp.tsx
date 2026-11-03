@@ -26,6 +26,7 @@ import { faceTemplates } from '../domain/face';
 import { KIND_LABEL } from './labels';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { Reports, TeamMap } from './Pages';
+import Icon, { type IconName } from './Icon';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
@@ -35,6 +36,7 @@ const PAGE_LABEL: Record<Page, string> = {
   leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'Audit log'
 };
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
+const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', settings: 'settings', audit: 'audit' };
 
 /** A blocking message as a list, so it can be spread next to other messages (spreading the string itself would split it into letters). */
 const asList = (m: string | null) => (m ? [m] : []);
@@ -60,7 +62,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
         <div className="brand"><span className="logo">ST</span><div className="col" style={{ gap: 0 }}><b style={{ color: '#fff', fontSize: 17 }}>ST HR</b><span className="small" style={{ color: '#7fbdb9' }}>{me.name} · {me.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ')}</span></div></div>
         {pages.map(p => (
           <button key={p} aria-current={page === p ? 'page' : undefined} onClick={() => setPage(p)}>
-            <span>{PAGE_LABEL[p]}</span>{!!badge[p] && <span className="badge">{badge[p]}</span>}
+            <span className="nav-l"><Icon name={PAGE_ICON[p]} size={20} />{PAGE_LABEL[p]}</span>{!!badge[p] && <span className="badge">{badge[p]}</span>}
           </button>
         ))}
         <div style={{ height: 12 }} />
