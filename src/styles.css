@@ -135,13 +135,13 @@ table.t td.num, table.t th.num { text-align: right; }
 .result .t2 { font-size: 60px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
 
 /* ---------- employee app chrome: light app bar, top tabs, drawer ---------- */
-.appbar { background: linear-gradient(180deg, #0f4744 0%, #11706c 62%, #1b8a85 100%); color: #fff; position: sticky; top: 0; z-index: 20; border-radius: 0 0 28px 28px; padding-bottom: 16px; --ico-line: #fff; --ico-accent: var(--mint); }
+.appbar { background: linear-gradient(180deg, #0f4744 0%, #11706c 62%, #1b8a85 100%); color: #fff; position: sticky; top: 0; z-index: 20; border-radius: 0 0 28px 28px; padding-bottom: 12px; --ico-line: #fff; --ico-accent: var(--mint); }
 .appbar .icon-btn { background: rgba(255, 255, 255, .16); border-radius: 50%; color: #fff; }
 .appbar .icon-btn:hover { background: rgba(255, 255, 255, .26); }
 .appbar .btn.ghost { background: rgba(255, 255, 255, .16); color: #fff; border-color: transparent; }
-.greet { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 4px 16px 10px; gap: 0; }
-.greet span { font-size: 14px; color: #bfe6e2; }
-.greet b { font-size: 20px; letter-spacing: -.2px; }
+.greet { display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; text-align: center; padding: 0 16px 6px; gap: 0 8px; }
+.greet span { font-size: 13px; color: #bfe6e2; }
+.greet b { font-size: 15px; }
 .appbar-top { display: flex; align-items: center; gap: 8px; padding: 8px 12px 2px; }
 .appbar-sub { display: flex; align-items: center; gap: 8px; padding: 2px 10px 10px; font-size: 16px; }
 .icon-btn { width: 44px; height: 44px; border-radius: 12px; border: none; background: transparent; color: inherit; display: grid; place-items: center; font-size: 26px; flex-shrink: 0; transition: background .15s; }
@@ -152,7 +152,7 @@ table.t td.num, table.t th.num { text-align: right; }
 .avatar { overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
 .avatar.big { width: 52px; height: 52px; font-size: 17px; }
-.toptabs { display: flex; gap: 4px; margin: 6px 14px 0; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, .14); }
+.toptabs { display: flex; gap: 4px; margin: 2px 14px 0; padding: 4px; border-radius: 999px; background: rgba(255, 255, 255, .14); }
 .toptabs button { flex: 1; min-height: 42px; border: none; background: transparent; color: #d8f1ee; font-size: 16px; font-weight: 500; border-radius: 999px; transition: color .15s, background .15s; }
 .toptabs button[aria-selected='true'] { color: var(--dark); background: #fff; font-weight: 700; box-shadow: 0 2px 8px rgba(6, 47, 45, .18); }
 .subtabs { display: flex; gap: 2px; margin: 10px 14px 0; padding: 4px; border-radius: 999px; background: #fff; box-shadow: var(--sh-1); position: sticky; top: 136px; z-index: 19; }
@@ -182,11 +182,6 @@ table.t td.num, table.t th.num { text-align: right; }
 .mapcard { position: relative; height: 270px; border-radius: var(--r); overflow: hidden; background: #dbe9e7; box-shadow: var(--sh-1); isolation: isolate; z-index: 0; }
 .mapcard-map { position: absolute; inset: 0; }
 .mapcard-overlay { position: absolute; left: 0; right: 0; bottom: 0; z-index: 500; padding: 22px 12px 10px; text-align: center; background: linear-gradient(transparent, rgba(255, 255, 255, .94) 38%); pointer-events: none; }
-.clock-hero { position: relative; z-index: 2; margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 18px 18px 20px; border-radius: var(--r); background: linear-gradient(180deg, #fff 0%, #eef8f7 100%); border: 1px solid #fff; color: var(--ink); box-shadow: 0 2px 6px rgba(15, 42, 41, .06), 0 18px 40px rgba(6, 47, 45, .16); --ico-line: var(--dark); }
-.clock-hero .who { display: flex; align-items: center; gap: 14px; width: 100%; }
-.clock-hero .clock-big { color: var(--dark); margin-top: 6px; }
-.clock-hero .clock-date { color: var(--muted); }
-.clock-hero .avatar { box-shadow: 0 0 0 3px #fff, 0 0 0 5px rgba(10, 186, 181, .35); }
 .clock-big { font-size: 56px; font-weight: 700; letter-spacing: -2px; line-height: 1; color: var(--ink); }
 .clock-date { font-size: 15px; font-weight: 500; color: var(--muted); }
 .map-btn { position: absolute; top: 10px; right: 10px; z-index: 600; width: 44px; height: 44px; border-radius: 12px; border: none; background: #fff; color: var(--dark); display: grid; place-items: center; box-shadow: var(--sh-1); }
@@ -250,3 +245,25 @@ table.t td.num, table.t th.num { text-align: right; }
 .ico .a { stroke: var(--ico-accent, var(--accent)); }
 .drawer, .mgr nav { --ico-line: #fff; --ico-accent: var(--mint); }
 .mgr nav button .nav-l { display: flex; align-items: center; gap: 12px; }
+
+/* ---------- employee ID card: the photo fills the card, the clock sits in the corner ---------- */
+.id-card { position: relative; z-index: 2; margin-top: 10px; min-height: 212px; padding: 14px 14px 14px 16px; border-radius: 26px; overflow: hidden; isolation: isolate; color: #fff; display: flex; flex-direction: column; justify-content: space-between;
+  background: linear-gradient(140deg, #0f4744 0%, #0a7e7a 58%, #0abab5 100%); background-size: cover; background-position: 50% 22%;
+  box-shadow: 0 2px 6px rgba(15, 42, 41, .1), 0 18px 40px rgba(6, 47, 45, .28); }
+.id-card::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(5, 38, 36, .5) 0%, rgba(5, 38, 36, 0) 34%, rgba(5, 38, 36, .86) 100%); }
+.id-card:not(.has-photo)::after { content: ''; position: absolute; z-index: -1; right: -40px; top: -50px; width: 220px; height: 220px; border-radius: 50%; background: rgba(255, 255, 255, .1); box-shadow: 0 0 0 34px rgba(255, 255, 255, .06), 0 0 0 70px rgba(255, 255, 255, .04); }
+.id-initial { position: absolute; z-index: -1; right: 22px; top: 6px; font-size: 120px; font-weight: 800; line-height: 1; color: rgba(255, 255, 255, .16); letter-spacing: -4px; }
+.id-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.id-brand, .id-code { display: inline-flex; align-items: center; gap: 8px; height: 28px; border-radius: 999px; background: rgba(255, 255, 255, .2); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); font-size: 12px; font-weight: 600; letter-spacing: .3px; }
+.id-brand { padding: 0 12px 0 3px; }
+.id-brand b { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--mint), var(--accent)); color: var(--dark); font-size: 10px; font-weight: 800; letter-spacing: 0; }
+.id-code { padding: 0 12px; }
+.id-bottom { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+.id-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; text-shadow: 0 1px 10px rgba(0, 0, 0, .45); }
+.id-name { font-size: 20px; line-height: 1.25; letter-spacing: -.2px; }
+.id-info span { font-size: 13px; color: #e6f7f5; }
+.id-info .id-meta { font-size: 12px; color: #bfe6e2; }
+.id-clock { flex-shrink: 0; text-align: center; padding: 8px 12px 6px; border-radius: 20px; background: rgba(5, 38, 36, .55); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, .22); box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+.id-clock .clock-big { font-size: 38px; color: #fff; letter-spacing: -1px; }
+.id-clock .clock-date { font-size: 11px; color: #cfeeea; white-space: nowrap; }
+@media (max-width: 360px) { .id-clock .clock-big { font-size: 32px; } .id-name { font-size: 18px; } }

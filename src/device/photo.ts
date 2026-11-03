@@ -1,5 +1,5 @@
 /** A profile photo from a picture file: cropped to the middle square and shrunk, so it stays small enough to store with the employee. */
-export function squarePhoto(file: File, size = 256): Promise<string> {
+export function squarePhoto(file: File, size = 512): Promise<string> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();

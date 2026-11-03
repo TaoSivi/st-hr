@@ -14,7 +14,6 @@ import { getDeviceId } from '../device/deviceId';
 import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
-import Avatar from './Avatar';
 import Icon, { type IconName } from './Icon';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
@@ -213,10 +212,23 @@ function ClockTab() {
 
   return (
     <div className="screen" style={{ paddingTop: 0 }}>
-      <div className="clock-hero">
-        <div className="who"><Avatar e={me!} size={64} /><div className="col" style={{ gap: 0, minWidth: 0 }}><b style={{ fontSize: 19 }}>{me!.name}</b><span className="small muted">{me!.position} · {me!.code}</span></div></div>
-        <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
-        <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>
+      <div className={`id-card ${me!.photo ? 'has-photo' : ''}`} style={me!.photo ? { backgroundImage: `url(${me!.photo})` } : undefined} aria-label="ບັດພະນັກງານ">
+        {!me!.photo && <span className="id-initial" aria-hidden="true">{initials(me!.name)}</span>}
+        <div className="id-top">
+          <span className="id-brand"><b>ST</b>ບັດພະນັກງານ</span>
+          <span className="id-code">{me!.code}</span>
+        </div>
+        <div className="id-bottom">
+          <div className="id-info">
+            <b className="id-name">{me!.name}</b>
+            <span>{me!.position}</span>
+            <span className="id-meta">{me!.dept}{branches.find(x => x.id === me!.homeBranchId) ? ` · ${branches.find(x => x.id === me!.homeBranchId)!.name}` : ''}</span>
+          </div>
+          <div className="id-clock" role="timer" aria-label="ເວລາດຽວນີ້">
+            <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
+            <div className="clock-date">{laoDate(now)}</div>
+          </div>
+        </div>
       </div>
       {missed.length > 0 && (
         <div className="card col" role="alert" style={{ borderColor: '#f4b740', background: '#fff8e6' }}>
