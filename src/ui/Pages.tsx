@@ -6,6 +6,7 @@ import { featureBlock } from '../domain/company';
 import { shiftRange } from '../domain/leavePart';
 import { getDeviceId } from '../device/deviceId';
 import { squarePhoto } from '../device/photo';
+import { useClosing } from './closing';
 import Avatar from './Avatar';
 import { faceResetBlock, faceTemplates, POSES } from '../domain/face';
 import { effectiveShift, type HRRequest } from '../domain/requests';
@@ -171,13 +172,14 @@ export function SchedulePage() {
   );
 }
 
-export function CertificateView({ r, onClose }: { r: HRRequest<'certificate'>; onClose: () => void }) {
+export function CertificateView({ r, onClose: closeNow }: { r: HRRequest<'certificate'>; onClose: () => void }) {
   const hr = useHR();
+  const { closing, close: onClose } = useClosing(closeNow, 240);
   const e = hr.employees.find(x => x.id === r.employeeId)!;
   const approver = hr.employees.find(x => x.id === r.approvals[r.approvals.length - 1]?.by);
   const today = new Date();
   return (
-    <div className="fullscreen" style={{ background: '#fff', color: '#111' }}>
+    <div className={`fullscreen${closing ? ' closing' : ''}`} style={{ background: '#fff', color: '#111' }}>
       <div className="row no-print"><button className="btn ghost" onClick={onClose}>‹ ກັບ</button><span className="grow" /><button className="btn" onClick={() => window.print()}>ພິມ / ບັນທຶກ PDF</button></div>
       <article className="cert">
         <p style={{ textAlign: 'center', margin: 0 }}>ສາທາລະນະລັດ ປະຊາທິປະໄຕ ປະຊາຊົນລາວ<br />ສັນຕິພາບ ເອກະລາດ ປະຊາທິປະໄຕ ເອກະພາບ ວັດທະນະຖາວອນ</p>

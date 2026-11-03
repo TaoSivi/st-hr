@@ -16,7 +16,7 @@ export const RIPPLE_HOSTS = '.btn, .clock-btn, .day-action, .bottomnav button, .
 /** Things that give a small buzz. */
 const BUZZ_HOSTS = '.clock-btn, .bottomnav button, .cal-d, .day-action, .fab';
 
-const calm = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+export const prefersReducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export function installPress(root: Document = document) {
   const html = root.documentElement;
@@ -24,7 +24,7 @@ export function installPress(root: Document = document) {
     // where the finger is, for animations that open from it
     html.style.setProperty('--tap-x', `${e.clientX}px`);
     html.style.setProperty('--tap-y', `${e.clientY}px`);
-    if (calm()) return;
+    if (prefersReducedMotion()) return;
     const target = e.target instanceof Element ? e.target : null;
     const host = target?.closest<HTMLElement>(RIPPLE_HOSTS);
     if (!host || (host as HTMLButtonElement).disabled) return;

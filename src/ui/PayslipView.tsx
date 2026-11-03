@@ -1,4 +1,5 @@
 import type { Payslip } from '../domain/payroll';
+import { useClosing } from './closing';
 import type { Employee } from '../domain/types';
 import { money } from './format';
 
@@ -8,12 +9,13 @@ export interface PayslipData { employee: Employee; slip: Payslip; lateMin: numbe
  * A full-screen payslip that prints cleanly (the browser's "save as PDF" gives the PDF).
  * `final` is false until the period is locked: an unlocked slip is marked as an estimate so it cannot be mistaken for the real one.
  */
-export function PayslipView({ data, monthLabel, final, onClose }: { data: PayslipData; monthLabel: string; final: boolean; onClose: () => void }) {
+export function PayslipView({ data, monthLabel, final, onClose: closeNow }: { data: PayslipData; monthLabel: string; final: boolean; onClose: () => void }) {
+  const { closing, close: onClose } = useClosing(closeNow, 240);
   const { employee: e, slip: s } = data;
   const line = (k: string, v: number, neg = false, note?: string) => (
     <tr><td>{k}{note && <span style={{ color: '#666', fontSize: 13 }}> · {note}</span>}</td><td style={{ textAlign: 'right' }}>{neg && v ? '−' : ''}{money(v)}</td></tr>);
   return (
-    <div className="fullscreen" style={{ background: '#fff', color: '#111' }} role="dialog" aria-label="ສະລິບເງິນເດືອນ">
+    <div className={`fullscreen${closing ? ' closing' : ''}`} style={{ background: '#fff', color: '#111' }} role="dialog" aria-label="ສະລິບເງິນເດືອນ">
       <div className="row no-print"><button className="btn ghost" onClick={onClose}>‹ ກັບ</button><span className="grow" /><button className="btn" onClick={() => window.print()}>ພິມ / ບັນທຶກ PDF</button></div>
       <article className="cert payslip">
         <h2 style={{ textAlign: 'center', fontSize: 22, margin: '0 0 4px' }}>ສະລິບເງິນເດືອນ</h2>

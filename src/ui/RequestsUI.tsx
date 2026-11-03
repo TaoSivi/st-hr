@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useClosing } from './closing';
 import { useHR } from '../app/state';
 import { submitRequest } from '../app/workflow';
 import { REQUEST_LABEL, validateRequest, type HRRequest, type RequestKind, type RequestPayloads } from '../domain/requests';
@@ -13,8 +14,9 @@ import { shiftRange } from '../domain/leavePart';
 export const EXPENSE_CATEGORIES = ['ເດີນທາງ', 'ອາຫານ / ຮັບແຂກ', 'ຊື້ເຄື່ອງໃຫ້ຮ້ານ', 'ໂທລະສັບ / ອິນເຕີເນັດ', 'ອື່ນໆ'];
 
 /** One sheet for every request kind; the fields change, the submit path and rules do not. */
-export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; onClose: () => void; initial?: { date?: string; date2?: string; scanKind?: ScanKind; time?: string; leaveId?: string } }) {
+export function RequestSheet({ kind, onClose: closeNow, initial }: { kind: RequestKind; onClose: () => void; initial?: { date?: string; date2?: string; scanKind?: ScanKind; time?: string; leaveId?: string } }) {
   const hr = useHR();
+  const { closing, close: onClose } = useClosing(closeNow);
   const me = hr.me!;
   const today = ymd(new Date());
   const [date, setDate] = useState(initial?.date ?? today);
@@ -74,7 +76,7 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
   const myLeaves = hr.leaves.filter(l => l.employeeId === me.id && (l.status === 'approved' || l.status === 'pending') && l.to >= today);
 
   return (
-    <div className="sheet-back" onClick={onClose}>
+    <div className={`sheet-back${closing ? ' closing' : ''}`} onClick={onClose}>
       <div className="sheet col" onClick={e => e.stopPropagation()} role="dialog" aria-label={REQUEST_LABEL[kind]}>
         <h2>{REQUEST_LABEL[kind]}</h2>
         {kind === 'clockFix' && <>

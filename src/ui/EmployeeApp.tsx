@@ -15,6 +15,8 @@ import { leaveBalance, monthKey, summarize } from '../app/payrun';
 import { effectiveShift } from '../domain/requests';
 import MapCard from './MapCard';
 import Icon, { type IconName } from './Icon';
+import { useClosing } from './closing';
+import { prefersReducedMotion } from './press';
 import { DAY_ACTION_TEXT, dayActions, type DayAction } from '../domain/dayActions';
 import { KIND_LABEL } from './labels';
 import type { HRRequest } from '../domain/requests';
@@ -66,9 +68,11 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
   const { me } = hr;
   const [page, setPage] = useState<Page>('clock');
   const [drawer, setDrawer] = useState(false);
+  const [drawerClosing, setDrawerClosing] = useState(false);
+  const closeDrawer = () => { if (drawerClosing) return; setDrawerClosing(true); setTimeout(() => { setDrawer(false); setDrawerClosing(false); }, prefersReducedMotion() ? 0 : 280); };
   const [cert, setCert] = useState<HRRequest<'certificate'> | null>(null);
   if (!me) return null;
-  const go = (p: Page) => { setPage(p); setDrawer(false); };
+  const go = (p: Page) => { setPage(p); closeDrawer(); };
   const isMain = MAIN_TABS.some(([id]) => id === page);
   const notifOn = (() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } })();
   const unread = notifOn ? hr.notifications.filter(n => n.userId === me.id && !n.read).length : 0;
@@ -125,7 +129,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       {page.startsWith('approve:') && <Approvals key={page} section={page.slice(8) as ApprovalSection} />}
       {cert && <CertificateView r={cert} onClose={() => setCert(null)} />}
       {drawer && (
-        <div className="drawer-back" onClick={() => setDrawer(false)}>
+        <div className={`drawer-back${drawerClosing ? ' closing' : ''}`} onClick={closeDrawer}>
           <aside className="drawer" onClick={e => e.stopPropagation()} aria-label="ເມນູ">
             <div className="drawer-head">
               <span className="avatar" style={{ width: 72, height: 72, fontSize: 24 }}>{initials(me.name)}</span>
@@ -135,7 +139,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
             {PERSONAL.map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
             {isManager(me.roles) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
-              {onManagerView && <button onClick={() => { setDrawer(false); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
+              {onManagerView && <button onClick={() => { closeDrawer(); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
               {APPROVALS.filter(([sec]) => sections.includes(sec)).map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico n={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
               {canViewPage(me.roles, 'map') && <button onClick={() => go('map')}><Ico n="map" /><span className="grow">ແຜນທີ່</span></button>}
             </>}
@@ -459,8 +463,9 @@ function LeaveTab() {
   );
 }
 
-function LeaveForm({ left, compLeft, initialDate, onClose }: { left: number; compLeft: number; initialDate?: string; onClose: () => void }) {
+function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: number; compLeft: number; initialDate?: string; onClose: () => void }) {
   const { me, save, settings, leaves, shifts, overrides } = useHR();
+  const { closing, close: onClose } = useClosing(closeNow);
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
   const [from, setFrom] = useState(initialDate ?? today);
@@ -488,7 +493,7 @@ function LeaveForm({ left, compLeft, initialDate, onClose }: { left: number; com
     onClose();
   };
   return (
-    <div className="sheet-back" onClick={onClose}>
+    <div className={`sheet-back${closing ? ' closing' : ''}`} onClick={onClose}>
       <div className="sheet col" onClick={e => e.stopPropagation()} role="dialog" aria-label="ຂໍລາ">
         <h2>ຂໍລາ</h2>
         <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
@@ -568,7 +573,8 @@ function Pay() {
 /* ------------------------------ ສະແກນໜ້າ ------------------------------ */
 
 /** Consent, then the face from three angles (front, then turned each way); each angle is a few captures averaged into one descriptor. */
-function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () => void; onCancel: () => void }) {
+function Enroll({ onDone, onSkip, onCancel: cancelNow }: { onDone: () => void; onSkip: () => void; onCancel: () => void }) {
+  const { closing, close: onCancel } = useClosing(cancelNow, 280);
   const { me, save, settings } = useHR();
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -626,7 +632,7 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
   };
 
   return (
-    <div className="fullscreen scan">
+    <div className={`fullscreen scan${closing ? ' closing' : ''}`}>
       <h1 style={{ fontSize: 28 }}>ລົງທະບຽນໃບໜ້າ</h1>
       {phase === 'consent' ? (
         <div className="col" style={{ maxWidth: 420, width: '100%' }}>
@@ -661,7 +667,8 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
 
 type Check = 'wait' | 'ok' | 'no';
 
-function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranch: Branch | null; onClose: () => void }) {
+function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; manualBranch: Branch | null; onClose: () => void }) {
+  const { closing, close: onClose } = useClosing(closeNow, 280);
   const { me, branches, settings, save } = useHR();
   const video = useRef<HTMLVideoElement>(null);
   const run = useRef({ cancelled: false, stream: null as MediaStream | null });
@@ -739,7 +746,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
 
   if (saveErr) {
     return (
-      <div className="fullscreen result" style={{ background: '#fee2e2', color: '#7f1d1d' }}>
+      <div className={`fullscreen result${closing ? ' closing' : ''}`} style={{ background: '#fee2e2', color: '#7f1d1d' }}>
         <div className="col grow result">
           <span className="circle" style={{ background: '#dc2626', boxShadow: '0 0 0 16px rgba(220,38,38,.2)', color: '#fff', fontSize: 72, fontWeight: 800 }}>!</span>
           <span className="t1" role="alert" style={{ marginTop: 18 }}>ບັນທຶກບໍ່ສຳເລັດ</span>
@@ -755,7 +762,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
   if (result) {
     if (result.status === 'ok') {
       return (
-        <div className="fullscreen result" style={{ background: color, color: '#fff' }}>
+        <div className={`fullscreen result${closing ? ' closing' : ''}`} style={{ background: color, color: '#fff' }}>
           <div className="col grow result">
             <span className="circle" style={{ background: '#fff', color }}><Tick size={84} /></span>
             <span className="t1" role="status" style={{ marginTop: 18 }}>{KIND_LABEL[kind]}ແລ້ວ!</span>
@@ -768,7 +775,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
       );
     }
     return (
-      <div className="fullscreen result" style={{ background: 'var(--warn-bg)', color: '#3b2600' }}>
+      <div className={`fullscreen result${closing ? ' closing' : ''}`} style={{ background: 'var(--warn-bg)', color: '#3b2600' }}>
         <div className="col grow result">
           <span className="circle" style={{ background: 'var(--warn)', boxShadow: '0 0 0 16px rgba(244,183,64,.3)' }}>
             <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.6" strokeLinecap="round" aria-hidden="true"><path d="M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z" /></svg>
@@ -786,7 +793,7 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
   }
 
   return (
-    <div className="fullscreen scan">
+    <div className={`fullscreen scan${closing ? ' closing' : ''}`}>
       <span className="pill" style={{ height: 40, fontSize: 16, padding: '0 16px', background: color, color: '#fff' }}>ກຳລັງ: {KIND_LABEL[kind]}</span>
       <div style={{ textAlign: 'center' }}>
         <div style={{ fontSize: 28, fontWeight: 800 }}>ສ່ອງໜ້າໃສ່ວົງມົນ</div>
