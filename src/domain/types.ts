@@ -44,7 +44,9 @@ export interface Employee {
   payMethod: PayMethod;
   bankName?: string;
   bankAccount?: string;
-  faceEnrolled?: number[]; // face descriptor (demo: stored locally only)
+  faceEnrolled?: number[]; // face descriptor, facing the camera (demo: stored locally only)
+  facePoses?: number[][]; // descriptors turned slightly to each side; a scan is matched against all of them
+  faceReenroll?: boolean; // a manager approved taking the face again; the next clock-in does it
   faceConsentAt?: string;
   deviceId?: string; // the phone this account is bound to; a scan from another phone goes to review
   deviceBoundAt?: string;

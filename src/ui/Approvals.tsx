@@ -15,7 +15,7 @@ export type { ApprovalSection };
 
 export const SECTION_LABEL: Record<ApprovalSection, string> = {
   scan: 'ອະນຸມັດລົງເວລາ', leave: 'ອະນຸມັດການລາ', shift: 'ອະນຸມັດສະລັບກະ ແລະ ວັນພັກ', schedule: 'ອະນຸມັດຕາຕະລາງວຽກ',
-  ot: 'ອະນຸມັດລ່ວງເວລາ', expense: 'ອະນຸມັດຄ່າໃຊ້ຈ່າຍ', certificate: 'ອະນຸມັດໜັງສືຮັບຮອງ', leaveCancel: 'ອະນຸມັດຍົກເລີກການລາ', device: 'ອະນຸມັດປ່ຽນເຄື່ອງ'
+  ot: 'ອະນຸມັດລ່ວງເວລາ', expense: 'ອະນຸມັດຄ່າໃຊ້ຈ່າຍ', certificate: 'ອະນຸມັດໜັງສືຮັບຮອງ', leaveCancel: 'ອະນຸມັດຍົກເລີກການລາ', device: 'ອະນຸມັດປ່ຽນເຄື່ອງ', face: 'ອະນຸມັດຖ່າຍໃບໜ້າໃໝ່'
 };
 
 /** Items in a section that this user can act on right now (used for menu badges). */

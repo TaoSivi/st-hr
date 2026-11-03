@@ -97,7 +97,7 @@ describe('moving an account to another phone', () => {
   });
   it('approving it binds the new phone and clears the face, once', async () => {
     const saved: { collection: string; item: any; action: string }[] = [];
-    const bound: Employee = { ...kl, deviceId: 'd1', faceEnrolled: [0.1, 0.2] };
+    const bound: Employee = { ...kl, deviceId: 'd1', faceEnrolled: [0.1, 0.2], facePoses: [[0.3, 0.4]], faceReenroll: true };
     const hr: any = {
       me: owner, settings: S, employees: [owner, bound], overrides: [], leaves: [],
       save: async (collection: string, item: any, action: string) => { saved.push({ collection, item, action }); },
@@ -108,6 +108,8 @@ describe('moving an account to another phone', () => {
     expect(emp.action).toBe('device-change-apply');
     expect(emp.item).toMatchObject({ id: 'e-kl', deviceId: 'd2' });
     expect(emp.item.faceEnrolled).toBeUndefined();
+    expect(emp.item.facePoses).toBeUndefined();
+    expect(emp.item.faceReenroll).toBeUndefined();
     expect(emp.item.deviceBoundAt).toBeTruthy();
     expect(saved.filter(s => s.collection === 'employees')).toHaveLength(1);
     expect(saved.find(s => s.collection === 'requests')!.item).toMatchObject({ status: 'approved' });

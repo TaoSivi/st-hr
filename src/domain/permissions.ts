@@ -50,12 +50,12 @@ export const canDo = (roles: Role[], action: Action) => intersects(roles, ACTION
 export const isReadOnly = (roles: Role[]) => roles.includes('auditor') && !intersects(roles, ['owner', 'head', 'accountant']);
 export const isManager = (roles: Role[]) => roles.some(r => r !== 'employee');
 
-export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel' | 'device';
-export const APPROVAL_SECTIONS: ApprovalSection[] = ['scan', 'leave', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device'];
+export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel' | 'device' | 'face';
+export const APPROVAL_SECTIONS: ApprovalSection[] = ['scan', 'leave', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face'];
 
 export const SECTION_KINDS: Record<ApprovalSection, RequestKind[]> = {
   scan: ['clockFix'], leave: [], shift: ['shiftSwap', 'dayOffSwap'], schedule: ['schedule'], ot: ['ot'],
-  expense: ['expense'], certificate: ['certificate'], leaveCancel: ['leaveCancel'], device: ['deviceChange']
+  expense: ['expense'], certificate: ['certificate'], leaveCancel: ['leaveCancel'], device: ['deviceChange'], face: ['faceReset']
 };
 
 export function sectionActRoles(section: ApprovalSection, s: Pick<Settings, 'leaveApproverRoles'>): Role[] {

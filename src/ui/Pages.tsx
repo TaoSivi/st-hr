@@ -5,6 +5,7 @@ import { exportAttendanceXlsx, reportEmployees, reportInput } from '../app/expor
 import { featureBlock } from '../domain/company';
 import { shiftRange } from '../domain/leavePart';
 import { getDeviceId } from '../device/deviceId';
+import { faceResetBlock, faceTemplates, POSES } from '../domain/face';
 import { effectiveShift, type HRRequest } from '../domain/requests';
 import MapCard, { type MapMark } from './MapCard';
 import { MyRequests, RequestSheet } from './RequestsUI';
@@ -239,6 +240,7 @@ export function EmpSettings({ onLogout }: { onLogout: () => void }) {
   const me = hr.me!;
   const [msg, setMsg] = useState('');
   const [deviceSheet, setDeviceSheet] = useState(false);
+  const [faceSheet, setFaceSheet] = useState(false);
   const [notif, setNotif] = useState(() => { try { return localStorage.getItem('sthr-notif') !== 'off'; } catch { return true; } });
   return (
     <div className="screen">
@@ -255,8 +257,12 @@ export function EmpSettings({ onLogout }: { onLogout: () => void }) {
       </div>
       <div className="card col">
         <b>ຂໍ້ມູນໃບໜ້າ</b>
-        <span className="muted small">{me.faceEnrolled ? 'ລົງທະບຽນແລ້ວ. ຖ້າຖອນຄວາມຍິນຍອມ ຂໍ້ມູນໃບໜ້າຈະຖືກລຶບ ແລະ ການລົງເວລາຈະໄປລໍຫົວໜ້າກວດ.' : 'ຍັງບໍ່ໄດ້ລົງທະບຽນ — ຈະຖືກຖາມຕອນກົດເຂົ້າວຽກເທື່ອທຳອິດ.'}</span>
-        {me.faceEnrolled && <button className="btn danger" onClick={async () => { await hr.save('employees', { ...me, faceEnrolled: undefined, faceConsentAt: undefined }, 'face-consent-withdraw'); setMsg('ລຶບຂໍ້ມູນໃບໜ້າແລ້ວ'); }}>ຖອນຄວາມຍິນຍອມ ແລະ ລຶບຂໍ້ມູນໃບໜ້າ</button>}
+        <span className="muted small">{me.faceEnrolled ? `ລົງທະບຽນແລ້ວ ${faceTemplates(me).length} ທ່າ. ຖ້າຖອນຄວາມຍິນຍອມ ຂໍ້ມູນໃບໜ້າຈະຖືກລຶບ ແລະ ການລົງເວລາຈະໄປລໍຫົວໜ້າກວດ.` : 'ຍັງບໍ່ໄດ້ລົງທະບຽນ — ຈະຖືກຖາມຕອນກົດເຂົ້າວຽກເທື່ອທຳອິດ.'}</span>
+        {me.faceEnrolled && faceTemplates(me).length < POSES.length && !me.faceReenroll && <span className="muted small">ມີບໍ່ຄົບ {POSES.length} ທ່າ — ຂໍລົງທະບຽນໃໝ່ ເພື່ອໃຫ້ສະແກນຕິດງ່າຍຂຶ້ນ.</span>}
+        {me.faceReenroll && <span className="pill ok" style={{ alignSelf: 'flex-start' }}>ອະນຸມັດແລ້ວ — ເທື່ອຕໍ່ໄປທີ່ກົດເຂົ້າວຽກ ຈະໃຫ້ຖ່າຍໃບໜ້າໃໝ່</span>}
+        {me.faceEnrolled && !faceResetBlock(me) && <button className="btn ghost" onClick={() => setFaceSheet(true)}>ຂໍລົງທະບຽນໃບໜ້າໃໝ່</button>}
+        {faceSheet && <RequestSheet kind="faceReset" onClose={() => setFaceSheet(false)} />}
+        {me.faceEnrolled && <button className="btn danger" onClick={async () => { await hr.save('employees', { ...me, faceEnrolled: undefined, facePoses: undefined, faceReenroll: undefined, faceConsentAt: undefined }, 'face-consent-withdraw'); setMsg('ລຶບຂໍ້ມູນໃບໜ້າແລ້ວ'); }}>ຖອນຄວາມຍິນຍອມ ແລະ ລຶບຂໍ້ມູນໃບໜ້າ</button>}
         {msg && <span className="pill ok" style={{ alignSelf: 'flex-start' }}>{msg}</span>}
       </div>
       <button className="btn ghost" onClick={onLogout}>ອອກຈາກລະບົບ</button>

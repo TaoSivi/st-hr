@@ -6,7 +6,8 @@ import { evaluateScan, nearestBranch } from '../domain/attendance';
 import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
 import { leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
-import { describeFace, loadFaceModels, matchScore, openFrontCamera, snapshot, stopCamera } from '../device/face';
+import { describeFace, describeFacePose, loadFaceModels, openFrontCamera, snapshot, stopCamera } from '../device/face';
+import { averageDescriptors, bestFaceScore, faceTemplates, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE } from '../domain/face';
 import { getPosition, type Position } from '../device/geo';
 import { getDeviceId } from '../device/deviceId';
 import { leaveBalance, monthKey, summarize } from '../app/payrun';
@@ -60,7 +61,8 @@ const APPROVALS: [ApprovalSection, string][] = [
   ['scan', 'M9 11l2 2 4-4M12 3l7 3v5c0 5-3 8-7 10-4-2-7-5-7-10V6z'], ['leave', 'M3 17l18-6-18-6v5l10 1-10 1z'],
   ['shift', 'M7 7h13l-3-3M17 17H4l3 3'], ['schedule', 'M8 3v3M16 3v3M4 8h16M5 5h14v15H5zM9 15l2 2 4-4'],
   ['ot', 'M9 4h6v3H9zM6 6h12v15H6zM9 14l2 2 4-4'], ['expense', 'M4 6h16v12H4zM4 7l8 6 8-6'],
-  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4'], ['device', 'M8 3h8v18H8zM11 18h2']
+  ['certificate', 'M3 5h18v14H3zM14 13l2 2 4-4'], ['leaveCancel', 'M3 17l18-6-18-6v5l10 1-10 1zM16 18l4 4M20 18l-4 4'], ['device', 'M8 3h8v18H8zM11 18h2'],
+  ['face', 'M12 3a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM4 21c1-4 4-6 8-6s7 2 8 6']
 ];
 const OTHER: [Page, string, string][] = [
   ['about', 'ຂໍ້ມູນ', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.5'],
@@ -118,7 +120,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       {page === 'directory' && <Directory />}
       {page === 'notifications' && <Notifications onOpen={openLink} />}
       {page === 'reports' && <Reports team={false} />}
-      {page === 'clockFix' && <MyRequests kinds={['clockFix', 'leaveCancel', 'deviceChange']} />}
+      {page === 'clockFix' && <MyRequests kinds={['clockFix', 'leaveCancel', 'deviceChange', 'faceReset']} />}
       {page === 'shift' && <MyRequests kinds={['shiftSwap', 'dayOffSwap']} />}
       {page === 'schedule' && <SchedulePage />}
       {page === 'ot' && <MyRequests kinds={['ot']} />}
@@ -204,7 +206,7 @@ function ClockTab() {
   const allowed = workDay.allowed;
   const todaysShift = effectiveShift(me!, workDay.date, overrides);
   const shift = shifts.find(s => s.id === (todaysShift ?? me!.shiftId))!;
-  const start = (kind: ScanKind) => setFlow({ kind, enroll: kind === 'in' && !me!.faceEnrolled });
+  const start = (kind: ScanKind) => setFlow({ kind, enroll: kind === 'in' && needsEnroll(me!) });
 
   const chip = locating ? <span className="loc-chip">ກຳລັງຫາຕຳແໜ່ງ…</span>
     : manual ? <button className="loc-chip warn" onClick={() => setPicking(true)}>ເລືອກເອງ: {manual.name} (ລໍຫົວໜ້າກວດ)</button>
@@ -513,7 +515,7 @@ function Pay() {
 
 /* ------------------------------ ສະແກນໜ້າ ------------------------------ */
 
-/** Consent + 3 captures averaged into the enrolled descriptor. */
+/** Consent, then the face from three angles (front, then turned each way); each angle is a few captures averaged into one descriptor. */
 function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () => void; onCancel: () => void }) {
   const { me, save, settings } = useHR();
   const video = useRef<HTMLVideoElement>(null);
@@ -533,19 +535,32 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
       stream.current = await openFrontCamera(video.current!);
       setMsg('ກຳລັງກຽມ…');
       await loadFaceModels();
-      const samples: number[][] = [];
-      for (let tries = 0; samples.length < 3 && tries < 30 && !cancelled.current; tries++) {
-        setMsg(`ຖືໃຫ້ນິ່ງໆ… ${samples.length}/3`);
-        const d = await describeFace(video.current!);
-        if (d) samples.push(d);
-        await new Promise(r => setTimeout(r, 300));
+      const done: number[][] = []; // one averaged descriptor per pose that worked
+      let firstSideYaw: number | undefined;
+      for (const [n, pose] of POSES.entries()) {
+        const samples: number[][] = [];
+        const front = pose.id === 'front';
+        for (let tries = 0; samples.length < SAMPLES_PER_POSE && tries < (front ? 30 : 45) && !cancelled.current; tries++) {
+          setMsg(`ທ່າ ${n + 1}/${POSES.length}: ${pose.hint}`);
+          const f = await describeFacePose(video.current!);
+          if (f && poseOk(pose.id, f.yaw, firstSideYaw)) {
+            samples.push(f.descriptor);
+            if (!front && firstSideYaw === undefined) firstSideYaw = f.yaw;
+          }
+          await new Promise(r => setTimeout(r, 300));
+        }
+        if (cancelled.current) return;
+        if (samples.length < SAMPLES_PER_POSE) {
+          if (front) throw new Error('ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
+          continue; // a side pose that did not work is skipped; the face is still saved with the poses that did
+        }
+        done.push(averageDescriptors(samples));
+        setMsg(`ໄດ້ທ່າ ${n + 1}/${POSES.length} ແລ້ວ ✓`);
+        await new Promise(r => setTimeout(r, 700));
       }
-      if (cancelled.current) return;
-      if (samples.length < 3) throw new Error('ຫາໃບໜ້າບໍ່ເຫັນ ລອງໄປບ່ອນແຈ້ງກວ່ານີ້');
-      const avg = samples[0].map((_, i) => samples.reduce((a, s) => a + s[i], 0) / samples.length);
       setPhase('saving');
-      // enrolling on a phone with no phone bound yet also binds that phone
-      await save('employees', { ...me!, faceEnrolled: avg, faceConsentAt: new Date().toISOString(), ...(me!.deviceId ? {} : { deviceId: getDeviceId(), deviceBoundAt: new Date().toISOString() }) }, 'face-enroll');
+      // enrolling on a phone with no phone bound yet also binds that phone; a re-enrolment replaces every pose and uses up the approval
+      await save('employees', { ...me!, faceEnrolled: done[0], facePoses: done.length > 1 ? done.slice(1) : undefined, faceReenroll: undefined, faceConsentAt: new Date().toISOString(), ...(me!.deviceId ? {} : { deviceId: getDeviceId(), deviceBoundAt: new Date().toISOString() }) }, 'face-enroll');
       stopCamera(stream.current);
       onDone();
     } catch (e: any) {
@@ -560,7 +575,7 @@ function Enroll({ onDone, onSkip, onCancel }: { onDone: () => void; onSkip: () =
       <h1 style={{ fontSize: 28 }}>ລົງທະບຽນໃບໜ້າ</h1>
       {phase === 'consent' ? (
         <div className="col" style={{ maxWidth: 420, width: '100%' }}>
-          <p style={{ fontSize: 17, color: '#cdebe8', margin: 0 }}>ເຮັດເທື່ອດຽວ. ແອັບຈະຈື່ໜ້າຂອງເຈົ້າ ເພື່ອໃຊ້ລົງເວລາເຂົ້າ-ອອກວຽກເທົ່ານັ້ນ.</p>
+          <p style={{ fontSize: 17, color: '#cdebe8', margin: 0 }}>ເຮັດເທື່ອດຽວ ບໍ່ເຖິງ 1 ນາທີ: ຖ່າຍ {POSES.length} ທ່າ (ມອງຕົງ ແລ້ວຫັນໜ້າເລັກນ້ອຍທາງຊ້າຍ ແລະ ທາງຂວາ) ເພື່ອໃຫ້ສະແກນຕິດງ່າຍ ເຖິງໜ້າປ່ຽນໄປເລັກນ້ອຍ. ແອັບຈະຈື່ໜ້າເພື່ອລົງເວລາເຂົ້າ-ອອກວຽກເທົ່ານັ້ນ.</p>
           <div className="card" style={{ background: 'rgba(255,255,255,.07)', color: '#fff', fontSize: 14 }}>
             • ເກັບຮູບຕອນສະແກນໄວ້ {retentionLabel(settings.photoRetentionDays)} ແລ້ວລຶບອັດຕະໂນມັດ<br />• ໃຊ້ສະເພາະການລົງເວລາ, ບໍ່ສົ່ງໃຫ້ຄົນນອກ<br />• ຖອນຄວາມຍິນຍອມໄດ້ທຸກເວລາ ໃນເມນູ ຕັ້ງຄ່າ
           </div>
@@ -616,8 +631,8 @@ function ScanFlow({ kind, manualBranch, onClose }: { kind: ScanKind; manualBranc
         await loadFaceModels();
         for (let i = 0; i < 20 && !self.cancelled; i++) {
           const d = await describeFace(video.current!);
-          if (d && me!.faceEnrolled) {
-            score = Math.max(score ?? 0, matchScore(d, me!.faceEnrolled));
+          if (d && faceTemplates(me!).length) {
+            score = Math.max(score ?? 0, bestFaceScore(d, me!) ?? 0);
             photo = snapshot(video.current!);
             if (score >= settings.faceMinScore) break;
           }

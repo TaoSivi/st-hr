@@ -7,6 +7,7 @@ import { KIND_LABEL } from './labels';
 import { LEAVE_TYPES, money, ymd } from './format';
 import { getDeviceId, deviceLabel } from '../device/deviceId';
 import { deviceChangeBlock } from '../domain/device';
+import { faceResetBlock, POSES } from '../domain/face';
 import { shiftRange } from '../domain/leavePart';
 
 export const EXPENSE_CATEGORIES = ['ເດີນທາງ', 'ອາຫານ / ຮັບແຂກ', 'ຊື້ເຄື່ອງໃຫ້ຮ້ານ', 'ໂທລະສັບ / ອິນເຕີເນັດ', 'ອື່ນໆ'];
@@ -48,12 +49,13 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
       case 'certificate': return { type: certType, purpose: reason };
       case 'leaveCancel': return { leaveId };
       case 'deviceChange': return { newDeviceId: getDeviceId(), label: deviceLabel() };
+      case 'faceReset': return {};
     }
   };
   const submit = async () => {
     setErr('');
     const p = payload();
-    const v = validateRequest(kind, p, today) ?? (kind === 'deviceChange' ? deviceChangeBlock(me.deviceId, p.newDeviceId) : null);
+    const v = validateRequest(kind, p, today) ?? (kind === 'deviceChange' ? deviceChangeBlock(me.deviceId, p.newDeviceId) : kind === 'faceReset' ? faceResetBlock(me) : null);
     if (v) return setErr(v);
     if (kind !== 'certificate' && !reason.trim()) return setErr('ກະລຸນາໃສ່ເຫດຜົນ');
     if (hr.requests.some(r => r.employeeId === me.id && r.kind === kind && r.status === 'pending' && JSON.stringify(r.payload) === JSON.stringify(p))) return setErr('ສົ່ງຄຳຂໍນີ້ໄປແລ້ວ ລໍອະນຸມັດຢູ່');
@@ -82,6 +84,7 @@ export function RequestSheet({ kind, onClose, initial }: { kind: RequestKind; on
             <label className="field grow">ເວລາ<input className="input" type="time" value={time} onChange={e => setTime(e.target.value)} /></label></div>
         </>}
         {kind === 'deviceChange' && <span className="muted small">ຂໍຜູກບັນຊີນີ້ກັບ <b>ເຄື່ອງທີ່ກຳລັງໃຊ້ຢູ່ນີ້</b> ({deviceLabel()}). ເຈົ້າຂອງຕ້ອງອະນຸມັດ ແລະ ຫຼັງຈາກນັ້ນຕ້ອງລົງທະບຽນໃບໜ້າໃໝ່ໃນເຄື່ອງນີ້. ກະລຸນາສົ່ງຄຳຂໍຈາກເຄື່ອງໃໝ່.</span>}
+        {kind === 'faceReset' && <span className="muted small">ໃຊ້ເມື່ອໜ້າປ່ຽນໄປ (ຈ່ອຍລົງ, ຕຸ້ຍຂຶ້ນ, ໃສ່ແວ່ນ, ໄວ້ຫນວດ) ແລະ ສະແກນບໍ່ຕິດ. ຫົວໜ້າ ຫຼື ເຈົ້າຂອງອະນຸມັດ ແລ້ວການກົດເຂົ້າວຽກເທື່ອຕໍ່ໄປຈະໃຫ້ຖ່າຍໃບໜ້າໃໝ່ {POSES.length} ທ່າ. ຈົນກວ່າຈະຖ່າຍໃໝ່ ໃບໜ້າເກົ່າຍັງໃຊ້ໄດ້.</span>}
         {kind === 'ot' && <div className="row">
           <label className="field grow">ວັນທີ<input className="input" type="date" value={date} onChange={e => setDate(e.target.value)} /></label>
           <label className="field" style={{ width: 120 }}>ນາທີ<input className="input" inputMode="numeric" value={minutes} onChange={e => setMinutes(e.target.value.replace(/\D/g, ''))} /></label></div>}
@@ -137,6 +140,7 @@ export function describeRequest(r: HRRequest, nameOf: (id: string) => string, sh
     case 'certificate': return `${p.type === 'salary' ? 'ຮັບຮອງເງິນເດືອນ' : 'ຮັບຮອງການເຮັດວຽກ'} · ${p.purpose}`;
     case 'leaveCancel': return `ການລາ ${p.leaveId}`;
     case 'deviceChange': return `ຜູກກັບເຄື່ອງໃໝ່: ${p.label || p.newDeviceId}`;
+    case 'faceReset': return 'ຖ່າຍໃບໜ້າໃໝ່ທັງໝົດ (ສະແກນບໍ່ຕິດ / ໜ້າປ່ຽນ)';
   }
 }
 

@@ -1,4 +1,6 @@
-// Face matching runs on the phone; only the 128-number descriptor and a photo leave the device.
+// Face matching runs on the phone; only the 128-number descriptors and a photo leave the device.
+import { yawOf } from '../domain/face';
+export { matchScore } from '../domain/face';
 type FaceApi = typeof import('@vladmandic/face-api');
 
 let api: FaceApi | null = null;
@@ -20,25 +22,19 @@ export function loadFaceModels(): Promise<FaceApi> {
   return loading;
 }
 
-/** Descriptor of the single most prominent face in the frame, or null if none. */
-export async function describeFace(video: HTMLVideoElement): Promise<number[] | null> {
+/** Descriptor of the single most prominent face in the frame, and how far its head is turned, or null if none. */
+export async function describeFacePose(video: HTMLVideoElement): Promise<{ descriptor: number[]; yaw: number } | null> {
   const faceapi = await loadFaceModels();
   const res = await faceapi
     .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
     .withFaceLandmarks(true)
     .withFaceDescriptor();
-  return res ? Array.from(res.descriptor) : null;
+  return res ? { descriptor: Array.from(res.descriptor), yaw: yawOf(res.landmarks.positions) } : null;
 }
 
-/**
- * Euclidean distance → 0..100 score. Distance 0.3 or less = 100, 0.54 ≈ 70 (default pass mark),
- * 0.6 (face-api's usual "same person" limit) ≈ 62.
- */
-export function matchScore(a: number[], b: number[]): number {
-  let sum = 0;
-  for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
-  const d = Math.sqrt(sum);
-  return Math.max(0, Math.min(100, Math.round((100 * (1.1 - d)) / 0.8)));
+/** Descriptor of the single most prominent face in the frame, or null if none. */
+export async function describeFace(video: HTMLVideoElement): Promise<number[] | null> {
+  return (await describeFacePose(video))?.descriptor ?? null;
 }
 
 export function snapshot(video: HTMLVideoElement, width = 240): string {

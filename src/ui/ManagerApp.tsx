@@ -22,6 +22,7 @@ import { activeSession, scansOn, toSessions } from '../domain/sessions';
 import { effectiveShift } from '../domain/requests';
 import { getPosition } from '../device/geo';
 import { uid } from '../data/store';
+import { faceTemplates } from '../domain/face';
 import { KIND_LABEL } from './labels';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { Reports, TeamMap } from './Pages';
@@ -49,7 +50,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
   const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, ACTION_ROLES['scan.review'])).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, ACTION_ROLES['scan.review'])).length;
   const pendingLeave = hr.leaves.filter(l => l.status === 'pending' && inScope(l.employeeId, hr.settings.leaveApproverRoles)).length + hr.advances.filter(a => a.status === 'pending' && inScope(a.employeeId, ACTION_ROLES['advance.decide'])).length;
-  const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
+  const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
   return (
@@ -502,7 +503,7 @@ function Staff() {
       <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th><th /></tr></thead><tbody>
         {hr.employees.map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
           <td className="num">{money(e.baseSalary)}</td><td className="small">{e.payMethod === 'cash' ? 'ເງິນສົດ' : `${e.bankName} ${e.bankAccount ?? ''}`}</td>
-          <td>{e.faceEnrolled ? <span className="pill ok">ລົງທະບຽນແລ້ວ</span> : <span className="pill">ຍັງ</span>}</td>
+          <td>{e.faceEnrolled ? <span className="pill ok">ລົງທະບຽນແລ້ວ · {faceTemplates(e).length} ທ່າ</span> : <span className="pill">ຍັງ</span>}</td>
           <td>{canEdit && !(e.endDate && e.endDate < today) && <button className="btn ghost" onClick={() => { setHire(null); open(e); }}>ແກ້ໄຂ</button>}</td></tr>)}
       </tbody></table></div>
       {edit && (

@@ -67,7 +67,13 @@ async function applyEffect(hr: HR, r: HRRequest) {
       const p = r.payload as RequestPayloads['deviceChange'];
       const e = hr.employees.find(x => x.id === r.employeeId);
       // the face is enrolled again on the new phone, so the move is checked against the person, not just the phone
-      if (e) await hr.save('employees', { ...e, deviceId: p.newDeviceId, deviceBoundAt: new Date().toISOString(), faceEnrolled: undefined }, 'device-change-apply');
+      if (e) await hr.save('employees', { ...e, deviceId: p.newDeviceId, deviceBoundAt: new Date().toISOString(), faceEnrolled: undefined, facePoses: undefined, faceReenroll: undefined }, 'device-change-apply');
+      break;
+    }
+    case 'faceReset': {
+      // the old face stays until the new one is saved, so clocking in keeps working in the meantime
+      const e = hr.employees.find(x => x.id === r.employeeId);
+      if (e) await hr.save('employees', { ...e, faceReenroll: true }, 'face-reset-apply');
       break;
     }
     case 'expense': case 'certificate':
