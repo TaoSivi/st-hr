@@ -27,6 +27,8 @@ import { KIND_LABEL } from './labels';
 import Approvals, { actionableCount, NoAccess, SECTION_LABEL, visibleSections, type ApprovalSection } from './Approvals';
 import { Reports, TeamMap } from './Pages';
 import Icon, { type IconName } from './Icon';
+import StaffImport from './StaffImport';
+import BackupCard from './BackupCard';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
@@ -380,6 +382,7 @@ function Staff() {
   const depts = [...new Set(hr.employees.map(e => e.dept))];
   const canRoles = canGrantRoles(me.roles);
   const [hire, setHire] = useState<Employee | null>(null);
+  const [importing, setImporting] = useState(false);
   const [endDate, setEndDate] = useState(ymd(new Date()));
   const [payout, setPayout] = useState(true);
   const today = ymd(new Date());
@@ -492,12 +495,35 @@ function Staff() {
     if (ok && c.field === 'bankAccount') setMsg(`ແຈ້ງເຕືອນ ${e.name} ແລ້ວວ່າເລກບັນຊີຖືກປ່ຽນ`);
   };
 
+  const pendingHires = changes.filter(c => c.status === 'pending' && c.field === 'hire' && c.by !== me.id);
+  const [approvingAll, setApprovingAll] = useState(false);
+  const approveAllHires = async () => {
+    setApprovingAll(true);
+    let done = 0;
+    const accepted: Employee[] = [];
+    for (const c of pendingHires) {
+      const emp = JSON.parse(c.to) as Employee;
+      // checked against the roster plus the hires just approved in this batch, so a duplicate inside the batch is still refused
+      const errs = [...validateNewEmployee(emp, [...hr.employees, ...accepted], hr.shifts, hr.branches), ...asList(hireBlock(hr.company, countedEmployees([...hr.employees, ...accepted], today), today))];
+      if (errs.length) continue;
+      await hr.save('employees', emp, 'apply-hire');
+      await hr.save('changes', { ...c, status: 'approved', approvedBy: me.id }, 'change-approve');
+      accepted.push(emp);
+      done++;
+    }
+    if (done) await notifyOwners(`ເພີ່ມພະນັກງານໃໝ່ ${done} ຄົນ (ອະນຸມັດທັງໝົດ)`);
+    setApprovingAll(false);
+    setMsg(done === pendingHires.length ? `ອະນຸມັດການຈ້າງ ${done} ຄົນແລ້ວ` : `ອະນຸມັດ ${done} ຈາກ ${pendingHires.length} ຄົນ — ທີ່ເຫຼືອມີບັນຫາ ໃຫ້ກົດອະນຸມັດທີລະຄົນເພື່ອເບິ່ງເຫດຜົນ`);
+  };
+
   return (
     <>
-      <div className="row wrap"><h1 className="grow">ພະນັກງານ</h1>{canEdit && <button className="btn" onClick={startHire}>+ ເພີ່ມພະນັກງານ</button>}</div>
+      <div className="row wrap"><h1 className="grow">ພະນັກງານ</h1>{canEdit && <button className="btn ghost" onClick={() => { setHire(null); setEdit(null); setImporting(true); }}>⬆ ນຳເຂົ້າຈາກ Excel</button>}{canEdit && <button className="btn" onClick={() => { setImporting(false); startHire(); }}>+ ເພີ່ມພະນັກງານ</button>}</div>
+      {importing && <StaffImport onClose={() => setImporting(false)} onDone={m => { setImporting(false); setMsg(m); }} />}
       {msg && <div className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {changes.filter(c => c.status === 'pending').length > 0 && (
-        <div className="card col"><h2>ຄຳຂໍປ່ຽນແປງ ລໍອະນຸມັດ (ກວດ 2 ຄົນ)</h2>
+        <div className="card col"><div className="row wrap"><h2 className="grow">ຄຳຂໍປ່ຽນແປງ ລໍອະນຸມັດ (ກວດ 2 ຄົນ)</h2>
+          {canDecideChange && pendingHires.length > 1 && <button className="btn" disabled={approvingAll} onClick={approveAllHires}>{approvingAll ? 'ກຳລັງອະນຸມັດ…' : `ອະນຸມັດການຈ້າງທັງໝົດ (${pendingHires.length})`}</button>}</div>
           {changes.filter(c => c.status === 'pending').map(c => (
             <div key={c.id} className="row wrap"><span className="grow">{changeText(c, hr.employees)} · ໂດຍ {nameOf(hr.employees, c.by)}</span>
               {canDecideChange && c.by !== me.id && <><button className="btn danger" onClick={() => decideChange(c, false)}>ປະຕິເສດ</button><button className="btn" onClick={() => decideChange(c, true)}>ອະນຸມັດ</button></>}
@@ -680,8 +706,8 @@ function Payroll() {
   );
 }
 
-type RuleTab = 'summary' | RulesTab | 'plan' | 'history';
-const RULE_TABS: [RuleTab, string][] = [['summary', 'ສະຫຼຸບກົດເກນ'], ['places', 'ສາຂາ & GPS'], ['shifts', 'ກະວຽກ'], ['time', 'ເວລາ & ສະແກນ'], ['leave', 'ລາພັກ & ອະນຸມັດ'], ['holidays', 'ວັນພັກ'], ['pay', 'ເງິນເດືອນ & ອາກອນ'], ['plan', 'ແພັກເກັດ'], ['history', 'ປະຫວັດການແກ້']];
+type RuleTab = 'summary' | RulesTab | 'plan' | 'backup' | 'history';
+const RULE_TABS: [RuleTab, string][] = [['summary', 'ສະຫຼຸບກົດເກນ'], ['places', 'ສາຂາ & GPS'], ['shifts', 'ກະວຽກ'], ['time', 'ເວລາ & ສະແກນ'], ['leave', 'ລາພັກ & ອະນຸມັດ'], ['holidays', 'ວັນພັກ'], ['pay', 'ເງິນເດືອນ & ອາກອນ'], ['plan', 'ແພັກເກັດ'], ['backup', 'ສຳຮອງຂໍ້ມູນ'], ['history', 'ປະຫວັດການແກ້']];
 const EDIT_TABS: RuleTab[] = ['places', 'shifts', 'time', 'leave', 'holidays', 'pay'];
 const RULE_ACTIONS = ['settings-update', 'shift-update', 'branch-radius', 'branch-gps', 'branch-add'];
 
@@ -766,6 +792,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           </div>))}
       </>}
       {tab === 'plan' && <PlanCard />}
+      {tab === 'backup' && <BackupCard readOnly={readOnly} />}
       {tab === 'history' && (() => {
         const rows = audit.filter(a => RULE_ACTIONS.includes(a.action)).map(a => ({
           a,
