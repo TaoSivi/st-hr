@@ -8,6 +8,7 @@ export interface DataStore {
   list<T>(collection: string): Promise<T[]>;
   get<T>(collection: string, id: string): Promise<T | undefined>;
   put<T extends { id: string }>(collection: string, item: T, by: string, action: string): Promise<T>;
+  remove(collection: string, id: string, by: string, action: string): Promise<void>;
   audit(): Promise<AuditEntry[]>;
 }
 
@@ -67,6 +68,23 @@ export class LocalStore implements DataStore {
     }
     return item;
   }
+  async remove(collection: string, id: string, by: string, action: string): Promise<void> {
+    const rows = this.read<{ id: string }>(collection);
+    const i = rows.findIndex(r => r.id === id);
+    if (i < 0) return;
+    const gone = rows[i];
+    const previousRows = rows.slice();
+    rows.splice(i, 1);
+    this.write(collection, rows);
+    try {
+      const log = this.read<AuditEntry>('audit');
+      log.push({ id: uid(), companyId: this.companyId, at: new Date().toISOString(), by, action, entity: collection, entityId: id, before: gone });
+      this.write('audit', log);
+    } catch (e) {
+      this.write(collection, previousRows); // no deletion without its audit entry
+      throw e;
+    }
+  }
   async audit(): Promise<AuditEntry[]> {
     return this.read<AuditEntry>('audit');
   }
@@ -94,6 +112,7 @@ export class ApiStore implements DataStore {
   put<T extends { id: string }>(c: string, item: T, _by: string, action: string) {
     return this.req<T>(`/${c}/${item.id}`, { method: 'PUT', body: JSON.stringify({ item, action }) });
   }
+  async remove(c: string, id: string, _by: string, action: string) { await this.req<unknown>(`/${c}/${id}`, { method: 'DELETE', body: JSON.stringify({ action }) }); }
   audit() { return this.req<AuditEntry[]>('/audit'); }
 }
 

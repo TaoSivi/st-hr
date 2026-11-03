@@ -30,7 +30,7 @@ import Icon, { type IconName } from './Icon';
 import StaffImport from './StaffImport';
 import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
-import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, type Hours } from '../domain/personalShift';
+import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
@@ -757,7 +757,7 @@ function Payroll() {
 type RuleTab = 'summary' | RulesTab | 'plan' | 'backup' | 'history';
 const RULE_TABS: [RuleTab, string][] = [['summary', 'ສະຫຼຸບກົດເກນ'], ['places', 'ສາຂາ & GPS'], ['shifts', 'ກະວຽກ'], ['time', 'ເວລາ & ສະແກນ'], ['leave', 'ລາພັກ & ອະນຸມັດ'], ['holidays', 'ວັນພັກ'], ['pay', 'ເງິນເດືອນ & ອາກອນ'], ['plan', 'ແພັກເກັດ'], ['backup', 'ສຳຮອງຂໍ້ມູນ'], ['history', 'ປະຫວັດການແກ້']];
 const EDIT_TABS: RuleTab[] = ['places', 'shifts', 'time', 'leave', 'holidays', 'pay'];
-const RULE_ACTIONS = ['settings-update', 'shift-update', 'branch-radius', 'branch-gps', 'branch-add'];
+const RULE_ACTIONS = ['settings-update', 'shift-update', 'shift-delete', 'branch-radius', 'branch-gps', 'branch-add'];
 
 function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const hr = useHR();
@@ -817,6 +817,16 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
     const b = hr.branches.find(x => x.id === branchId)!;
     await hr.save('branches', { ...b, lat: p.lat, lng: p.lng }, 'branch-gps');
     setMsg(`ຕັ້ງ ${b.name} = ຕຳແໜ່ງນີ້ແລ້ວ (±${Math.round(p.accuracyM)} ມ.)`);
+  };
+  const removeShift = async (sh: Shift) => {
+    const saved = hr.shifts.find(x => x.id === sh.id);
+    if (!saved) return setShiftRows(rows => rows.filter(r => r.id !== sh.id)); // never saved: just drop the row
+    const block = shiftDeleteBlock(saved, { shifts: hr.shifts, employees: hr.employees, overrides: hr.overrides, requests: hr.requests });
+    if (block) return setMsg(`ລຶບກະ "${sh.name || '—'}" ບໍ່ໄດ້: ${block}`);
+    if (!confirm(`ລຶບກະ "${saved.name}" ຖາວອນ? ການລຶບມີບັນທຶກໃນ Audit log.`)) return;
+    await hr.remove('shifts', saved.id, 'shift-delete');
+    setShiftRows(rows => rows.filter(r => r.id !== sh.id));
+    setMsg(`ລຶບກະ "${saved.name}" ແລ້ວ`);
   };
   const saveAll = async () => {
     if (!canDo(me.roles, 'settings.edit') || errors.length) return;
@@ -891,6 +901,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
               : ([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
                 <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
             <label className="field" style={{ width: 130 }}>ເບ້ຍລ້ຽງ/ກະ (ກີບ)<input className="input" inputMode="numeric" disabled={readOnly} value={sh.allowance ?? ''} aria-label={`${sh.name} ເບ້ຍລ້ຽງຕໍ່ກະ`} onChange={e => setShift(sh.id, { allowance: e.target.value === '' ? undefined : Number(e.target.value.replace(/\D/g, '')) })} /></label>
+            {!readOnly && <button className="btn danger" aria-label={`ລຶບກະ ${sh.name}`} title="ລຶບກະນີ້" onClick={() => removeShift(sh)} style={{ minHeight: 48 }}>🗑 ລຶບ</button>}
           </div>))}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00', flexible: true, dailyHours: 8 }])}>+ ເພີ່ມກະຢືດຢຸ່ນ (ອອຟຟິດ)</button>}

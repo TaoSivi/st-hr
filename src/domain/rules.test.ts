@@ -82,3 +82,10 @@ describe('where a manager lands', () => {
   });
   it('a plain employee never does, even on a computer', () => expect(landsInBackOffice(['employee'], true)).toBe(false));
 });
+
+describe('a deleted shift in the rules history', () => {
+  it('reads as a deletion', () => {
+    expect(recordChanges('shift', { name: '455' }, undefined)).toEqual(['ລຶບກະ 455']);
+    expect(recordChanges('shift', undefined, undefined)).toEqual([]);
+  });
+});

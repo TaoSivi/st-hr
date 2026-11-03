@@ -70,3 +70,28 @@ describe('restoring', () => {
     expect(b.dump()).toEqual(a.dump());
   });
 });
+
+describe('deleting a stored row', async () => {
+  const { LocalStore } = await import('./store');
+  it('removes it, keeps the whole row in the audit log, and never deletes without that entry', async () => {
+    const s = fakeStorage({ 'x:shifts': JSON.stringify([{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }]) });
+    (globalThis as any).localStorage = s;
+    const store = new LocalStore('c1', 'x:');
+    await store.remove('shifts', 'a', 'owner', 'shift-delete');
+    expect(JSON.parse(s.getItem('x:shifts')!)).toEqual([{ id: 'b', name: 'B' }]);
+    const log = JSON.parse(s.getItem('x:audit')!);
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ action: 'shift-delete', entity: 'shifts', entityId: 'a', by: 'owner', before: { id: 'a', name: 'A' } });
+    expect(log[0].after).toBeUndefined();
+    await store.remove('shifts', 'missing', 'owner', 'shift-delete'); // nothing to remove: no change, no entry
+    expect(JSON.parse(s.getItem('x:audit')!)).toHaveLength(1);
+  });
+  it('puts the row back if the audit entry cannot be written', async () => {
+    const s = fakeStorage({ 'y:shifts': JSON.stringify([{ id: 'a' }]) });
+    const realSet = s.setItem;
+    s.setItem = (k: string, v: string) => { if (k === 'y:audit') throw new Error('full'); realSet(k, v); };
+    (globalThis as any).localStorage = s;
+    await expect(new LocalStore('c1', 'y:').remove('shifts', 'a', 'o', 'shift-delete')).rejects.toThrow();
+    expect(JSON.parse(s.getItem('y:shifts')!)).toEqual([{ id: 'a' }]);
+  });
+});

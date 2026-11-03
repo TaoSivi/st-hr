@@ -55,6 +55,7 @@ interface Ctx extends HRData {
   me: Employee | null;
   setMe: (id: string | null) => void;
   save: <T extends { id: string }>(collection: string, item: T, action: string, asId?: string) => Promise<void>;
+  remove: (collection: string, id: string, action: string) => Promise<void>;
   store: LocalStore;
   resetDemo: () => void;
 }
@@ -136,6 +137,7 @@ export function HRProvider({ companyId, children }: { companyId: string; childre
       try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }
     },
     save: async (collection, item, action, asId) => { await store.put(collection, item, asId ?? by, action); await load(); },
+    remove: async (collection, id, action) => { await store.remove(collection, id, by, action); await load(); },
     notify: async (userIds, text, link) => {
       for (const userId of new Set(userIds)) {
         await store.put<Notification>('notifications', { id: uid(), companyId, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');

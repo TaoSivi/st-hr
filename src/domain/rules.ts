@@ -82,7 +82,7 @@ const show = (v: unknown) => (v === undefined || v === null || v === '' ? '—' 
 /** One audit entry about a shift or a branch as lines of text: "ເລີ່ມ: 08:00 → 07:30", or "ເພີ່ມ" for a new one. */
 export function recordChanges(kind: 'shift' | 'branch', before: Record<string, unknown> | undefined, after: Record<string, unknown> | undefined): string[] {
   const labels = kind === 'shift' ? SHIFT_LABEL : BRANCH_LABEL;
-  if (!after) return [];
+  if (!after) return before ? [`ລຶບ${kind === 'shift' ? 'ກະ' : 'ສາຂາ'} ${show(before.name)}`] : [];
   if (!before) return [`ເພີ່ມ${kind === 'shift' ? 'ກະ' : 'ສາຂາ'} ${show(after.name)}`];
   return Object.keys(labels).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k])).map(k => `${show(after.name)} · ${labels[k]}: ${show(before[k])} → ${show(after[k])}`);
 }
