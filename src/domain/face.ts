@@ -11,7 +11,7 @@ export const SAMPLES_PER_POSE = 2;
 
 /** Head turn limits, as a share of the jaw width (0 = facing the camera). */
 export const FRONT_MAX_YAW = 0.2;
-export const SIDE_MIN_YAW = 0.12;
+export const SIDE_MIN_YAW = 0.25; // straight-on faces measure up to ~0.19 on real photos, so a side pose has to be clearly beyond that
 export const SIDE_MAX_YAW = 0.45;
 
 /**

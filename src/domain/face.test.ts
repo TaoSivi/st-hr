@@ -30,16 +30,17 @@ describe('yawOf / poseOk', () => {
   });
   it('a side pose needs a real turn, but not a profile', () => {
     expect(poseOk('left', 0.05)).toBe(false);
-    expect(poseOk('left', 0.15)).toBe(true);
-    expect(poseOk('left', -0.15)).toBe(true); // either direction: the person decides which way "left" is
+    expect(poseOk('left', 0.19)).toBe(false); // an ordinary straight-on face must not count as a turn;
+    expect(poseOk('left', 0.3)).toBe(true);
+    expect(poseOk('left', -0.3)).toBe(true); // either direction: the person decides which way "left" is
     expect(poseOk('left', 0.6)).toBe(false);
   });
   it('the second side pose must be the opposite way to the first', () => {
-    expect(poseOk('right', -0.2, 0.15)).toBe(true);
-    expect(poseOk('right', 0.2, 0.15)).toBe(false);
-    expect(poseOk('right', 0.2, -0.15)).toBe(true);
-    expect(poseOk('right', 0.05, 0.15)).toBe(false);
-    expect(poseOk('right', 0.2)).toBe(true); // nothing to be opposite to (first side pose was skipped)
+    expect(poseOk('right', -0.3, 0.3)).toBe(true);
+    expect(poseOk('right', 0.3, 0.3)).toBe(false);
+    expect(poseOk('right', 0.3, -0.3)).toBe(true);
+    expect(poseOk('right', 0.05, 0.3)).toBe(false);
+    expect(poseOk('right', 0.3)).toBe(true); // nothing to be opposite to (first side pose was skipped)
   });
   it('asks for three poses, front first', () => {
     expect(POSES.map(p => p.id)).toEqual(['front', 'left', 'right']);
