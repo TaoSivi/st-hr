@@ -39,6 +39,9 @@ type Page = 'clock' | 'calendar' | 'leave' | 'pay' | 'advance' | 'profile' | 'di
 
 const MAIN_TABS: [Page, string][] = [['clock', 'ລົງເວລາ'], ['calendar', 'ປະຕິທິນ'], ['leave', 'ລາ']];
 
+/** The greeting that fits the hour. */
+const greeting = (d: Date) => (d.getHours() < 12 ? 'ສະບາຍດີຕອນເຊົ້າ' : d.getHours() < 17 ? 'ສະບາຍດີຕອນບ່າຍ' : 'ສະບາຍດີຕອນແລງ');
+
 const TITLES: Partial<Record<Page, string>> = {
   pay: 'ສະລິບເງິນເດືອນ', advance: 'ເບີກເງິນລ່ວງໜ້າ', profile: 'ໂປຣໄຟລ໌', directory: 'ລາຍຊື່ພະນັກງານ', notifications: 'ການແຈ້ງເຕືອນ',
   reports: 'ລາຍງານ', clockFix: 'ຂໍລົງເວລາ', shift: 'ສະລັບກະ ແລະ ວັນພັກ', schedule: 'ຈັດຕາຕະລາງວຽກ', ot: 'ຂໍລ່ວງເວລາ',
@@ -90,6 +93,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
             {unread > 0 && <span className="badge red dot-badge">{unread > 99 ? '99' : unread}</span>}
           </button>
         </div>
+        {page === 'clock' && <div className="greet"><span>{greeting(new Date())}</span><b>ມື້ນີ້ພ້ອມເຮັດວຽກແລ້ວບໍ?</b></div>}
         {isMain ? (
           <nav className="toptabs" role="tablist">
             {MAIN_TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={page === id} onClick={() => setPage(id)}>{label}</button>)}
@@ -208,7 +212,12 @@ function ClockTab() {
   );
 
   return (
-    <div className="screen" style={{ paddingTop: 14 }}>
+    <div className="screen" style={{ paddingTop: 0 }}>
+      <div className="clock-hero">
+        <div className="who"><Avatar e={me!} size={64} /><div className="col" style={{ gap: 0, minWidth: 0 }}><b style={{ fontSize: 19 }}>{me!.name}</b><span className="small muted">{me!.position} · {me!.code}</span></div></div>
+        <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
+        <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>
+      </div>
       {missed.length > 0 && (
         <div className="card col" role="alert" style={{ borderColor: '#f4b740', background: '#fff8e6' }}>
           <b>ເຈົ້າລືມລົງເວລາອອກ</b>
@@ -219,11 +228,6 @@ function ClockTab() {
                 : <button className="btn ghost" onClick={() => setFixing(d)}>ຂໍແກ້ເວລາອອກ</button>}</div>))}
         </div>)}
       {fixing && <RequestSheet kind="clockFix" initial={{ date: fixing, scanKind: 'out', time: shifts.find(s => s.id === (effectiveShift(me!, fixing, overrides) ?? me!.shiftId))?.end }} onClose={() => setFixing(null)} />}
-      <div className="clock-hero">
-        <div className="who"><Avatar e={me!} size={64} /><div className="col" style={{ gap: 0, minWidth: 0 }}><b style={{ fontSize: 19 }}>{me!.name}</b><span className="small" style={{ color: '#9fd8d4' }}>{me!.position} · {me!.code}</span></div></div>
-        <div className="clock-big">{now.toTimeString().slice(0, 5)}</div>
-        <div className="clock-date">{laoDate(now)} {now.getFullYear()}</div>
-      </div>
       <div className="row">
         <Icon name="pin" size={26} />
         <div className="grow">{chip}</div>
