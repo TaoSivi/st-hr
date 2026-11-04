@@ -75,7 +75,7 @@ export interface OnlineApi {
 }
 
 /** What the app is given when the company is online: its store, the company record, who signed in, and how to sign out. */
-export interface OnlineSession { store: DataStore & { flush?: () => Promise<number> }; company: Company; meId: string; onSignOut: () => void; api: OnlineApi }
+export interface OnlineSession { store: DataStore & { flush?: () => Promise<number> }; company: Company; meId: string; onSignOut: () => void; api: OnlineApi; pollMs?: number }
 
 const HRContext = createContext<Ctx | null>(null);
 export const useHR = () => {
@@ -113,7 +113,7 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
   useEffect(() => {
     if (!online) return;
     const tick = () => { if (document.visibilityState === 'hidden') return; (online.store.flush?.() ?? Promise.resolve(0)).catch(() => { /* kept for the next try */ }).then(() => load()).catch(() => { /* offline: keep showing what we have */ }); };
-    const t = setInterval(tick, 20_000);
+    const t = setInterval(tick, online.pollMs ?? 20_000);
     window.addEventListener('online', tick);
     document.addEventListener('visibilitychange', tick);
     return () => { clearInterval(t); window.removeEventListener('online', tick); document.removeEventListener('visibilitychange', tick); };

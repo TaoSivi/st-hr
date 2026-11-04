@@ -1,0 +1,96 @@
+import type { AuditEntry } from '../domain/types';
+import type { Company } from '../domain/company';
+import type { Backend, Row } from './remote';
+
+/**
+ * The Google Sheets side of the online mode. A Google Sheet holds one company; an Apps Script web app (apps-script/Code.gs) in front of it
+ * signs people in and checks every read and write. This file is the app's end of that: one POST per call (or per batch of reads),
+ * body as text/plain so the browser sends no pre-flight request, and a session token kept on the phone after sign-in.
+ */
+
+export interface SheetMember { userId: string; companyId: string; employeeId: string; roles: string[] }
+
+const TOKEN = 'sthr-sheets-token';
+const store = {
+  get: () => { try { return localStorage.getItem(TOKEN); } catch { return null; } },
+  set: (t: string | null) => { try { t ? localStorage.setItem(TOKEN, t) : localStorage.removeItem(TOKEN); } catch { /* private mode: signs in again next time */ } }
+};
+
+/** Apps Script's own answer when the address is wrong or the web app is not shared with "Anyone". */
+const looksLikeLoginPage = (s: string) => /<html|<!doctype/i.test(s.slice(0, 200));
+
+type Fetch = typeof fetch;
+class SheetError extends Error { constructor(message: string, public code = '') { super(message); } }
+
+export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
+  const doFetch: Fetch = (...a) => (fetchImpl ?? fetch)(...a);
+
+  async function post<T>(body: Record<string, unknown>): Promise<T> {
+    const res = await doFetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, token: tokens.get() ?? undefined }), redirect: 'follow' });
+    const text = await res.text();
+    if (looksLikeLoginPage(text)) throw new SheetError('ເຊື່ອມຕໍ່ Google Sheet ບໍ່ໄດ້ — ກວດລິ້ງ Web app ແລະ ການແບ່ງປັນ "ທຸກຄົນ (Anyone)"');
+    let r: { ok: boolean; data?: T; error?: string; code?: string };
+    try { r = JSON.parse(text); } catch { throw new SheetError('ເຊີບເວີຕອບກັບບໍ່ຖືກຮູບແບບ'); }
+    if (!r.ok) return fail(r);
+    return r.data as T;
+  }
+  function fail(r: { error?: string; code?: string }): never {
+    if (r.code === 'auth') tokens.set(null);
+    throw new SheetError(r.error || 'ມີຂໍ້ຜິດພາດ', r.code);
+  }
+
+  // reads made in the same moment travel together: one trip to the sheet instead of a dozen
+  let pending: { op: Record<string, unknown>; ok: (v: any) => void; no: (e: unknown) => void }[] = [];
+  function read<T>(op: Record<string, unknown>): Promise<T> {
+    return new Promise<T>((ok, no) => {
+      pending.push({ op, ok, no });
+      if (pending.length === 1) setTimeout(flushReads, 15);
+    });
+  }
+  async function flushReads() {
+    const batch = pending; pending = [];
+    try {
+      const results = await post<{ ok: boolean; data?: unknown; error?: string; code?: string }[]>({ action: 'multi', ops: batch.map(b => b.op) });
+      batch.forEach((b, i) => {
+        const r = results[i];
+        if (r?.ok) b.ok(r.data);
+        else { try { fail(r ?? {}); } catch (e) { b.no(e); } }
+      });
+    } catch (e) { batch.forEach(b => b.no(e)); }
+  }
+
+  const backend: Backend = {
+    list: (_c, collection) => read<Row[]>({ action: 'list', collection }),
+    get: async (_c, collection, id) => (await read<Row | null>({ action: 'get', collection, id })) ?? undefined,
+    upsert: async (_c, collection, id, data) => { await post({ action: 'upsert', collection, id, data }); },
+    del: async (_c, collection, id) => { await post({ action: 'del', collection, id }); },
+    addAudit: async (_c, entry) => { await post({ action: 'addAudit', entry }); },
+    listAudit: async () => await post<AuditEntry[]>({ action: 'listAudit' })
+  };
+
+  const info = () => post<{ companyId: string | null; name: string | null }>({ action: 'info' });
+  const asMember = (r: { token: string; member: SheetMember }) => { tokens.set(r.token); return r.member; };
+
+  return {
+    backend,
+    info,
+    hasToken: () => !!tokens.get(),
+    async currentMember(): Promise<SheetMember | null> {
+      if (!tokens.get()) return null;
+      try { return await post<SheetMember>({ action: 'me' }); } catch (e: any) { if (e?.code === 'auth') return null; throw e; }
+    },
+    async signIn(code: string, pin: string) { return asMember(await post({ action: 'login', code, pin })); },
+    async signOut() { try { await post({ action: 'logout' }); } finally { tokens.set(null); } },
+    async loadCompany(): Promise<Company> { return await post<Company>({ action: 'company' }); },
+    async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string }) {
+      return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin }));
+    },
+    createLogin: (employeeId: string, code: string, pin: string) => post<true>({ action: 'createLogin', employeeId, code, pin }),
+    setPin: (employeeId: string, pin: string) => post<true>({ action: 'setPin', employeeId, pin }),
+    changeOwnPin: (pin: string) => post<true>({ action: 'changeOwnPin', pin }),
+    removeLogin: (employeeId: string) => post<true>({ action: 'removeLogin', employeeId }),
+    listLogins: async () => new Set(await post<string[]>({ action: 'listLogins' }))
+  };
+}
+
+export type SheetsApi = ReturnType<typeof sheetsApi>;
