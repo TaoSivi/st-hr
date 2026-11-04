@@ -19,6 +19,9 @@ const outboxFor = (companyId: string): Outbox => ({
 
 const friendly = (e: any, fallback: string) => (/fetch|network|Load failed/i.test(String(e?.message)) ? 'ເຊື່ອມຕໍ່ເຊີບເວີບໍ່ໄດ້ — ກວດລິ້ງ ແລະ ອິນເຕີເນັດ' : e?.message || fallback);
 
+/** When the site was built with its Google Sheet address, it belongs to that one organisation: no choosing another. */
+const isBuiltIn = () => !!(import.meta as any).env?.VITE_SHEETS_URL;
+
 const digits = (v: string) => v.replace(/\D/g, '').slice(0, ONLINE_PIN_LEN);
 
 function Pin({ label, value, set, auto }: { label: string; value: string; set: (v: string) => void; auto?: string }) {
@@ -26,7 +29,7 @@ function Pin({ label, value, set, auto }: { label: string; value: string; set: (
 }
 
 /** Sign in to an online company: its name, then employee code + PIN. */
-function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member) => void; onBack: () => void; onOther: () => void }) {
+function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member) => void; onBack?: () => void; onOther: () => void }) {
   const [name, setName] = useState<string | null | undefined>(undefined);
   const [code, setCode] = useState('');
   const [pin, setPin] = useState('');
@@ -50,14 +53,14 @@ function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; 
         <button className="btn block" type="submit" disabled={busy || !name || !code.trim() || pin.length !== ONLINE_PIN_LEN}>{busy ? 'ກຳລັງເຂົ້າ… (ລໍສັກຄູ່)' : 'ເຂົ້າລະບົບ'}</button>
         <span className="muted small">ລືມ PIN: ຂໍໃຫ້ເຈົ້າຂອງ / HR ຕັ້ງ PIN ຊົ່ວຄາວໃຫ້ໃໝ່.</span>
       </form>
-      <button className="btn ghost" onClick={onOther}>ບໍລິສັດອອນລາຍອື່ນ</button>
-      <button className="btn ghost" onClick={onBack}>‹ ກັບໂໝດສາທິດ / ໃນເຄື່ອງ</button>
+      {!isBuiltIn() && <button className="btn ghost" onClick={onOther}>ບໍລິສັດອອນລາຍອື່ນ</button>}
+      {onBack && <button className="btn ghost" onClick={onBack}>‹ ກັບໂໝດສາທິດ / ໃນເຄື່ອງ</button>}
     </div></div>
   );
 }
 
 /** First time on this device: connect to the project, then either enter an existing company or create one. */
-function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBack: () => void }) {
+function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBack?: () => void }) {
   const have = readServerConfig();
   const [url, setUrl] = useState(have?.url ?? '');
   const [key, setKey] = useState(have?.key ?? '');
@@ -69,8 +72,10 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
   const [owner, setOwner] = useState('');
   const [pin, setPin] = useState('');
   const [pin2, setPin2] = useState('');
+  const [adminPin, setAdminPin] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const sheets = kind === 'sheets';
 
   const connect = () => {
     if (kind === 'sheets') {
@@ -101,9 +106,10 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
     setErr('');
     if (!connect()) return;
     const errs = validateCompanyName(name, []);
-    if (!owner.trim()) errs.push('ໃສ່ຊື່ເຈົ້າຂອງ');
+    if (!owner.trim()) errs.push(sheets ? 'ໃສ່ຊື່ Admin' : 'ໃສ່ຊື່ເຈົ້າຂອງ');
     const pp = pinProblem(pin, true);
     if (pp) errs.push(pp); else if (pin !== pin2) errs.push('PIN ທັງສອງບໍ່ກົງກັນ');
+    if (sheets) { const ap = pinProblem(adminPin, true); if (ap) errs.push('PIN Admin: ' + ap); else if (adminPin === pin) errs.push('PIN Admin ຕ້ອງບໍ່ຊ້ຳກັບ PIN Super admin'); }
     if (!signup.trim()) errs.push('ໃສ່ລະຫັດສ້າງບໍລິສັດ (ຈາກຜູ້ດູແລລະບົບ)');
     if (errs.length) return setErr(errs.join(' · '));
     setBusy(true);
@@ -111,13 +117,19 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
       const today = ymd(new Date());
       const c: Company = newCompany('c-' + Math.random().toString(36).slice(2, 10), name, today);
       const rec = newCompanyRecords(c.id, owner, today);
-      await createCompanyOnline({ signupCode: signup.trim(), company: c, ownerEmployeeId: rec.owner.id, ownerCode: rec.owner.code, pin });
-      // the owner is now signed in and owns the company, so the first records can be written through the normal store
+      // Google Sheet: the person setting up is the Super admin (ST-000) and the company's Admin is ST-001 with their own first PIN
+      const superId = 'e-super';
+      await createCompanyOnline(sheets
+        ? { signupCode: signup.trim(), company: c, ownerEmployeeId: rec.owner.id, ownerCode: rec.owner.code, pin: adminPin, superAdmin: { employeeId: superId, code: 'ST-000', pin } }
+        : { signupCode: signup.trim(), company: c, ownerEmployeeId: rec.owner.id, ownerCode: rec.owner.code, pin });
+      // whoever is now signed in owns the company, so the first records can be written through the normal store
+      const by = sheets ? superId : rec.owner.id;
       const store = new RemoteStore(activeBackend(), c.id, outboxFor(c.id));
-      await store.put('branches', rec.branch, rec.owner.id, 'seed');
-      await store.put('employees', rec.owner, rec.owner.id, 'seed');
-      for (const sh of rec.shifts) await store.put('shifts', sh, rec.owner.id, 'seed');
-      await store.put('settings', rec.settings, rec.owner.id, 'seed');
+      await store.put('branches', rec.branch, by, 'seed');
+      await store.put('employees', sheets ? { ...rec.owner, pinMustChange: true } : rec.owner, by, 'seed');
+      if (sheets) await store.put('employees', { ...rec.owner, id: superId, code: 'ST-000', name: 'Super admin', position: 'Super admin', superAdmin: true }, by, 'seed');
+      for (const sh of rec.shifts) await store.put('shifts', sh, by, 'seed');
+      await store.put('settings', rec.settings, by, 'seed');
       setOnlineCompany(c.id); onDone(c.id);
     } catch (e: any) { setErr(friendly(e, 'ສ້າງບໍ່ໄດ້')); }
     setBusy(false);
@@ -156,24 +168,31 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
         <div className="card col">
           <label className="field">ລະຫັດສ້າງບໍລິສັດ<input className="input" type="password" autoComplete="off" value={signup} onChange={e => setSignup(e.target.value)} /></label>
           <label className="field">ຊື່ບໍລິສັດ<input className="input" value={name} onChange={e => setName(e.target.value)} /></label>
-          <label className="field">ຊື່ເຈົ້າຂອງ (ຜູ້ໃຊ້ຄົນທຳອິດ · ລະຫັດ ST-001)<input className="input" value={owner} onChange={e => setOwner(e.target.value)} /></label>
-          <div className="row"><div className="grow"><Pin label={`PIN ເຈົ້າຂອງ (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} auto="new-password" /></div><div className="grow"><Pin label="ໃສ່ PIN ອີກເທື່ອ" value={pin2} set={setPin2} auto="new-password" /></div></div>
+          <label className="field">{sheets ? 'ຊື່ Admin ຂອງບໍລິສັດ (ລະຫັດ ST-001)' : 'ຊື່ເຈົ້າຂອງ (ຜູ້ໃຊ້ຄົນທຳອິດ · ລະຫັດ ST-001)'}<input className="input" value={owner} onChange={e => setOwner(e.target.value)} /></label>
+          <div className="row"><div className="grow"><Pin label={sheets ? `PIN Super admin (ເຈົ້າຂອງລະບົບ · ST-000)` : `PIN ເຈົ້າຂອງ (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} auto="new-password" /></div><div className="grow"><Pin label="ໃສ່ PIN ອີກເທື່ອ" value={pin2} set={setPin2} auto="new-password" /></div></div>
+          {sheets && <><Pin label="PIN ເລີ່ມຕົ້ນຂອງ Admin (ST-001 ຈະຕ້ອງປ່ຽນເທື່ອທຳອິດ)" value={adminPin} set={setAdminPin} auto="new-password" /><span className="muted small">Super admin ຄືເຈົ້າຂອງລະບົບ — ຕັ້ງ/ຣີເຊັດ PIN ຂອງ Admin ໄດ້ ແລະ Admin ແກ້ບັນຊີ Super admin ບໍ່ໄດ້. Admin ບໍລິຫານບໍລິສັດ.</span></>}
           {err && <div className="error" role="alert">{err}</div>}
           <button className="btn block" disabled={busy} onClick={create}>{busy ? 'ກຳລັງສ້າງ…' : 'ສ້າງບໍລິສັດ'}</button>
         </div>
       )}
-      <button className="btn ghost" onClick={onBack}>‹ ກັບໂໝດສາທິດ / ໃນເຄື່ອງ</button>
+      {onBack && <button className="btn ghost" onClick={onBack}>‹ ກັບໂໝດສາທິດ / ໃນເຄື່ອງ</button>}
     </div></div>
   );
 }
 
 /** An online company: sign in, then the same app as always over the shared database. */
-export default function OnlineApp({ companyId, onLeave, children }: { companyId: string | null; onLeave: () => void; children: (p: { companyId: string; online: OnlineSession }) => React.ReactNode }) {
+export default function OnlineApp({ companyId, onLeave, children }: { companyId: string | null; onLeave?: () => void; children: (p: { companyId: string; online: OnlineSession }) => React.ReactNode }) {
   const [id, setId] = useState(companyId);
   const [member, setMember] = useState<Member | null | undefined>(undefined);
   const [company, setCompany] = useState<Company | null>(null);
   const [err, setErr] = useState('');
   const [logins, setLogins] = useState<Set<string>>(new Set());
+  // a Google Sheet holds one company: when the address is already known, find the company and go straight to sign-in
+  const [probing, setProbing] = useState(() => !companyId && serverKind() === 'sheets' && !!readServerConfig());
+  useEffect(() => {
+    if (!probing) return;
+    sheetCompany().then(i => { if (i.companyId) { setOnlineCompany(i.companyId); setId(i.companyId); setMember(undefined); } }).catch(() => { /* the connect screen shows the problem */ }).finally(() => setProbing(false));
+  }, [probing]);
 
   // an existing sign-in on this device is picked up again (the session survives a reload)
   useEffect(() => {
@@ -200,6 +219,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     joinLink: () => joinLink(readServerConfig()!, id!)
   }), [id, logins, refreshLogins]);
 
+  if (probing) return <div className="empty">ກຳລັງເຊື່ອມຕໍ່… <div className="small muted">ລໍສັກຄູ່</div></div>;
   if (!readServerConfig() || !id) return <Connect onDone={nid => { setId(nid); setMember(undefined); }} onBack={onLeave} />;
   if (member === undefined) return <div className="empty">ກຳລັງກວດ…</div>;
   if (!member) return <ServerLogin companyId={id} onIn={setMember} onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;

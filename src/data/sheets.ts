@@ -92,8 +92,8 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
       firstCompany = undefined;
       return c ?? await post<Company>({ action: 'company' });
     },
-    async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string }) {
-      return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin }));
+    async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string; superAdmin?: { employeeId: string; code: string; pin: string } }) {
+      return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin, superAdmin: p.superAdmin }));
     },
     createLogin: (employeeId: string, code: string, pin: string) => post<true>({ action: 'createLogin', employeeId, code, pin }),
     setPin: (employeeId: string, pin: string) => post<true>({ action: 'setPin', employeeId, pin }),

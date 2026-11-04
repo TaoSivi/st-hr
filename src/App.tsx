@@ -24,9 +24,15 @@ const readActive = () => {
   return id && getCompany(id) ? id : DEMO_COMPANY_ID;
 };
 
+/** The sample company and on-device companies are for trying the app: open the address with ?demo to get them. Otherwise the app is the real, online one. */
+const demoMode = () => typeof location !== 'undefined' && new URLSearchParams(location.search).has('demo');
+
 export default function App() {
   // a set-up link opened on this phone (…#join=…) takes it straight to its online company
-  const [online, setOnline] = useState<boolean>(() => !!takeJoinLink() || (!!readOnlineCompany() && !!readServerConfig()));
+  const [online, setOnline] = useState<boolean>(() => {
+    const joined = !!takeJoinLink(); // always read the link, so it is remembered and cleared from the address
+    return joined || !demoMode() || (!!readOnlineCompany() && !!readServerConfig());
+  });
   const goOnline = () => { setOnline(true); };
   const leaveOnline = () => { setOnlineCompany(null); setOnline(false); };
   const [companyId, setCompanyId] = useState(readActive);
@@ -38,7 +44,7 @@ export default function App() {
   };
   if (online) {
     return (
-      <OnlineApp companyId={readOnlineCompany()} onLeave={leaveOnline}>
+      <OnlineApp companyId={readOnlineCompany()} onLeave={demoMode() ? leaveOnline : undefined}>
         {({ companyId: cid, online: session }) => <HRProvider key={cid} companyId={cid} online={session}><Shell onChooseCompany={() => {}} onPlatform={() => {}} onGoOnline={goOnline} /></HRProvider>}
       </OnlineApp>
     );

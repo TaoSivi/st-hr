@@ -18,7 +18,10 @@ const ONLINE = 'sthr-online';
 export function readServerConfig(): ServerConfig | null {
   const env = (import.meta as any).env ?? {};
   if (env.VITE_SUPABASE_URL && env.VITE_SUPABASE_ANON_KEY) return { url: env.VITE_SUPABASE_URL, key: env.VITE_SUPABASE_ANON_KEY };
-  try { const c = JSON.parse(localStorage.getItem(CFG) || 'null'); return c?.url && (c.kind === 'sheets' || c?.key) ? c : null; } catch { return null; }
+  try { const c = JSON.parse(localStorage.getItem(CFG) || 'null'); if (c?.url && (c.kind === 'sheets' || c?.key)) return c; } catch { /* fall through to the built-in address */ }
+  // the address of this organisation's Google Sheet, built into the site, so nobody has to type it
+  if (env.VITE_SHEETS_URL) return { kind: 'sheets', url: env.VITE_SHEETS_URL, key: '' };
+  return null;
 }
 export function saveServerConfig(c: ServerConfig) { localStorage.setItem(CFG, JSON.stringify({ kind: c.kind ?? 'supabase', url: c.url.trim().replace(/\/+$/, ''), key: (c.key ?? '').trim() })); client = null; }
 export const serverKind = (): 'supabase' | 'sheets' => readServerConfig()?.kind === 'sheets' ? 'sheets' : 'supabase';
@@ -137,7 +140,7 @@ export async function loadCompany(id: string): Promise<Company> {
 }
 
 // ---------------------------------------------------------------- creating a company and its logins
-export async function createCompanyOnline(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string }): Promise<void> {
+export async function createCompanyOnline(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string; superAdmin?: { employeeId: string; code: string; pin: string } }): Promise<void> {
   if (serverKind() === 'sheets') { await sheets().createCompany(p); return; }
   const email = emailFor(p.company.id, p.ownerCode);
   const up = await db().auth.signUp({ email, password: passwordFor(p.pin) });

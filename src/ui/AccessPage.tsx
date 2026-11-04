@@ -34,6 +34,9 @@ export default function AccessPage() {
   const me = hr.me!;
   const readOnly = !canDo(me.roles, 'settings.edit');
   const canRoles = canGrantRoles(me.roles);
+  const isSuper = !!me.superAdmin;
+  // an Admin's or the Super admin's account is the Super admin's to manage (the database refuses anyone else)
+  const superOnly = (e: Employee) => !isSuper && e.id !== me.id && (!!e.superAdmin || e.roles.includes('owner')) && !!hr.employees.some(x => x.superAdmin);
   const today = ymd(new Date());
   const people = hr.employees.filter(e => isActiveOn(e, today));
   const depts = [...new Set(hr.employees.map(e => e.dept))];
@@ -100,7 +103,7 @@ export default function AccessPage() {
     setMsg(`ອອກ PIN ຊົ່ວຄາວ ${out.length} ຄົນ — ໃຫ້ແຕ່ລະຄົນ ແລ້ວເຂົາຕ້ອງຕັ້ງ PIN ເອງຕອນເຂົ້າເທື່ອທຳອິດ`);
   };
   const hasLogin = (e: Employee) => (hr.online ? hr.online.logins.has(e.id) : !!e.pinHash);
-  const noPin = people.filter(e => !hasLogin(e) && e.id !== me.id);
+  const noPin = people.filter(e => !hasLogin(e) && e.id !== me.id && !superOnly(e));
   const pinState = (e: Employee) => (!hasLogin(e) ? <span className="pill warn">ຍັງບໍ່ມີ PIN</span> : e.pinMustChange ? <span className="pill info">PIN ຊົ່ວຄາວ</span> : <span className="pill ok">ມີ PIN</span>);
 
   return (
@@ -132,10 +135,10 @@ export default function AccessPage() {
         <div className="scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th>ຫົວໜ້າດູແລ</th><th>PIN</th><th /></tr></thead><tbody>
           {people.map(e => <tr key={e.id}>
             <td>{e.code}</td><td><b>{e.name}</b><br /><span className="muted small">{e.position}</span></td><td>{e.dept}</td>
-            <td>{e.roles.filter(r => r !== 'employee').map(r => <span key={r} className="pill info" style={{ marginRight: 4 }}>{ROLE_NAMES[r]}</span>)}{e.roles.length === 1 && <span className="muted small">ພະນັກງານ</span>}</td>
+            <td>{e.superAdmin && <span className="pill dark" style={{ marginRight: 4 }}>Super admin</span>}{e.roles.filter(r => r !== 'employee' && !(e.superAdmin && r === 'owner')).map(r => <span key={r} className="pill info" style={{ marginRight: 4 }}>{r === 'owner' ? 'Admin' : ROLE_NAMES[r]}</span>)}{e.roles.length === 1 && <span className="muted small">ພະນັກງານ</span>}</td>
             <td className="small">{e.roles.includes('head') ? ((e.headOf ?? [e.dept]).includes('*') ? 'ທຸກພະແນກ' : (e.headOf ?? [e.dept]).join(', ')) : '—'}</td>
             <td>{pinState(e)}</td>
-            <td className="row" style={{ gap: 6 }}>{canRoles && e.id !== me.id && <>
+            <td className="row" style={{ gap: 6 }}>{canRoles && superOnly(e) && <span className="muted small">ສະເພາະ Super admin</span>}{canRoles && e.id !== me.id && !superOnly(e) && <>
               <button className="btn ghost" onClick={() => setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] })}>ບົດບາດ</button>
               <button className="btn ghost" onClick={() => { if (confirm(`ຕັ້ງ PIN ຊົ່ວຄາວໃໝ່ໃຫ້ ${e.name}? PIN ເກົ່າຈະໃຊ້ບໍ່ໄດ້.`)) resetPins([e]); }}>ຕັ້ງ PIN ໃໝ່</button></>}
               {e.id === me.id && <span className="muted small">ປ່ຽນ PIN ຂອງຕົນເອງໃນ ຕັ້ງຄ່າ</span>}</td>
@@ -145,7 +148,7 @@ export default function AccessPage() {
           <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
             <b>ບົດບາດຂອງ {e.name}</b>
             <div className="row wrap">{(['head', 'accountant', 'owner', 'auditor'] as Role[]).map(r => <label key={r} className="row" style={{ minHeight: 40 }}>
-              <input type="checkbox" checked={editing.roles.includes(r)} onChange={() => setEditing({ ...editing, roles: editing.roles.includes(r) ? editing.roles.filter(x => x !== r) : [...editing.roles, r] })} />{ROLE_NAMES[r]}</label>)}</div>
+              <input type="checkbox" disabled={r === 'owner' && !isSuper && hr.employees.some(x => x.superAdmin)} checked={editing.roles.includes(r)} onChange={() => setEditing({ ...editing, roles: editing.roles.includes(r) ? editing.roles.filter(x => x !== r) : [...editing.roles, r] })} />{ROLE_NAMES[r]}</label>)}</div>
             {editing.roles.includes('head') && <div className="row wrap"><span className="muted small">ຫົວໜ້າດູແລ:</span>
               <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={editing.headOf.includes('*')} onChange={() => setEditing({ ...editing, headOf: editing.headOf.includes('*') ? [e.dept] : ['*'] })} />ທຸກພະແນກ</label>
               {depts.map(d => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={editing.headOf.includes('*')} checked={editing.headOf.includes('*') || editing.headOf.includes(d)}

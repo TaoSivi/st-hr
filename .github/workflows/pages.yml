@@ -26,6 +26,9 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+        env:
+          # this organisation's Google Sheet (Apps Script web app); the address is not secret, every call needs a sign-in
+          VITE_SHEETS_URL: https://script.google.com/macros/s/AKfycbxYtV8pIeGbtJmD6xdy1-hhqzC2xDMXIV4LELav64sj15sGTphbO3BBYi1WExZDd56q/exec
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

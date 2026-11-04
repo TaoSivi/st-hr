@@ -34,6 +34,7 @@ export interface Employee {
   dept: string;
   position: string;
   roles: Role[];
+  superAdmin?: boolean; // the platform owner's account: an Admin (owner) cannot change it or reset its PIN; the database enforces that
   homeBranchId: string;
   shiftId: string;
   dayOff?: number[]; // weekly days off, 0 = Sunday; default [0]

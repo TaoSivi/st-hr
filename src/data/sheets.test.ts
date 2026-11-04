@@ -13,6 +13,7 @@ class FakeSheet {
   constructor(public name: string) {}
   private cell(r: number, c: number) { return this.grid[r - 1]?.[c - 1] ?? ''; }
   getName() { return this.name; }
+  setName(n: string) { this.name = n; }
   getDataRange() { return this.getRange(1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   getMaxRows() { return this.rows; }
   getMaxColumns() { return this.cols; }
@@ -38,9 +39,10 @@ function loadScript() {
   const cache = new Map<string, string>();
   const props = new Map<string, string>([['SIGNUP_CODE', 'secret-code']]);
   const book = {
-    getSheetByName: (n: string) => sheets.get(n) ?? null,
+    getSheetByName: (n: string) => [...sheets.values()].find(x => x.name === n) ?? null,
     getSheets: () => [...sheets.values()],
-    insertSheet: (n: string) => { const s = new FakeSheet(n); sheets.set(n, s); return s; }
+    insertSheet: (n: string) => { const s = new FakeSheet(n); sheets.set(String(sheets.size) + n + Math.random(), s); return s; },
+    deleteSheet: (s: FakeSheet) => { for (const [k, v] of sheets) if (v === s) sheets.delete(k); }
   };
   const out = (s: string) => ({ setMimeType() { return this; }, getContent: () => s });
   const ctx: any = {
@@ -231,10 +233,11 @@ describe('Google Sheets backend (Code.gs run against a fake sheet)', () => {
 
   it('reading never creates tabs, and sign-in brings the company so opening needs no extra trip', async () => {
     const a = phone(t.post);
-    const before = [...t.sheets.keys()].sort();
+    const names = () => [...t.sheets.values()].map(x => x.name).sort();
+    const before = names();
     await a.api.signIn('ST-002', '222222');
     await a.store.list('leaves'); await a.store.list('ots');
-    expect([...t.sheets.keys()].sort()).toEqual(before);
+    expect(names()).toEqual(before);
     let posts = 0;
     const counting = phone((b: unknown) => { posts++; return t.post(b); });
     await counting.api.signIn('ST-002', '222222');
@@ -256,5 +259,83 @@ describe('Google Sheets backend (Code.gs run against a fake sheet)', () => {
   it('keeps ids like 001 and dates as text and never leaves a half-written company', async () => {
     await owner.store.put('shifts', { id: '001', name: 'x', start: '06:00', end: '14:00' } as any, 'e-owner', 'shift');
     expect((await owner.store.list<any>('shifts'))[0]).toMatchObject({ id: '001', start: '06:00' });
+  });
+});
+
+describe('Super admin and Admin (Code.gs run against a fake sheet)', () => {
+  let t: ReturnType<typeof loadScript>;
+  let sup: ReturnType<typeof phone>, admin: ReturnType<typeof phone>;
+  beforeEach(async () => {
+    t = loadScript();
+    sup = phone(t.post);
+    await sup.api.createCompany({ signupCode: 'secret-code', company: { id: 'c1', name: 'ບໍລິສັດຈິງ' } as any, ownerEmployeeId: 'e-admin', ownerCode: 'ST-001', pin: '111111', superAdmin: { employeeId: 'e-super', code: 'ST-000', pin: '999999' } });
+    await sup.store.put('employees', emp('e-admin', 'ST-001', { roles: ['employee', 'owner'] }), 'e-super', 'seed');
+    await sup.store.put('employees', emp('e-super', 'ST-000', { roles: ['employee', 'owner'], superAdmin: true }), 'e-super', 'seed');
+    await sup.store.put('employees', emp('e-a', 'ST-002'), 'e-super', 'seed');
+    await sup.api.createLogin('e-a', 'ST-002', '222222');
+    admin = phone(t.post);
+    await admin.api.signIn('ST-001', '111111');
+  });
+
+  it('setting up signs the creator in as Super admin, and both accounts can sign in', async () => {
+    expect((await sup.api.currentMember())!.roles).toEqual(['employee', 'owner', 'superadmin']);
+    expect((await admin.api.currentMember())!.roles).toEqual(['employee', 'owner']);
+    await phone(t.post).api.signIn('ST-000', '999999');
+  });
+
+  it('the two accounts need different codes and PINs of six digits', async () => {
+    const p = phone(loadScript().post);
+    const mk = (extra: any) => p.api.createCompany({ signupCode: 'secret-code', company: { id: 'c2', name: 'x' } as any, ownerEmployeeId: 'e-admin', ownerCode: 'ST-001', pin: '111111', superAdmin: { employeeId: 'e-super', code: 'ST-000', pin: '999999', ...extra } });
+    await expect(mk({ code: 'st-001' })).rejects.toThrow('ຊ້ຳ');
+    await expect(mk({ pin: '12' })).rejects.toThrow('6');
+  });
+
+  it('an Admin cannot reset the Super admin or another Admin, but can reset staff and their own PIN', async () => {
+    await expect(admin.api.setPin('e-super', '555555')).rejects.toThrow('Super admin');
+    await expect(admin.api.removeLogin('e-super')).rejects.toThrow('Super admin');
+    await admin.api.setPin('e-a', '444444'); // ordinary staff: fine
+    await admin.api.changeOwnPin('123123'); // own PIN: fine
+    await sup.api.setPin('e-admin', '222111'); // the Super admin may reset the Admin
+    await phone(t.post).api.signIn('ST-001', '222111');
+  });
+
+  it('an Admin cannot edit the Super admin record, mint another Super admin, or make another Admin', async () => {
+    const list = await admin.store.list<Employee>('employees');
+    const s = list.find(e => e.id === 'e-super')!, a = list.find(e => e.id === 'e-a')!;
+    await expect(admin.store.put('employees', { ...s, position: 'Boss' }, 'e-admin', 'x')).rejects.toThrow('Super admin');
+    await expect(admin.store.put('employees', { ...a, superAdmin: true }, 'e-admin', 'x')).rejects.toThrow('Super admin');
+    await expect(admin.store.put('employees', { ...a, roles: ['employee', 'owner'] }, 'e-admin', 'x')).rejects.toThrow('Super admin');
+    await expect(admin.store.put('employees', emp('e-new', 'ST-009', { roles: ['employee', 'owner'] }), 'e-admin', 'x')).rejects.toThrow('Super admin');
+    await admin.store.put('employees', { ...a, roles: ['employee', 'head'] }, 'e-admin', 'role'); // other roles stay the Admin's to give
+  });
+
+  it('the Super admin can make an Admin, and the new Admin gets the owner role on their login', async () => {
+    const list = await sup.store.list<Employee>('employees');
+    await sup.store.put('employees', { ...list.find(e => e.id === 'e-a')!, roles: ['employee', 'owner'] }, 'e-super', 'admin');
+    const a = phone(t.post);
+    await a.api.signIn('ST-002', '222222');
+    expect((await a.api.currentMember())!.roles).toEqual(['employee', 'owner']);
+  });
+
+  it('the Super admin keeps the marker when their record is saved again', async () => {
+    const list = await sup.store.list<Employee>('employees');
+    await sup.store.put('employees', { ...list.find(e => e.id === 'e-super')!, position: 'Platform' }, 'e-super', 'edit');
+    expect((await sup.api.currentMember())!.roles).toContain('superadmin');
+  });
+
+  it('a company without a Super admin behaves as before: its owner may make owners', async () => {
+    const t2 = loadScript(), o = phone(t2.post);
+    await o.api.createCompany({ signupCode: 'secret-code', company: { id: 'c3', name: 'x' } as any, ownerEmployeeId: 'e-o', ownerCode: 'ST-001', pin: '111111' });
+    await o.store.put('employees', emp('e-o', 'ST-001', { roles: ['employee', 'owner'] }), 'e-o', 'seed');
+    await o.store.put('employees', emp('e-x', 'ST-002', { roles: ['employee', 'owner'] }), 'e-o', 'seed');
+  });
+
+  it('wipeEverything clears the company so a new one can be made', async () => {
+    t.ctx.wipeEverything();
+    expect(await sup.api.info()).toEqual({ companyId: null, name: null });
+    const p = phone(t.post);
+    await p.api.createCompany({ signupCode: 'secret-code', company: { id: 'c9', name: 'ໃໝ່' } as any, ownerEmployeeId: 'e-admin', ownerCode: 'ST-001', pin: '111111', superAdmin: { employeeId: 'e-super', code: 'ST-000', pin: '999999' } });
+    expect((await p.api.info()).name).toBe('ໃໝ່');
+    await expect(sup.store.list('scans')).rejects.toThrow(); // the old session is gone
   });
 });

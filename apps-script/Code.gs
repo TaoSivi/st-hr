@@ -5,6 +5,9 @@
  * it signs people in (employee code + 6-digit PIN), and for every read and write it checks the person's role,
  * the same rules as supabase/schema.sql. Nobody needs access to the sheet itself, and the sheet should be shared with nobody.
  *
+ * Two kinds of top accounts: Admin (role owner: runs the company) and Super admin (the platform owner: also owner, but only a Super admin may
+ * make or change an Admin, reset an Admin's PIN, or touch the Super admin account).
+ *
  * Tabs it creates:  c_<collection> (one per kind of record) · _company · _users · _sessions · _audit
  * Setup: see apps-script/README.md.  The app talks to it with POST requests whose body is JSON (see doPost).
  */
@@ -271,6 +274,12 @@ function createCompany(req) {
   var co = req.company || {}, owner = req.owner || {};
   if (!co.id || !co.name || !owner.employeeId || !owner.code) throw fail('ຂໍ້ມູນບໍ່ຄົບ');
   if (!/^\d{6}$/.test(String(req.pin || ''))) throw fail('PIN ຕ້ອງເປັນຕົວເລກ 6 ຕົວ');
+  var sup = req.superAdmin || null;
+  if (sup) {
+    if (!sup.employeeId || !sup.code) throw fail('ຂໍ້ມູນ Super admin ບໍ່ຄົບ');
+    if (!/^\d{6}$/.test(String(sup.pin || ''))) throw fail('PIN ຂອງ Super admin ຕ້ອງເປັນຕົວເລກ 6 ຕົວ');
+    if (String(sup.code).toLowerCase() === String(owner.code).toLowerCase() || sup.employeeId === owner.employeeId) throw fail('ລະຫັດ Super admin ຕ້ອງບໍ່ຊ້ຳກັບ Admin');
+  }
   var cells = [co.id, co.name, co.plan || 'pro'].concat(chunks(JSON.stringify(co)));
   writeRow(companyTab(), 0, cells);
   REQ.company = undefined;
@@ -278,7 +287,11 @@ function createCompany(req) {
   var salt = Utilities.getUuid();
   saveUser({ employeeId: owner.employeeId, code: String(owner.code).toLowerCase(), salt: salt, hash: hashPin(salt, String(req.pin)), roles: ['employee', 'owner'] });
   appendAudit('system', 'company-create', '_company', co.id, null, { id: co.id, name: co.name });
-  return openSession(owner.employeeId, ['employee', 'owner'], co.id);
+  if (!sup) return openSession(owner.employeeId, ['employee', 'owner'], co.id);
+  var salt2 = Utilities.getUuid(), superRoles = ['employee', 'owner', 'superadmin'];
+  saveUser({ employeeId: sup.employeeId, code: String(sup.code).toLowerCase(), salt: salt2, hash: hashPin(salt2, String(sup.pin)), roles: superRoles });
+  appendAudit('system', 'super-admin-create', '_users', sup.employeeId, null, { code: sup.code });
+  return openSession(sup.employeeId, superRoles, co.id); // whoever sets the system up is signed in as the Super admin
 }
 
 function openSession(employeeId, roles, companyId) {
@@ -289,7 +302,7 @@ function openSession(employeeId, roles, companyId) {
   var rows = readTable(s);
   for (var i = rows.length - 1; i >= 0; i--) if (Number(rows[i].updatedBy) < now) s.deleteRow(rows[i].row);
   writeRow(s, 0, [h, employeeId, String(expires)]);
-  cachePut('s:' + h, { e: employeeId, x: expires });
+  cachePut('s:' + companyId + ':' + h, { e: employeeId, x: expires }); // keyed by company, so a company made after a wipe never inherits old sessions
   // the company comes with the sign-in so the app does not ask for it in a second trip
   return { token: token, member: { userId: employeeId, companyId: companyId, employeeId: employeeId, roles: roles }, company: companyRecord() };
 }
@@ -317,7 +330,8 @@ function login(req) {
 function logout(token) {
   if (!token) return true;
   var s = sessionsTab(), h = sha256(token), rows = readTable(s);
-  cacheDrop('s:' + h);
+  var co = readCompany();
+  if (co) cacheDrop('s:' + co.id + ':' + h);
   for (var i = 0; i < rows.length; i++) if (rows[i].id === h) { s.deleteRow(rows[i].row); break; }
   return true;
 }
@@ -326,13 +340,15 @@ function logout(token) {
 function session(token) {
   if (REQ.me) return REQ.me;
   if (!token) throw fail('ຕ້ອງເຂົ້າລະບົບກ່ອນ', 'auth');
-  var h = sha256(token), found = cacheGet('s:' + h), expired = 'ໝົດເວລາເຂົ້າລະບົບ — ເຂົ້າໃໝ່';
+  var h = sha256(token), expired = 'ໝົດເວລາເຂົ້າລະບົບ — ເຂົ້າໃໝ່', co = readCompany();
+  if (!co) throw fail(expired, 'auth');
+  var found = cacheGet('s:' + co.id + ':' + h);
   if (!found) {
     var rows = readTable(sessionsTab()), row = null;
     for (var i = 0; i < rows.length; i++) if (rows[i].id === h) row = rows[i];
     if (!row) throw fail(expired, 'auth');
     found = { e: row.updatedAt, x: Number(row.updatedBy) };
-    cachePut('s:' + h, found);
+    cachePut('s:' + co.id + ':' + h, found);
   }
   if (found.x < Date.now()) throw fail(expired, 'auth');
   var me = null, all = userRows();
@@ -346,6 +362,14 @@ function memberOf(c) { return { userId: c.me, companyId: c.companyId, employeeId
 function has(c, r) { return c.roles.indexOf(r) >= 0; }
 function hasAny(c, rs) { return rs.some(function (r) { return has(c, r); }); }
 function needOwner(c) { if (!has(c, 'owner')) throw fail('ສະເພາະເຈົ້າຂອງ'); }
+function isSuper(c) { return has(c, 'superadmin'); }
+/** Companies set up before Super admin existed have none, and keep working as they did. */
+function superExists() { return userRows().some(function (u) { return u.roles.indexOf('superadmin') >= 0; }); }
+/** An Admin's or the Super admin's account (PIN, login, role) is for a Super admin to manage; anyone may still change their own PIN. */
+function guardTarget(c, employeeId, roles) {
+  if (!superExists() || isSuper(c) || employeeId === c.me) return;
+  if (roles.indexOf('owner') >= 0 || roles.indexOf('superadmin') >= 0) throw fail('ສະເພາະ Super admin ຈັດການບັນຊີຂອງ Admin ໄດ້');
+}
 
 // ---------------------------------------------------------------- who may read / write what (same rules as supabase/schema.sql)
 function employeesById() {
@@ -406,15 +430,21 @@ var HEAD_KEYS = ['faceReenroll'];
 
 /** What an employee record may change, and by whom. */
 function guardEmployee(c, id, old, next) {
+  var supers = superExists();
+  if (supers && !isSuper(c)) {
+    if ((old && old.superAdmin) || next.superAdmin) throw fail('ສະເພາະ Super admin ແກ້ Super admin ໄດ້');
+  }
   if (!old) {
     if (!hasAny(c, ['owner', 'accountant'])) throw fail('ບໍ່ມີສິດເພີ່ມພະນັກງານ');
     var r = next.roles || ['employee'];
     if (JSON.stringify(r) !== '["employee"]' && !has(c, 'owner')) throw fail('ພະນັກງານໃໝ່ເລີ່ມດ້ວຍບົດບາດພະນັກງານເທົ່ານັ້ນ');
+    if (supers && !isSuper(c) && r.indexOf('owner') >= 0) throw fail('ສະເພາະ Super admin ກຳນົດ Admin ໄດ້');
     return;
   }
   if (JSON.stringify(old.roles) !== JSON.stringify(next.roles) || JSON.stringify(old.headOf) !== JSON.stringify(next.headOf)) {
     if (!has(c, 'owner')) throw fail('ສະເພາະເຈົ້າຂອງ ປ່ຽນບົດບາດໄດ້');
   }
+  if (supers && !isSuper(c) && ((old.roles || []).indexOf('owner') >= 0) !== ((next.roles || []).indexOf('owner') >= 0)) throw fail('ສະເພາະ Super admin ກຳນົດ Admin ໄດ້');
   if (hasAny(c, ['owner', 'accountant'])) return;
   var keys = {}, k;
   for (k in old) keys[k] = 1;
@@ -477,7 +507,8 @@ function syncRoles(employeeId, data) {
   var all = userRows();
   for (var i = 0; i < all.length; i++) {
     if (all[i].employeeId !== employeeId) continue;
-    var roles = ['employee'].concat((data.roles || []).filter(function (r) { return r !== 'employee'; }));
+    var roles = ['employee'].concat((data.roles || []).filter(function (r) { return r !== 'employee' && r !== 'superadmin'; }));
+    if (all[i].roles.indexOf('superadmin') >= 0) roles.push('superadmin'); // the marker lives on the login and only the script gives it
     if (JSON.stringify(roles) !== JSON.stringify(all[i].roles)) { all[i].roles = roles; saveUser(all[i]); }
   }
 }
@@ -515,6 +546,8 @@ function createLogin(c, req) {
   checkPin(req.pin);
   var emp = employeesById()[req.employeeId];
   if (!emp) throw fail('ບໍ່ພົບພະນັກງານ');
+  var existing = userRows().filter(function (u) { return u.employeeId === req.employeeId; })[0];
+  guardTarget(c, req.employeeId, existing ? existing.roles : (emp.roles || []));
   var code = String(req.code || emp.code || '').trim().toLowerCase();
   if (!code) throw fail('ພະນັກງານຍັງບໍ່ມີລະຫັດ');
   var all = userRows(), mine = null;
@@ -534,6 +567,7 @@ function setPin(c, req) {
   checkPin(req.pin);
   var all = userRows();
   for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) {
+    guardTarget(c, req.employeeId, all[i].roles);
     var u = all[i], salt = Utilities.getUuid();
     u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.fails = 0; u.lockUntil = 0;
     saveUser(u);
@@ -554,6 +588,7 @@ function removeLogin(c, req) {
   needOwner(c);
   if (req.employeeId === c.me) throw fail('ປິດບັນຊີຂອງຕົນເອງບໍ່ໄດ້');
   var all = userRows();
+  for (var k = 0; k < all.length; k++) if (all[k].employeeId === req.employeeId) guardTarget(c, req.employeeId, all[k].roles);
   for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) { usersTab().deleteRow(all[i].row); usersChanged(); break; }
   var s = sessionsTab(), rows = readTable(s);
   for (var j = rows.length - 1; j >= 0; j--) if (rows[j].updatedAt === req.employeeId) s.deleteRow(rows[j].row);
@@ -563,4 +598,20 @@ function removeLogin(c, req) {
 function listLogins(c) {
   needOwner(c);
   return userRows().map(function (u) { return u.employeeId; });
+}
+
+// ---------------------------------------------------------------- by hand only (not reachable from the web app)
+/**
+ * Run this from the Apps Script editor (select wipeEverything, press Run) to clear the company and start again:
+ * it deletes every tab and every saved copy. There is no undo, so download the sheet first if you may need the data.
+ */
+function wipeEverything() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet(), old = ss.getSheets();
+  var fresh = ss.insertSheet('_new');
+  old.forEach(function (t) { ss.deleteSheet(t); });
+  fresh.setName('Sheet1');
+  cacheDrop('company');
+  cacheDrop('users');
+  COLLECTIONS.forEach(function (c) { collectionChanged(c); });
+  return 'wiped';
 }

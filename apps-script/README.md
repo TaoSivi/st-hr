@@ -6,7 +6,10 @@ Sheet 1 ໃບ = 1 ບໍລິສັດ. `Code.gs` ເປັນຜູ້ເຝ�
 1. ສ້າງ Google Sheet ເປົ່າ → **Extensions → Apps Script** → ລຶບໂຄ້ດເດີມ → ວາງໂຄ້ດຈາກ `apps-script/Code.gs` (ປຸ່ມ Raw ໃນ GitHub) → Save.
 2. ⚙ **Project Settings → Script Properties → Add**: `SIGNUP_CODE` = ລະຫັດລັບຂອງເຈົ້າ.
 3. **Deploy → New deployment → Web app** · Execute as: **Me** · Who has access: **Anyone** → Deploy → ອະນຸຍາດສິດ (ຖ້າຂຶ້ນ "unverified" ກົດ Advanced → Go to… ) → ຄັດລອກ **Web app URL** (ລົງທ້າຍ `/exec`).
-4. ແອັບ → **🌐 ເຂົ້າບໍລິສັດອອນລາຍ** → ແຖບ **Google Sheet** → ວາງ URL → **ສ້າງບໍລິສັດໃໝ່** (ໃສ່ SIGNUP_CODE, ຊື່ບໍລິສັດ, ຊື່ເຈົ້າຂອງ, PIN 6 ຕົວ).
+4. ເປີດແອັບ → ແຖບ **Google Sheet** → ວາງ URL → **ສ້າງບໍລິສັດໃໝ່**: ໃສ່ SIGNUP_CODE, ຊື່ບໍລິສັດ, ຊື່ **Admin**, PIN **Super admin** (ເຈົ້າຂອງລະບົບ · ລະຫັດ `ST-000` · ເຈົ້າຈະເຂົ້າດ້ວຍບັນຊີນີ້) ແລະ PIN ເລີ່ມຕົ້ນຂອງ **Admin** (ລະຫັດ `ST-001` · ຕ້ອງປ່ຽນ PIN ເທື່ອທຳອິດ).
+   - **Super admin**: ຕັ້ງ/ຣີເຊັດ PIN ຂອງ Admin, ກຳນົດ Admin ໄດ້; Admin ແກ້ ຫຼື ປິດບັນຊີ Super admin ບໍ່ໄດ້.
+   - **Admin**: ບໍລິຫານບໍລິສັດ (ພະນັກງານ, ເງິນເດືອນ, ກົດເກນ…).
+   - ເລີ່ມໃໝ່ທັງໝົດ: ໃນ Apps Script ເລືອກຟັງຊັນ `wipeEverything` ແລ້ວກົດ **Run** (ລຶບຂໍ້ມູນທັງໝົດ ຍົກເລີກບໍ່ໄດ້).
 5. ເພີ່ມພະນັກງານ → **ສິດ & ການອະນຸມັດ** → **ອອກ PIN** → ສົ່ງ **ລິ້ງຕັ້ງຄ່າມືຖື** + PIN ຊົ່ວຄາວໃຫ້ແຕ່ລະຄົນ.
 
 ອັບເດດໂຄ້ດ: ວາງທັບ → **Deploy → Manage deployments → ✏ → New version**.
