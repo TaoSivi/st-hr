@@ -181,6 +181,6 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
   };
 
   if (!company) return <div className="empty">ບໍ່ພົບບໍລິສັດນີ້</div>;
-  if (!value) return <div className="empty">ກຳລັງໂຫຼດ…</div>;
+  if (!value) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
   return <HRContext.Provider value={value}>{children}</HRContext.Provider>;
 }

@@ -57,8 +57,8 @@ function dispatch(req, token) {
     case 'create': return createCompany(req);
     case 'login': return login(req);
     case 'logout': return logout(token);
-    case 'me': return memberOf(session(token));
-    case 'company': return companyRecord(session(token));
+    case 'me': var m = memberOf(session(token)); m.company = companyRecord(); return m;
+    case 'company': session(token); return companyRecord();
     case 'list': return list(session(token), req.collection);
     case 'get': return get(session(token), req.collection, req.id);
     case 'upsert': return upsert(session(token), req.collection, req.id, req.data);
@@ -118,12 +118,22 @@ function hashPin(salt, pin) {
 function newToken() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, ''); }
 
 // ---------------------------------------------------------------- the sheet as a table
-function book() { return SpreadsheetApp.getActiveSpreadsheet(); }
+function book() { return REQ.book || (REQ.book = SpreadsheetApp.getActiveSpreadsheet()); }
+
+/** The sheet called name, or null. All tabs are listed once per request: asking for each by name is slower. */
+function tabIfAny(name) {
+  if (!REQ.tabs) {
+    REQ.tabs = {};
+    book().getSheets().forEach(function (t) { REQ.tabs[t.getName()] = t; });
+  }
+  return REQ.tabs[name] || null;
+}
 
 function tab(name, header) {
-  var s = book().getSheetByName(name);
+  var s = tabIfAny(name);
   if (s) return s;
   s = book().insertSheet(name);
+  REQ.tabs[name] = s;
   s.getRange(1, 1, s.getMaxRows(), s.getMaxColumns()).setNumberFormat('@'); // text: ids like "001" or "2026-11-04" must not turn into numbers or dates
   s.getRange(1, 1, 1, header.length).setValues([header]);
   s.setFrozenRows(1);
@@ -131,14 +141,13 @@ function tab(name, header) {
 }
 
 function readTable(s) {
-  var n = s.getLastRow();
-  if (n < 2) return [];
-  var vals = s.getRange(2, 1, n - 1, s.getLastColumn()).getValues();
-  return vals.map(function (r, i) {
-    var json = '';
+  var vals = s.getDataRange().getValues(), out = [];
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i], json = '';
     for (var c = 3; c < r.length; c++) { if (r[c] === '' || r[c] === null) break; json += String(r[c]); }
-    return { row: i + 2, id: String(r[0]), updatedAt: String(r[1]), updatedBy: String(r[2]), json: json };
-  });
+    out.push({ row: i + 1, id: String(r[0]), updatedAt: String(r[1]), updatedBy: String(r[2]), json: json });
+  }
+  return out;
 }
 
 function findRow(s, id) {
@@ -167,29 +176,56 @@ function chunks(json) {
   return out.length ? out : ['{}'];
 }
 
+/**
+ * A collection is read from the script cache when it can be: the key carries a version that every write replaces, so a write can never be
+ * hidden by an old copy. Edits made by hand in the sheet show up when the copy expires (5 minutes).
+ */
+function collVersion(coll) {
+  var v = cacheGet('v:' + coll);
+  if (v === null) { v = Date.now() + Math.random(); cachePut('v:' + coll, v); }
+  return v;
+}
+function collectionChanged(coll) { cachePut('v:' + coll, Date.now() + Math.random()); }
+
 function recordRows(coll) {
-  return readTable(tab(PREFIX + coll, RECORD_HEADER)).map(function (r) {
+  var key = 'c:' + coll + ':' + collVersion(coll), hit = cacheGet(key);
+  if (hit) return hit;
+  var t = tabIfAny(PREFIX + coll);
+  if (!t) return []; // nothing has been saved in this collection yet: reading never creates tabs
+  var rows = readTable(t).map(function (r) {
     return { id: r.id, data: JSON.parse(r.json || 'null'), row: r.row };
   });
+  cachePut(key, rows, 300);
+  return rows;
 }
 
 // ---------------------------------------------------------------- company, users, sessions
+var CACHE_SECONDS = 21600;
+function cacheGet(key) { try { var v = CacheService.getScriptCache().get(key); return v === null ? null : JSON.parse(v); } catch (e) { return null; } }
+function cachePut(key, value, seconds) { try { CacheService.getScriptCache().put(key, JSON.stringify(value), seconds || CACHE_SECONDS); } catch (e) { /* too big or unavailable: the next request reads the sheet */ } }
+function cacheDrop(key) { try { CacheService.getScriptCache().remove(key); } catch (e) { /* ignore */ } }
+
 function companyTab() { return tab('_company', ['id', 'name', 'plan', 'data']); }
 function usersTab() { return tab('_users', ['employeeId', 'code', 'salt', 'hash', 'roles', 'fails', 'lockUntil', 'createdAt']); }
 function sessionsTab() { return tab('_sessions', ['tokenHash', 'employeeId', 'expires']); }
 
 function readCompany() {
   if (REQ.company !== undefined) return REQ.company;
-  var s = book().getSheetByName('_company');
-  var c = null;
-  if (s && s.getLastRow() >= 2) {
-    var r = s.getRange(2, 1, 1, s.getLastColumn()).getValues()[0];
-    var json = '';
-    for (var i = 3; i < r.length; i++) { if (r[i] === '') break; json += String(r[i]); }
-    c = { id: String(r[0]), name: String(r[1]), plan: String(r[2]), data: JSON.parse(json || '{}') };
+  var c = cacheGet('company');
+  if (!c) {
+    var s = tabIfAny('_company');
+    if (s) {
+      var vals = s.getDataRange().getValues();
+      if (vals.length >= 2) {
+        var r = vals[1], json = '';
+        for (var i = 3; i < r.length; i++) { if (r[i] === '') break; json += String(r[i]); }
+        c = { id: String(r[0]), name: String(r[1]), plan: String(r[2]), data: JSON.parse(json || '{}') };
+        cachePut('company', c);
+      }
+    }
   }
-  REQ.company = c;
-  return c;
+  REQ.company = c || null;
+  return REQ.company;
 }
 
 function info() {
@@ -197,20 +233,26 @@ function info() {
   return c ? { companyId: c.id, name: c.name } : { companyId: null, name: null };
 }
 
-function companyRecord(me) {
+function companyRecord() {
   var c = readCompany();
-  var d = c.data || {};
+  var d = JSON.parse(JSON.stringify(c.data || {}));
   d.id = c.id; d.name = c.name; d.plan = c.plan;
   return d;
 }
 
 function userRows() {
-  var s = usersTab(), n = s.getLastRow();
-  if (n < 2) return [];
-  return s.getRange(2, 1, n - 1, 8).getValues().map(function (r, i) {
-    return { row: i + 2, employeeId: String(r[0]), code: String(r[1]), salt: String(r[2]), hash: String(r[3]), roles: JSON.parse(String(r[4] || '["employee"]')), fails: Number(r[5] || 0), lockUntil: Number(r[6] || 0) };
-  });
+  if (REQ.users) return REQ.users;
+  var cached = cacheGet('users');
+  if (cached) return (REQ.users = cached);
+  var vals = usersTab().getDataRange().getValues(), out = [];
+  for (var i = 1; i < vals.length; i++) {
+    var r = vals[i];
+    out.push({ row: i + 1, employeeId: String(r[0]), code: String(r[1]), salt: String(r[2]), hash: String(r[3]), roles: JSON.parse(String(r[4] || '["employee"]')), fails: Number(r[5] || 0), lockUntil: Number(r[6] || 0) });
+  }
+  cachePut('users', out);
+  return (REQ.users = out);
 }
+function usersChanged() { REQ.users = undefined; cacheDrop('users'); }
 function saveUser(u) {
   var cells = [u.employeeId, u.code, u.salt, u.hash, JSON.stringify(u.roles), String(u.fails || 0), String(u.lockUntil || 0), u.createdAt || new Date().toISOString()];
   var s = usersTab(), row = u.row || s.getLastRow() + 1;
@@ -218,6 +260,7 @@ function saveUser(u) {
   var rng = s.getRange(row, 1, 1, 8);
   rng.setNumberFormat('@');
   rng.setValues([cells]);
+  usersChanged();
 }
 
 function createCompany(req) {
@@ -231,6 +274,7 @@ function createCompany(req) {
   var cells = [co.id, co.name, co.plan || 'pro'].concat(chunks(JSON.stringify(co)));
   writeRow(companyTab(), 0, cells);
   REQ.company = undefined;
+  cacheDrop('company');
   var salt = Utilities.getUuid();
   saveUser({ employeeId: owner.employeeId, code: String(owner.code).toLowerCase(), salt: salt, hash: hashPin(salt, String(req.pin)), roles: ['employee', 'owner'] });
   appendAudit('system', 'company-create', '_company', co.id, null, { id: co.id, name: co.name });
@@ -238,14 +282,16 @@ function createCompany(req) {
 }
 
 function openSession(employeeId, roles, companyId) {
-  var token = newToken();
+  var token = newToken(), h = sha256(token);
   var s = sessionsTab();
-  var now = Date.now();
+  var now = Date.now(), expires = now + SESSION_DAYS * 86400000;
   // forget sessions that have run out
   var rows = readTable(s);
   for (var i = rows.length - 1; i >= 0; i--) if (Number(rows[i].updatedBy) < now) s.deleteRow(rows[i].row);
-  writeRow(s, 0, [sha256(token), employeeId, String(now + SESSION_DAYS * 86400000)]);
-  return { token: token, member: { userId: employeeId, companyId: companyId, employeeId: employeeId, roles: roles } };
+  writeRow(s, 0, [h, employeeId, String(expires)]);
+  cachePut('s:' + h, { e: employeeId, x: expires });
+  // the company comes with the sign-in so the app does not ask for it in a second trip
+  return { token: token, member: { userId: employeeId, companyId: companyId, employeeId: employeeId, roles: roles }, company: companyRecord() };
 }
 
 function login(req) {
@@ -271,6 +317,7 @@ function login(req) {
 function logout(token) {
   if (!token) return true;
   var s = sessionsTab(), h = sha256(token), rows = readTable(s);
+  cacheDrop('s:' + h);
   for (var i = 0; i < rows.length; i++) if (rows[i].id === h) { s.deleteRow(rows[i].row); break; }
   return true;
 }
@@ -279,11 +326,17 @@ function logout(token) {
 function session(token) {
   if (REQ.me) return REQ.me;
   if (!token) throw fail('ຕ້ອງເຂົ້າລະບົບກ່ອນ', 'auth');
-  var h = sha256(token), rows = readTable(sessionsTab()), found = null;
-  for (var i = 0; i < rows.length; i++) if (rows[i].id === h) found = rows[i];
-  if (!found || Number(found.updatedBy) < Date.now()) throw fail('ໝົດເວລາເຂົ້າລະບົບ — ເຂົ້າໃໝ່', 'auth');
+  var h = sha256(token), found = cacheGet('s:' + h), expired = 'ໝົດເວລາເຂົ້າລະບົບ — ເຂົ້າໃໝ່';
+  if (!found) {
+    var rows = readTable(sessionsTab()), row = null;
+    for (var i = 0; i < rows.length; i++) if (rows[i].id === h) row = rows[i];
+    if (!row) throw fail(expired, 'auth');
+    found = { e: row.updatedAt, x: Number(row.updatedBy) };
+    cachePut('s:' + h, found);
+  }
+  if (found.x < Date.now()) throw fail(expired, 'auth');
   var me = null, all = userRows();
-  for (var j = 0; j < all.length; j++) if (all[j].employeeId === found.updatedAt) me = all[j];
+  for (var j = 0; j < all.length; j++) if (all[j].employeeId === found.e) me = all[j];
   if (!me) throw fail('ບັນຊີນີ້ຖືກປິດແລ້ວ', 'auth');
   REQ.me = { me: me.employeeId, roles: me.roles, companyId: readCompany().id, user: me };
   return REQ.me;
@@ -401,8 +454,8 @@ function upsert(c, coll, id, data) {
   if (!canWrite(c, coll, id, data, op) || (old && !canWrite(c, coll, id, old, op))) throw fail('ບໍ່ມີສິດບັນທຶກຂໍ້ມູນນີ້');
   if (coll === 'employees') guardEmployee(c, id, old, data);
   writeRow(s, row, [id, new Date().toISOString(), c.me].concat(chunks(JSON.stringify(data))));
-  if (coll === 'employees') syncRoles(id, data);
-  if (coll === 'employees') REQ.emps = undefined;
+  collectionChanged(coll);
+  if (coll === 'employees') { syncRoles(id, data); REQ.emps = undefined; }
   return true;
 }
 
@@ -415,6 +468,7 @@ function del(c, coll, id) {
   for (var i = 3; i < r.length; i++) { if (r[i] === '') break; json += String(r[i]); }
   if (!canWrite(c, coll, id, JSON.parse(json || '{}'), 'delete')) throw fail('ບໍ່ມີສິດລຶບຂໍ້ມູນນີ້');
   s.deleteRow(row);
+  collectionChanged(coll);
   return true;
 }
 
@@ -500,7 +554,7 @@ function removeLogin(c, req) {
   needOwner(c);
   if (req.employeeId === c.me) throw fail('ປິດບັນຊີຂອງຕົນເອງບໍ່ໄດ້');
   var all = userRows();
-  for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) { usersTab().deleteRow(all[i].row); break; }
+  for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) { usersTab().deleteRow(all[i].row); usersChanged(); break; }
   var s = sessionsTab(), rows = readTable(s);
   for (var j = rows.length - 1; j >= 0; j--) if (rows[j].updatedAt === req.employeeId) s.deleteRow(rows[j].row);
   return true;

@@ -68,8 +68,10 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     listAudit: async () => await post<AuditEntry[]>({ action: 'listAudit' })
   };
 
+  // sign-in and `me` bring the company along, so opening the app takes one trip fewer
+  let firstCompany: Company | undefined;
   const info = () => post<{ companyId: string | null; name: string | null }>({ action: 'info' });
-  const asMember = (r: { token: string; member: SheetMember }) => { tokens.set(r.token); return r.member; };
+  const asMember = (r: { token: string; member: SheetMember; company?: Company }) => { tokens.set(r.token); firstCompany = r.company; return r.member; };
 
   return {
     backend,
@@ -77,11 +79,19 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     hasToken: () => !!tokens.get(),
     async currentMember(): Promise<SheetMember | null> {
       if (!tokens.get()) return null;
-      try { return await post<SheetMember>({ action: 'me' }); } catch (e: any) { if (e?.code === 'auth') return null; throw e; }
+      try {
+        const { company, ...m } = await post<SheetMember & { company?: Company }>({ action: 'me' });
+        firstCompany = company;
+        return m;
+      } catch (e: any) { if (e?.code === 'auth') return null; throw e; }
     },
     async signIn(code: string, pin: string) { return asMember(await post({ action: 'login', code, pin })); },
     async signOut() { try { await post({ action: 'logout' }); } finally { tokens.set(null); } },
-    async loadCompany(): Promise<Company> { return await post<Company>({ action: 'company' }); },
+    async loadCompany(): Promise<Company> {
+      const c = firstCompany;
+      firstCompany = undefined;
+      return c ?? await post<Company>({ action: 'company' });
+    },
     async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string }) {
       return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin }));
     },

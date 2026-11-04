@@ -12,6 +12,8 @@ class FakeSheet {
   rows = 1000; cols = 26;
   constructor(public name: string) {}
   private cell(r: number, c: number) { return this.grid[r - 1]?.[c - 1] ?? ''; }
+  getName() { return this.name; }
+  getDataRange() { return this.getRange(1, 1, Math.max(1, this.getLastRow()), Math.max(1, this.getLastColumn())); }
   getMaxRows() { return this.rows; }
   getMaxColumns() { return this.cols; }
   getLastRow() { for (let r = this.grid.length; r >= 1; r--) if ((this.grid[r - 1] ?? []).some(v => v !== '' && v !== undefined)) return r; return 0; }
@@ -33,15 +35,18 @@ class FakeSheet {
 
 function loadScript() {
   const sheets = new Map<string, FakeSheet>();
+  const cache = new Map<string, string>();
   const props = new Map<string, string>([['SIGNUP_CODE', 'secret-code']]);
   const book = {
     getSheetByName: (n: string) => sheets.get(n) ?? null,
+    getSheets: () => [...sheets.values()],
     insertSheet: (n: string) => { const s = new FakeSheet(n); sheets.set(n, s); return s; }
   };
   const out = (s: string) => ({ setMimeType() { return this; }, getContent: () => s });
   const ctx: any = {
     SpreadsheetApp: { getActiveSpreadsheet: () => book },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (k: string) => props.get(k) ?? null }) },
+    CacheService: { getScriptCache: () => ({ get: (k: string) => cache.get(k) ?? null, put: (k: string, v: string) => { cache.set(k, v); }, remove: (k: string) => { cache.delete(k); } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     ContentService: { createTextOutput: out, MimeType: { JSON: 'json', TEXT: 'text' } },
     Utilities: { getUuid: () => randomUUID(), sleep() {} },
@@ -222,6 +227,30 @@ describe('Google Sheets backend (Code.gs run against a fake sheet)', () => {
     await expect(a.api.backend.upsert('c1', 'junk', 'x', { a: 1 }, 'e-a')).rejects.toThrow('ບໍ່ຮູ້ຈັກ');
     expect(t.post({ action: 'list', collection: 'scans' })).toMatchObject({ ok: false, code: 'auth' });
     expect(t.post({ action: 'list', collection: 'scans', token: 'nope' })).toMatchObject({ ok: false, code: 'auth' });
+  });
+
+  it('reading never creates tabs, and sign-in brings the company so opening needs no extra trip', async () => {
+    const a = phone(t.post);
+    const before = [...t.sheets.keys()].sort();
+    await a.api.signIn('ST-002', '222222');
+    await a.store.list('leaves'); await a.store.list('ots');
+    expect([...t.sheets.keys()].sort()).toEqual(before);
+    let posts = 0;
+    const counting = phone((b: unknown) => { posts++; return t.post(b); });
+    await counting.api.signIn('ST-002', '222222');
+    expect(await counting.api.loadCompany()).toMatchObject({ id: 'c1', name: 'ຮ້ານທົດລອງ' });
+    expect(posts).toBe(1); // the sign-in itself; the company needed no second call
+  });
+
+  it('a removed login loses its cached session at once, and a new role shows without signing in again', async () => {
+    const a = phone(t.post);
+    await a.api.signIn('ST-003', '333333');
+    await a.store.list('scans'); // the session is now cached
+    const eb = (await owner.store.list<Employee>('employees')).find(e => e.id === 'e-b')!;
+    await owner.store.put('employees', { ...eb, roles: ['employee', 'accountant'] }, 'e-owner', 'role');
+    expect((await a.api.currentMember())!.roles).toEqual(['employee', 'accountant']);
+    await owner.api.removeLogin('e-b');
+    await expect(a.store.list('scans')).rejects.toThrow();
   });
 
   it('keeps ids like 001 and dates as text and never leaves a half-written company', async () => {

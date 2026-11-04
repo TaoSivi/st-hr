@@ -47,7 +47,7 @@ function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; 
         <label className="field">ລະຫັດພະນັກງານ<input className="input" autoComplete="username" autoCapitalize="characters" placeholder="ເຊັ່ນ ST-012" value={code} onChange={e => setCode(e.target.value)} style={{ fontSize: 18 }} /></label>
         <Pin label={`PIN (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} />
         {err && <div className="error" role="alert">{err}</div>}
-        <button className="btn block" type="submit" disabled={busy || !name || !code.trim() || pin.length !== ONLINE_PIN_LEN}>{busy ? 'ກຳລັງເຂົ້າ…' : 'ເຂົ້າລະບົບ'}</button>
+        <button className="btn block" type="submit" disabled={busy || !name || !code.trim() || pin.length !== ONLINE_PIN_LEN}>{busy ? 'ກຳລັງເຂົ້າ… (ລໍສັກຄູ່)' : 'ເຂົ້າລະບົບ'}</button>
         <span className="muted small">ລືມ PIN: ຂໍໃຫ້ເຈົ້າຂອງ / HR ຕັ້ງ PIN ຊົ່ວຄາວໃຫ້ໃໝ່.</span>
       </form>
       <button className="btn ghost" onClick={onOther}>ບໍລິສັດອອນລາຍອື່ນ</button>
@@ -86,7 +86,11 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
     try {
       // a Google Sheet holds one company, so its code comes from the sheet
       const id = kind === 'sheets' ? (await sheetCompany()).companyId ?? '' : companyId.trim();
-      if (!id) throw new Error(kind === 'sheets' ? 'Google Sheet ນີ້ຍັງບໍ່ມີບໍລິສັດ — ໄປແຖບ ສ້າງບໍລິສັດໃໝ່' : 'ໃສ່ລະຫັດບໍລິສັດ');
+      if (!id) {
+        if (kind === 'sheets') { setMode('create'); setErr('Google Sheet ນີ້ຍັງບໍ່ມີບໍລິສັດ — ສ້າງໃໝ່ໄດ້ເລີຍ ຢູ່ດ້ານລຸ່ມ'); } else setErr('ໃສ່ລະຫັດບໍລິສັດ');
+        setBusy(false);
+        return;
+      }
       const n = await companyName(id);
       if (!n) throw new Error('ບໍ່ພົບບໍລິສັດນີ້ — ກວດລະຫັດບໍລິສັດ ຫຼື ລິ້ງທີ່ໄດ້ຮັບ');
       setOnlineCompany(id); onDone(id);
@@ -146,7 +150,7 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
           {kind === 'supabase' && <label className="field">ລະຫັດບໍລິສັດ<input className="input" placeholder="ເຊັ່ນ c-ab12cd34" value={companyId} onChange={e => setCompanyId(e.target.value)} /></label>}
           {kind === 'sheets' && <span className="muted small">Google Sheet ໜຶ່ງໃບ = ໜຶ່ງບໍລິສັດ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.</span>}
           {err && <div className="error" role="alert">{err}</div>}
-          <button className="btn block" disabled={busy} onClick={enter}>ຕໍ່ໄປ</button>
+          <button className="btn block" disabled={busy} onClick={enter}>{busy ? 'ກຳລັງເຊື່ອມຕໍ່…' : kind === 'sheets' ? 'ເຊື່ອມຕໍ່ ແລະ ເຂົ້າລະບົບ' : 'ຕໍ່ໄປ'}</button>
         </div>
       ) : (
         <div className="card col">
@@ -200,7 +204,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
   if (member === undefined) return <div className="empty">ກຳລັງກວດ…</div>;
   if (!member) return <ServerLogin companyId={id} onIn={setMember} onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
   if (err) return <div className="phone"><div className="screen"><div className="error" role="alert">{err}</div><button className="btn" onClick={leave}>ອອກ</button></div></div>;
-  if (!company || !store) return <div className="empty">ກຳລັງໂຫຼດ…</div>;
+  if (!company || !store) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
   return <>{children({ companyId: id, online: { store, company, meId: member.employeeId, onSignOut: leave, api, pollMs: serverKind() === 'sheets' ? 45_000 : undefined } })}</>;
 }
 
