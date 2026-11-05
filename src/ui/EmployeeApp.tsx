@@ -4,8 +4,9 @@ import { uid } from '../data/store';
 import type { Advance, Branch, LeaveRequest, LeaveType, ScanKind, ScanRecord } from '../domain/types';
 import { evaluateScan, nearestBranch } from '../domain/attendance';
 import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
-import { capBalance, leaveApprovers, leaveDays } from '../domain/leave';
+import { CAP_TYPES, capBalance, leaveApprovers, leaveDays } from '../domain/leave';
 import LeaveBalances from './LeaveBalances';
+import { CountUp } from './motion';
 import { maxAdvance } from '../domain/payroll';
 import { loadFaceModels, openFrontCamera, readFrame, snapshot, stopCamera } from '../device/face';
 import { frameAdvice, ISSUE_TEXT } from '../domain/faceQuality';
@@ -448,9 +449,9 @@ function LeaveTab() {
         {subs.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </nav>
       <div className="screen" style={{ paddingTop: 12 }}>
-        <LeaveBalances year={new Date().getFullYear()} tiles={[
+        <LeaveBalances year={new Date().getFullYear()} paidHours={shiftPaidHours(hr.shifts.find(x => x.id === (effectiveShift(me!, today, hr.overrides) ?? me!.shiftId)) ?? hr.shifts[0])} tiles={[
           { key: 'annual', label: 'ລາພັກປະຈຳປີ', left: bal.left, total: Math.round((bal.earned + bal.carried) * 100) / 100, used: bal.used },
-          ...(['sick', 'personal', 'unpaid'] as const).map(t => {
+          ...CAP_TYPES.map(t => {
             const b = capBalance(t, leaves, me!.id, new Date().getFullYear(), hr.settings);
             return { key: t, label: LEAVE_TYPES[t], left: b.left, total: b.quota, used: b.used };
           }),
@@ -476,15 +477,17 @@ function LeaveTab() {
   );
 }
 
+const TYPE_HINT: Partial<Record<LeaveType, string>> = { special: 'ລາພັກພິເສດ ຕາມທິດຊີ້ນຳຈາກຄະນະບໍລິຫານ', unpaid: 'ລາບໍ່ເອົາເງິນເດືອນ — ຕ້ອງໄດ້ຮັບອະນຸມັດຈາກຄະນະຜູ້ອຳນວຍການກ່ອນທຸກຄັ້ງ', comp: 'ພັກຊົດເຊີຍ ສຳລັບມື້ທີ່ມາເຮັດວຽກວັນພັກລັດຖະການ' };
+
 function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: number; compLeft: number; initialDate?: string; onClose: () => void }) {
   const { me, save, settings, leaves, shifts, overrides, employees, notify } = useHR();
   const { closing, close: onClose } = useClosing(closeNow);
   const year = new Date().getFullYear();
-  const sick = capBalance('sick', leaves, me!.id, year, settings), personal = capBalance('personal', leaves, me!.id, year, settings);
+  const caps = Object.fromEntries(CAP_TYPES.map(t => [t, capBalance(t, leaves, me!.id, year, settings).left])) as Record<(typeof CAP_TYPES)[number], number | null>; // what is left of each allowance (null = no limit)
   // who this can be sent to: the department head first; the one picked is told straight away and sees it at the top of their list
   const approvers = useMemo(() => leaveApprovers(employees, settings, me!.id), [employees, settings, me]);
   const [approverId, setApproverId] = useState(approvers[0]?.id ?? '');
-  const leftOf = (t: LeaveType): number | null => (t === 'annual' ? left : t === 'comp' ? compLeft : t === 'sick' ? sick.left : t === 'personal' ? personal.left : null);
+  const leftOf = (t: LeaveType): number | null => (t === 'annual' ? left : t === 'comp' ? compLeft : t === 'special' || t === 'sick' || t === 'personal' || t === 'unpaid' ? caps[t] : null);
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
   const [from, setFrom] = useState(initialDate ?? today);
@@ -504,7 +507,7 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
   const submit = async () => {
     setErr('');
     const ask = { type, from, to: partial ? from : to, days, part: partial ? (part as LeavePart) : undefined, hours: part === 'hours' ? hoursNum : undefined };
-    const block = leaveRequestBlock(ask, { existing: leaves.filter(l => l.employeeId === me!.id), paidHours, weeklyOff: me!.dayOff ?? [0], holidays: settings.holidays, annualLeft: left, compLeft, sickLeft: sick.left, personalLeft: personal.left });
+    const block = leaveRequestBlock(ask, { existing: leaves.filter(l => l.employeeId === me!.id), paidHours, weeklyOff: me!.dayOff ?? [0], holidays: settings.holidays, annualLeft: left, compLeft, capLeft: caps });
     if (block) return setErr(block);
     if (!reason.trim()) return setErr('ກະລຸນາໃສ່ເຫດຜົນ');
     const req: LeaveRequest = { id: uid(), companyId: me!.companyId, employeeId: me!.id, type, from, to: ask.to, days, ...(ask.part ? { part: ask.part } : {}), ...(ask.part === 'hours' ? { hours: hoursNum } : {}), reason: reason.trim(), createdAt: new Date().toISOString(), approvals: [], status: 'pending', ...(approverId ? { approverId } : {}) };
@@ -518,8 +521,8 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
       <div className="sheet col" onClick={e => e.stopPropagation()} role="dialog" aria-label="ຂໍລາ">
         <h2>ຂໍລາ</h2>
         <div className="col" style={{ gap: 6 }}><span className="muted small">ປະເພດການລາ</span>
-        <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
-          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}{leftOf(t) !== null ? ` · ເຫຼືອ ${leftOf(t)}` : ''}</button>))}</div></div>
+        <div className="row wrap">{(['annual', 'sick', 'personal', 'special', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
+          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}{leftOf(t) !== null ? ` · ເຫຼືອ ${leftOf(t)}` : ''}</button>))}</div>{TYPE_HINT[type] && <span className="muted small">{TYPE_HINT[type]}</span>}</div>
         <div className="col" style={{ gap: 6 }}><span className="muted small">ລາເທົ່າໃດ</span>
         <div className="row wrap">{([['full', 'ເຕັມວັນ'], ['am', PART_LABEL.am], ['pm', PART_LABEL.pm], ['hours', PART_LABEL.hours]] as [LeavePart | 'full', string][]).map(([p, label]) => (
           <button key={p} className={`btn ${part === p ? '' : 'ghost'}`} onClick={() => pickPart(p)} aria-pressed={part === p}>{label}</button>))}</div></div>
@@ -587,7 +590,7 @@ function Pay() {
         <span className="muted small">ລາຍຫັກ</span>
         {line('ມາຊ້າ', s.lateDeduction, true)}{line('ລາບໍ່ຮັບເງິນເດືອນ', s.unpaidLeave, true)}{line('ປະກັນສັງຄົມ', s.socialSecurity, true)}{line('ອາກອນລາຍໄດ້', s.tax, true)}{line('ເບີກລ່ວງໜ້າ', s.advance, true)}
       </div>
-      <div className="card dark row"><span className="grow" style={{ color: '#9fd8d4' }}>ຮັບສຸດທິ</span><span className="big-num">{money(s.net)} <span style={{ fontSize: 16, color: 'var(--mint-ink)' }}>₭</span></span></div>
+      <div className="card dark row"><span className="grow" style={{ color: '#9fd8d4' }}>ຮັບສຸດທິ</span><span className="big-num"><CountUp to={s.net} format={money} /> <span style={{ fontSize: 16, color: 'var(--mint-ink)' }}>₭</span></span></div>
       <button className="btn ghost" onClick={() => setPrinting(true)}>ພິມ / ບັນທຶກ PDF</button>
       {printing && <PayslipView data={sum} monthLabel={laoMonth(new Date().getFullYear(), new Date().getMonth())} final={run?.status === 'locked'} onClose={() => setPrinting(false)} />}
     </div>

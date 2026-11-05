@@ -30,14 +30,21 @@ describe('who a leave request can be sent to', () => {
   it('an unknown person has nobody', () => expect(leaveApprovers(people, S, 'nobody')).toEqual([]));
 });
 
+const NONE = { sickDaysPerYear: 0, personalDaysPerYear: 0, specialDaysPerYear: 0, unpaidDaysPerYear: 0 };
+
 describe('sick and personal leave left this year', () => {
   const l = (over: Partial<LeaveRequest>): LeaveRequest => ({ id: Math.random().toString(), companyId: 'c', employeeId: 'e1', type: 'sick', from: '2026-03-02', to: '2026-03-03', days: 2, reason: '', createdAt: '', approvals: [], status: 'approved', ...over });
   const leaves = [l({}), l({ status: 'pending', days: 1 }), l({ status: 'rejected', days: 9 }), l({ from: '2025-12-30', days: 5 }), l({ employeeId: 'e2', days: 7 }), l({ type: 'personal', days: 1 })];
   it('counts approved and waiting days of that kind, this year, this person', () => expect(usedInYear(leaves, 'e1', 'sick', 2026)).toBe(3));
   it('with an allowance it shows what is left; without, it is unlimited', () => {
-    expect(capBalance('sick', leaves, 'e1', 2026, { sickDaysPerYear: 30, personalDaysPerYear: 0 })).toEqual({ type: 'sick', quota: 30, used: 3, left: 27 });
-    expect(capBalance('sick', leaves, 'e1', 2026, { sickDaysPerYear: 0, personalDaysPerYear: 0 })).toEqual({ type: 'sick', quota: null, used: 3, left: null });
-    expect(capBalance('personal', leaves, 'e1', 2026, { sickDaysPerYear: 0, personalDaysPerYear: 3 }).left).toBe(2);
+    expect(capBalance('sick', leaves, 'e1', 2026, { ...NONE, sickDaysPerYear: 30 })).toEqual({ type: 'sick', quota: 30, used: 3, left: 27 });
+    expect(capBalance('sick', leaves, 'e1', 2026, NONE)).toEqual({ type: 'sick', quota: null, used: 3, left: null });
+    expect(capBalance('personal', leaves, 'e1', 2026, { ...NONE, personalDaysPerYear: 3 }).left).toBe(2);
   });
-  it('unpaid leave is only counted, never capped', () => expect(capBalance('unpaid', [l({ type: 'unpaid', days: 4 })], 'e1', 2026, { sickDaysPerYear: 5, personalDaysPerYear: 5 })).toMatchObject({ quota: null, used: 4, left: null }));
+  it('special and unpaid leave have their own allowances (0 = no limit)', () => {
+    const rows = [l({ type: 'special', days: 6 }), l({ type: 'unpaid', days: 4 })];
+    expect(capBalance('special', rows, 'e1', 2026, { ...NONE, specialDaysPerYear: 30 })).toMatchObject({ quota: 30, used: 6, left: 24 });
+    expect(capBalance('unpaid', rows, 'e1', 2026, { ...NONE, unpaidDaysPerYear: 30 })).toMatchObject({ quota: 30, used: 4, left: 26 });
+    expect(capBalance('unpaid', rows, 'e1', 2026, NONE)).toMatchObject({ quota: null, used: 4, left: null });
+  });
 });

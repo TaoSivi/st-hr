@@ -11,7 +11,7 @@ export const STATUS_LABEL: Record<DayStatus, string> = {
   ok: 'ປົກກະຕິ', late: 'ມາຊ້າ', absent: 'ຂາດ', leave: 'ລາ', pending: 'ລໍກວດ', dayoff: 'ວັນພັກ', holiday: 'ວັນພັກລັດຖະການ', future: '', 'before-hire': ''
 };
 const WEEKDAY = ['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'];
-const LEAVE_LABEL: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ', comp: 'ພັກຊົດເຊີຍ' };
+const LEAVE_LABEL: Record<string, string> = { annual: 'ລາພັກປະຈຳປີ', sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', special: 'ລາພັກພິເສດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ', comp: 'ພັກຊົດເຊີຍ' };
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

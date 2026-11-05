@@ -108,9 +108,13 @@ export function usedInYear(leaves: LeaveRequest[], employeeId: string, type: Lea
 
 export interface TypeBalance { type: LeaveType; quota: number | null; used: number; left: number | null }
 
-/** Sick and personal leave: the yearly allowance from Settings (0 = no limit → quota null), what is used and what is left. Unpaid leave has no allowance. */
-export function capBalance(type: 'sick' | 'personal' | 'unpaid', leaves: LeaveRequest[], employeeId: string, year: number, s: Pick<Settings, 'sickDaysPerYear' | 'personalDaysPerYear'>): TypeBalance {
-  const cap = type === 'sick' ? s.sickDaysPerYear : type === 'personal' ? s.personalDaysPerYear : 0;
+export type CapType = 'sick' | 'personal' | 'special' | 'unpaid';
+export const CAP_TYPES: CapType[] = ['sick', 'personal', 'special', 'unpaid'];
+const CAP_KEY: Record<CapType, 'sickDaysPerYear' | 'personalDaysPerYear' | 'specialDaysPerYear' | 'unpaidDaysPerYear'> = { sick: 'sickDaysPerYear', personal: 'personalDaysPerYear', special: 'specialDaysPerYear', unpaid: 'unpaidDaysPerYear' };
+
+/** Leave with a yearly allowance from Settings (0 = no limit → quota null): what is used and what is left. */
+export function capBalance(type: CapType, leaves: LeaveRequest[], employeeId: string, year: number, s: Pick<Settings, 'sickDaysPerYear' | 'personalDaysPerYear' | 'specialDaysPerYear' | 'unpaidDaysPerYear'>): TypeBalance {
+  const cap = s[CAP_KEY[type]];
   const used = usedInYear(leaves, employeeId, type, year);
   const quota = cap > 0 ? cap : null;
   return { type, quota, used, left: quota === null ? null : Math.round((quota - used) * 100) / 100 };

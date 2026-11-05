@@ -14,6 +14,7 @@ import { ONLINE_PIN_LEN, pinProblem } from '../domain/pin';
 import type { Employee } from '../domain/types';
 import { initials, ROLE_NAMES, ymd } from './format';
 import PinPad from './PinPad';
+import { LoadingSkeleton } from './motion';
 
 /** The scans a phone made with no signal, kept in the browser until they can be sent. One list per company. */
 const outboxFor = (companyId: string): Outbox => ({
@@ -290,12 +291,12 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     joinLink: () => joinLink(readServerConfig()!, id!)
   }), [id, logins, refreshLogins]);
 
-  if (probing) return <div className="empty">ກຳລັງເຊື່ອມຕໍ່… <div className="small muted">ລໍສັກຄູ່</div></div>;
+  if (probing) return <LoadingSkeleton title="ກຳລັງເຊື່ອມຕໍ່…" hint="ລໍສັກຄູ່" />;
   if (!readServerConfig() || !id) return <Connect onDone={nid => { setId(nid); setMember(undefined); }} onBack={onLeave} />;
   if (member === undefined) return <div className="empty">ກຳລັງກວດ…</div>;
   if (!member) return <ServerLogin companyId={id} onIn={(m, off) => { setOfflineIn(off ?? null); setMember(m); }}onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
   if (err) return <div className="phone"><div className="screen"><div className="error" role="alert">{err}</div><button className="btn" onClick={leave}>ອອກ</button></div></div>;
-  if (!company || !store) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
+  if (!company || !store) return <LoadingSkeleton title="ກຳລັງໂຫຼດຂໍ້ມູນ…" hint="ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ" />;
   return <>{children({ companyId: id, online: { store, company, meId: member.employeeId, onSignOut: leave, api, pollMs: serverKind() === 'sheets' ? 45_000 : undefined } })}</>;
 }
 

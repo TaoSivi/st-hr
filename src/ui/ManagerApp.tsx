@@ -39,6 +39,7 @@ import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
+import { CountUp, Ring } from './motion';
 
 type Page = ManagerPage;
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
@@ -75,7 +76,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
         <button onClick={onEmployeeView}>‹ ກັບໜ້າລົງເວລາ</button>
         <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
       </nav>
-      <main>
+      <main key={page}>
         {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ{me.roles.includes('auditor') ? ' (ຜູ້ກວດສອບ)' : ''}</div>}
         {!canViewPage(me, page, hr.settings) && <NoAccess />}
         {canViewPage(me, page, hr.settings) && <>
@@ -121,12 +122,15 @@ function Overview() {
     const start = first && lateStartOn(hr, e, wd.date);
     if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) late++;
   }
-  const k = (label: string, v: number | string, tone = '') => <div className={`card ${tone}`}><span className={tone ? 'small' : 'muted small'} style={tone ? { color: '#9fd8d4' } : undefined}>{label}</span><div className="big-num">{v}</div></div>;
+  const k = (label: string, v: number, tone = '') => <div className={`card ${tone}`}><span className={tone ? 'small' : 'muted small'} style={tone ? { color: '#9fd8d4' } : undefined}>{label}</span><div className="big-num"><CountUp to={v} /></div></div>;
   return (
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">{laoDate(now)}</span><h1>ພາບລວມພະນັກງານ</h1></div>
       <div className="grid stats">
-        {k('ມາວຽກມື້ນີ້', `${present.size} / ${staff.length}`, 'dark')}
+        <div className="card dark row" style={{ justifyContent: 'space-between' }}>
+          <div className="col" style={{ gap: 2 }}><span className="small" style={{ color: '#9fd8d4' }}>ມາວຽກມື້ນີ້</span><div className="big-num"><CountUp to={present.size} /> <span style={{ fontSize: 18, opacity: .8 }}>/ {staff.length}</span></div></div>
+          <Ring share={staff.length ? present.size / staff.length : 0} size={62} stroke={7} color="var(--mint-ink)" label={`ມາວຽກ ${present.size} ຈາກ ${staff.length}`}><b style={{ fontSize: 14 }}>{staff.length ? Math.round((present.size / staff.length) * 100) : 0}%</b></Ring>
+        </div>
         {k('ມາຊ້າ', late)}
         {k('ລາພັກມື້ນີ້', onLeave)}
         {k('ລໍກວດ', hr.scans.filter(s => s.status === 'pending').length)}
@@ -825,9 +829,9 @@ function Payroll() {
             <div className="row"><button className="btn ghost" onClick={() => setPi(null)}>ຍົກເລີກ</button><button className="btn" onClick={addItem}>{hr.settings.makerChecker ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
           </div>)}
       </div>
-      <div className="grid stats"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num">{money(total)} ₭</div></div>
-        <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.socialSecurity, 0))}</div></div>
-        <div className="card"><span className="muted small">ອາກອນ</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.tax, 0))}</div></div></div>
+      <div className="grid stats"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num"><CountUp to={total} format={money} /> ₭</div></div>
+        <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num"><CountUp to={rows.reduce((a, r) => a + r.slip.socialSecurity, 0)} format={money} /></div></div>
+        <div className="card"><span className="muted small">ອາກອນ</span><div className="big-num"><CountUp to={rows.reduce((a, r) => a + r.slip.tax, 0)} format={money} /></div></div></div>
       <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th className="num">ພື້ນຖານ</th><th className="num">OT</th><th>ມາຊ້າ (ຢືນຢັນ?)</th><th className="num">ປະກັນ</th><th className="num">ອາກອນ</th><th className="num">ເບີກ</th><th className="num">ສຸດທິ</th><th /></tr></thead><tbody>
         {rows.map(r => <tr key={r.employee.id}><td><b>{r.employee.name}</b><div className="muted small">{r.employee.payMethod === 'cash' ? 'ເງິນສົດ' : r.employee.bankName}</div></td>
           <td className="num">{money(r.slip.base)}</td><td className="num">{money(r.slip.ot)}</td>
@@ -1026,7 +1030,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
         {num('faceMinScore', RULE_LABEL.faceMinScore, 1, 1, 'ຕ່ຳກວ່ານີ້ → ລໍຫົວໜ້າກວດ. ຖ້າພະນັກງານສະແກນບໍ່ຕິດຫຼາຍ ລອງລົດລົງເທື່ອລະ 5')}{num('maxClockSkewMin', RULE_LABEL.maxClockSkewMin, 1, 1, 'ໂມງໂທລະສັບຜິດຈາກເຊີບເວີເກີນນີ້ → ລໍກວດ')}{num('randomSamplePerDay', RULE_LABEL.randomSamplePerDay, 1, 1, 'ລາຍການທີ່ຜ່ານແລ້ວ ແຕ່ສຸ່ມໃຫ້ຫົວໜ້າກວດຊ້ຳ')}{num('photoRetentionDays', RULE_LABEL.photoRetentionDays, 1, 1, 'ຮູບສະແກນຖືກລຶບເອງຫຼັງຈາກນີ້')}
       </div></div>}
       {tab === 'leave' && <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
-        {num('leaveDaysPerYear', RULE_LABEL.leaveDaysPerYear)}{num('sickDaysPerYear', RULE_LABEL.sickDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('personalDaysPerYear', RULE_LABEL.personalDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('leaveCarryOverMax', RULE_LABEL.leaveCarryOverMax, 1, 1, 'ມື້ທີ່ເຫຼືອຍົກໄປປີໜ້າໄດ້ບໍ່ເກີນນີ້')}{num('compLeaveExpiryDays', RULE_LABEL.compLeaveExpiryDays + ' (0 = ບໍ່ໝົດ)', 1, 1, 'ນັບຈາກວັນຫຍຸດທີ່ມາເຮັດວຽກ')}
+        {num('leaveDaysPerYear', RULE_LABEL.leaveDaysPerYear)}{num('sickDaysPerYear', RULE_LABEL.sickDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('personalDaysPerYear', RULE_LABEL.personalDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('specialDaysPerYear', RULE_LABEL.specialDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ຕາມທິດຊີ້ນຳຈາກຄະນະບໍລິຫານ')}{num('unpaidDaysPerYear', RULE_LABEL.unpaidDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ຕ້ອງໄດ້ຮັບອະນຸມັດຈາກຄະນະຜູ້ອຳນວຍການກ່ອນທຸກຄັ້ງ')}{num('leaveCarryOverMax', RULE_LABEL.leaveCarryOverMax, 1, 1, 'ມື້ທີ່ເຫຼືອຍົກໄປປີໜ້າໄດ້ບໍ່ເກີນນີ້')}{num('compLeaveExpiryDays', RULE_LABEL.compLeaveExpiryDays + ' (0 = ບໍ່ໝົດ)', 1, 1, 'ນັບຈາກວັນຫຍຸດທີ່ມາເຮັດວຽກ')}
         <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={s.leavePayoutOnExit} onChange={e => setS({ ...s, leavePayoutOnExit: e.target.checked })} />{RULE_LABEL.leavePayoutOnExit}</label>{num('escalateAfterHours', RULE_LABEL.escalateAfterHours, 1, 1, 'ຄຳຂໍທີ່ຄ້າງນານກວ່ານີ້ ເຈົ້າຂອງອະນຸມັດແທນໄດ້')}
         <label className="field">ວິທີໄດ້ສິດລາ<select className="input" disabled={readOnly} value={s.leaveAccrual} onChange={e => setS({ ...s, leaveAccrual: e.target.value as Settings['leaveAccrual'] })}>
           <option value="monthly">ສະສົມເປັນເດືອນ</option><option value="yearStart">ໄດ້ເຕັມຕົ້ນປີ</option><option value="anniversary">ຕາມວັນຄົບຮອບ</option></select></label>

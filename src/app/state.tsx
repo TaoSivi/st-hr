@@ -20,6 +20,8 @@ import type { Company } from '../domain/company';
 import { purgeExpiredPhotos } from '../domain/attendance';
 import { defaultSettings } from '../domain/defaults';
 import { syncOfflineScans } from './offlineSync';
+import { savedText, toast } from '../ui/Toast';
+import { LoadingSkeleton } from '../ui/motion';
 import { missedOutNotices } from './missedOut';
 import { withSuperApproval } from './superGate';
 
@@ -176,8 +178,8 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
       try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }
     },
     // an Admin's delete, pay change, payroll close/reopen or clock-in edit asks the Super admin for the PIN, then goes through
-    save: async (collection, item, action, asId) => { await guard(() => store.put(collection, item, asId ?? by, action)); await load(); },
-    remove: async (collection, id, action) => { await guard(() => store.remove(collection, id, by, action)); await load(); },
+    save: async (collection, item, action, asId) => { await guard(() => store.put(collection, item, asId ?? by, action)); await load(); const t = savedText(collection, action); if (t) toast(t); },
+    remove: async (collection, id, action) => { await guard(() => store.remove(collection, id, by, action)); await load(); const t = savedText(collection, action, 'remove'); if (t) toast(t); },
     notify: async (userIds, text, link) => {
       for (const userId of new Set(userIds)) {
         await store.put<Notification>('notifications', { id: uid(), companyId, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');
@@ -191,6 +193,6 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
   };
 
   if (!company) return <div className="empty">ບໍ່ພົບບໍລິສັດນີ້</div>;
-  if (!value) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
+  if (!value) return <LoadingSkeleton title="ກຳລັງໂຫຼດຂໍ້ມູນ…" hint="ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ" />;
   return <HRContext.Provider value={value}>{children}</HRContext.Provider>;
 }

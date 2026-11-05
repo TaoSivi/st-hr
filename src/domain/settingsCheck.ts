@@ -18,6 +18,8 @@ export function validateSettings(s: Settings): string[] {
   if (!num(s.leaveDaysPerYear, 0, 366)) e.push('ມື້ລາພັກ/ປີ ຕ້ອງຢູ່ລະຫວ່າງ 0–366');
   if (!num(s.sickDaysPerYear, 0, 366)) e.push('ມື້ລາປ່ວຍ/ປີ ຕ້ອງຢູ່ລະຫວ່າງ 0–366 (0 = ບໍ່ຈຳກັດ)');
   if (!num(s.personalDaysPerYear, 0, 366)) e.push('ມື້ລາກິດ/ປີ ຕ້ອງຢູ່ລະຫວ່າງ 0–366 (0 = ບໍ່ຈຳກັດ)');
+  if (!num(s.specialDaysPerYear, 0, 366)) e.push('ມື້ລາພັກພິເສດ/ປີ ຕ້ອງຢູ່ລະຫວ່າງ 0–366 (0 = ບໍ່ຈຳກັດ)');
+  if (!num(s.unpaidDaysPerYear, 0, 366)) e.push('ມື້ລາບໍ່ຮັບເງິນເດືອນ/ປີ ຕ້ອງຢູ່ລະຫວ່າງ 0–366 (0 = ບໍ່ຈຳກັດ)');
   if (!num(s.leaveCarryOverMax, 0, 366)) e.push('ຍົກໄປປີໜ້າ ຕ້ອງບໍ່ຕິດລົບ');
   if (!num(s.escalateAfterHours, 1, 720)) e.push('ສົ່ງຫາເຈົ້າຂອງຫຼັງ ຕ້ອງຢູ່ລະຫວ່າງ 1–720 ຊົ່ວໂມງ');
   if (!num(s.advanceMaxPctOfEarned, 0, 1)) e.push('ເບີກສູງສຸດ ຕ້ອງຢູ່ລະຫວ່າງ 0–100% ຂອງເງິນທີ່ໄດ້ແລ້ວ');

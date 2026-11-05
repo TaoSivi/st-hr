@@ -86,7 +86,7 @@ export interface ScanRecord {
   deviceId?: string; // the phone the scan was made on
 }
 
-export type LeaveType = 'annual' | 'sick' | 'personal' | 'unpaid' | 'comp'; // comp = compensatory day off for working a public holiday
+export type LeaveType = 'annual' | 'sick' | 'personal' | 'special' | 'unpaid' | 'comp'; // special = leave the management directs; // comp = compensatory day off for working a public holiday
 
 export interface LeaveRequest {
   id: string;
@@ -153,6 +153,8 @@ export interface Settings {
   leaveDaysPerYear: number;
   sickDaysPerYear: number; // 0 = no limit
   personalDaysPerYear: number; // 0 = no limit
+  specialDaysPerYear: number; // 0 = no limit
+  unpaidDaysPerYear: number; // 0 = no limit
   leaveAccrual: AccrualMethod;
   leaveCarryOverMax: number;
   leaveApproversRequired: 1 | 2;

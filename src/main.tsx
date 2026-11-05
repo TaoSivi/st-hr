@@ -6,6 +6,7 @@ import { installPress } from './ui/press';
 import BusyOverlay from './ui/BusyOverlay';
 import SuperApprovalHost from './ui/SuperApproval';
 import OfflineBanner from './ui/OfflineBanner';
+import ToastHost from './ui/Toast';
 
 // open the app even with no internet (production build only; the dev server must not be cached)
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
@@ -14,4 +15,4 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 
 installPress();
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /><SuperApprovalHost /><BusyOverlay /><OfflineBanner /></StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode><App /><SuperApprovalHost /><BusyOverlay /><OfflineBanner /><ToastHost /></StrictMode>);

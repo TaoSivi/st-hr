@@ -81,19 +81,33 @@ const EFFECT: Record<Key, () => void> = {
   sickDaysPerYear: () => {
     const ask = { type: 'sick' as const, from: '2026-11-04', to: '2026-11-05', days: 2 };
     const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
-    const left = (cap: number, used: number) => capBalance('sick', [leave({ type: 'sick', days: used, from: '2026-03-01' })], 'e1', 2026, { ...S, sickDaysPerYear: cap, personalDaysPerYear: 0 }).left;
+    const left = (cap: number, used: number) => capBalance('sick', [leave({ type: 'sick', days: used, from: '2026-03-01' })], 'e1', 2026, { ...S, sickDaysPerYear: cap }).left;
     expect(left(30, 4)).toBe(26);
     expect(left(0, 4)).toBeNull(); // 0 = no limit
-    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: 1 })).toContain('ລາປ່ວຍເຫຼືອ 1');
-    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: 2 })).toBeNull();
-    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: null })).toBeNull();
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { sick: 1 } })).toContain('ລາປ່ວຍເຫຼືອ 1');
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { sick: 2 } })).toBeNull();
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { sick: null } })).toBeNull();
   },
   personalDaysPerYear: () => {
     const ask = { type: 'personal' as const, from: '2026-11-04', to: '2026-11-04', days: 1 };
     const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
-    expect(capBalance('personal', [], 'e1', 2026, { ...S, sickDaysPerYear: 0, personalDaysPerYear: 3 }).left).toBe(3);
-    expect(leaveRequestBlock(ask, { ...ctx, personalLeft: 0 })).toContain('ລາກິດເຫຼືອ 0');
-    expect(leaveRequestBlock(ask, { ...ctx, personalLeft: 3 })).toBeNull();
+    expect(capBalance('personal', [], 'e1', 2026, { ...S, personalDaysPerYear: 3 }).left).toBe(3);
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { personal: 0 } })).toContain('ລາກິດເຫຼືອ 0');
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { personal: 3 } })).toBeNull();
+  },
+  specialDaysPerYear: () => {
+    const ask = { type: 'special' as const, from: '2026-11-04', to: '2026-11-04', days: 1 };
+    const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
+    expect(capBalance('special', [], 'e1', 2026, { ...S, specialDaysPerYear: 30 }).left).toBe(30);
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { special: 0 } })).toContain('ລາພັກພິເສດເຫຼືອ 0');
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { special: 5 } })).toBeNull();
+  },
+  unpaidDaysPerYear: () => {
+    const ask = { type: 'unpaid' as const, from: '2026-11-04', to: '2026-11-05', days: 2 };
+    const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
+    expect(capBalance('unpaid', [], 'e1', 2026, { ...S, unpaidDaysPerYear: 30 }).quota).toBe(30);
+    expect(capBalance('unpaid', [], 'e1', 2026, { ...S, unpaidDaysPerYear: 0 }).quota).toBeNull();
+    expect(leaveRequestBlock(ask, { ...ctx, capLeft: { unpaid: 1 } })).toContain('ລາບໍ່ຮັບເງິນເດືອນເຫຼືອ 1');
   },
   leaveAccrual: () => {
     const left = (m: Settings['leaveAccrual']) => annualLeaveBalance({ startDate: '2025-12-01', asOf: '2026-11-02', s: { ...S, leaveAccrual: m, leaveCarryOverMax: 0 }, usedInYear: () => 0 }).left;

@@ -18,6 +18,8 @@ export const RULE_LABEL: Record<RuleKey, string> = {
   leaveDaysPerYear: 'ມື້ລາພັກ/ປີ',
   sickDaysPerYear: 'ມື້ລາປ່ວຍ/ປີ',
   personalDaysPerYear: 'ມື້ລາກິດ/ປີ',
+  specialDaysPerYear: 'ມື້ລາພັກພິເສດ/ປີ',
+  unpaidDaysPerYear: 'ມື້ລາບໍ່ຮັບເງິນເດືອນ/ປີ',
   leaveAccrual: 'ວິທີໄດ້ສິດລາ',
   leaveCarryOverMax: 'ຍົກໄປປີໜ້າສູງສຸດ (ມື້)',
   leaveApproversRequired: 'ຕ້ອງອະນຸມັດຈັກຄົນ',
@@ -56,7 +58,7 @@ export function ruleValue(key: RuleKey, s: Settings): string {
     case 'approverRoles': { const o = s.approverRoles ?? {}; const keys = Object.keys(o) as (keyof typeof o)[]; return keys.length ? keys.map(k => `${k}: ${(o[k] ?? []).map(r => ROLE_LAO[r]).join('+')}`).join(' · ') : 'ຄ່າເລີ່ມຕົ້ນ'; }
     case 'employeeMenus': { const off = Object.entries(s.employeeMenus ?? {}).filter(([, v]) => v === false).map(([k]) => k); return off.length ? `ປິດ: ${off.join(', ')}` : 'ເປີດທັງໝົດ'; }
     case 'roleRights': { const o = Object.keys(s.roleRights ?? {}) as Role[]; return o.length ? `ປັບແລ້ວ: ${o.map(r => ROLE_LAO[r]).join(', ')}` : 'ຄ່າເລີ່ມຕົ້ນ'; }
-    case 'sickDaysPerYear': case 'personalDaysPerYear': return s[key] === 0 ? 'ບໍ່ຈຳກັດ' : `${num(s[key])} ມື້`;
+    case 'sickDaysPerYear': case 'personalDaysPerYear': case 'specialDaysPerYear': case 'unpaidDaysPerYear': return s[key] === 0 ? 'ບໍ່ຈຳກັດ' : `${num(s[key])} ມື້`;
     case 'compLeaveExpiryDays': return s.compLeaveExpiryDays === 0 ? 'ບໍ່ໝົດອາຍຸ' : `${num(s.compLeaveExpiryDays)} ມື້`;
     default: return num(s[key] as number);
   }
@@ -118,7 +120,7 @@ export function rulesSummary(s: Settings, shifts: Shift[], branches: Pick<Branch
       title: 'ລາພັກ & ອະນຸມັດ', tab: 'leave',
       lines: [
         `ລາພັກປະຈຳປີ ${num(s.leaveDaysPerYear)} ມື້/ປີ · ${ACCRUAL_LAO[s.leaveAccrual]} · ຍົກໄປປີໜ້າໄດ້ສູງສຸດ ${num(s.leaveCarryOverMax)} ມື້`,
-        `ລາປ່ວຍ ${ruleValue('sickDaysPerYear', s)}/ປີ · ລາກິດ ${ruleValue('personalDaysPerYear', s)}/ປີ (ລາບໍ່ຮັບເງິນເດືອນບໍ່ຈຳກັດ)`,
+        `ລາປ່ວຍ ${ruleValue('sickDaysPerYear', s)}/ປີ · ລາກິດ ${ruleValue('personalDaysPerYear', s)}/ປີ · ລາພັກພິເສດ ${ruleValue('specialDaysPerYear', s)}/ປີ · ລາບໍ່ຮັບເງິນເດືອນ ${ruleValue('unpaidDaysPerYear', s)}/ປີ`,
         `ວັນພັກຊົດເຊີຍ: ${s.compLeaveExpiryDays === 0 ? 'ບໍ່ໝົດອາຍຸ' : `ໝົດອາຍຸຫຼັງ ${num(s.compLeaveExpiryDays)} ມື້`}`,
         `ອະນຸມັດໂດຍ ${ruleValue('leaveApproverRoles', s)} · ຕ້ອງ ${s.leaveApproversRequired} ຄົນ · ຖ້າຄ້າງເກີນ ${num(s.escalateAfterHours)} ຊົ່ວໂມງ ເຈົ້າຂອງຊ່ວຍອະນຸມັດໄດ້`,
         `ເມື່ອພະນັກງານອອກ: ${s.leavePayoutOnExit ? 'ຈ່າຍເງິນວັນລາພັກທີ່ຍັງເຫຼືອ' : 'ບໍ່ຈ່າຍວັນລາພັກທີ່ຍັງເຫຼືອ'}`

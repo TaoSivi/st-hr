@@ -15,6 +15,7 @@ import MapCard, { type MapMark } from './MapCard';
 import { MyRequests, RequestSheet } from './RequestsUI';
 import { KIND_LABEL } from './labels';
 import { hhmm, initials, laoDate, laoMonth, money, retentionLabel, ROLE_NAMES, sameDay, ymd } from './format';
+import { CountUp } from './motion';
 
 export const APP_VERSION = '0.3.0';
 
@@ -108,7 +109,7 @@ export function Reports({ team }: { team: boolean }) {
   const report = buildAttendance(reportInput(hr, people, ym.y, ym.m));
   const rows = report.summary;
   const me = rows.find(r => r.employee.id === hr.me!.id);
-  const tile = (k: string, v: string | number) => <div className="card" style={{ padding: '12px 14px' }}><span className="muted small">{k}</span><div className="big-num" style={{ fontSize: 26 }}>{v}</div></div>;
+  const tile = (k: string, v: string | number) => <div className="card" style={{ padding: '12px 14px' }}><span className="muted small">{k}</span><div className="big-num" style={{ fontSize: 26 }}>{typeof v === 'number' ? <CountUp to={v} /> : v}</div></div>;
   const doExport = async () => {
     const gate = featureBlock(hr.company, 'excelExport', ymd(new Date()));
     if (gate) return setNote(gate);

@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { daysText } from '../domain/leavePart';
+import { reducedMotion, useCountUp } from './motion';
 
 export interface Tile {
   key: string;
@@ -10,30 +12,12 @@ export interface Tile {
   used: number;
 }
 
-const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-/** A number that counts up to its value when it first appears (no motion when the phone asks for less). */
-function useCountUp(to: number, ms = 700): number {
-  const [v, setV] = useState(() => (reduced() ? to : 0));
-  useEffect(() => {
-    if (reduced()) { setV(to); return; }
-    let raf = 0;
-    const t0 = performance.now();
-    const step = (t: number) => {
-      const p = Math.min(1, (t - t0) / ms);
-      setV(to * (1 - Math.pow(1 - p, 3))); // ease out
-      if (p < 1) raf = requestAnimationFrame(step);
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [to, ms]);
-  return v;
-}
+const reduced = reducedMotion;
 
 const R = 21, C = 2 * Math.PI * R;
 const fmt = (n: number) => (Math.round(n * 10) / 10).toString();
 
-function BalanceTile({ t, index }: { t: Tile; index: number }) {
+function BalanceTile({ t, index, paidHours }: { t: Tile; index: number; paidHours: number }) {
   const unlimited = t.left === null;
   const share = unlimited || !t.total ? 1 : Math.max(0, Math.min(1, t.left! / t.total));
   const shown = useCountUp(unlimited ? 0 : t.left!);
@@ -52,18 +36,19 @@ function BalanceTile({ t, index }: { t: Tile; index: number }) {
       </span>
       <span className="lb-text">
         <b>{t.label}</b>
-        <span className="muted small">{unlimited ? `ໃຊ້ແລ້ວ ${fmt(t.used)} ມື້` : t.total ? `ເຫຼືອ ຈາກ ${fmt(t.total)} · ໃຊ້ ${fmt(t.used)}` : `ເຫຼືອ ${fmt(t.left!)} ມື້`}</span>
+        <span className="muted small">{unlimited ? `ໃຊ້ແລ້ວ ${daysText(t.used, paidHours)} · ບໍ່ຈຳກັດ` : `ເຫຼືອ ${daysText(t.left!, paidHours)}`}</span>
+        <span className="muted small">{unlimited ? null : t.total ? `ໃຊ້ ${daysText(t.used, paidHours)} / ${daysText(t.total, paidHours)}` : null}</span>
       </span>
     </div>
   );
 }
 
 /** All the kinds of leave a person has, as small tiles that fit on one screen: a ring for what is left of the year's allowance. */
-export default function LeaveBalances({ tiles, year }: { tiles: Tile[]; year: number }) {
+export default function LeaveBalances({ tiles, year, paidHours = 8 }: { tiles: Tile[]; year: number; paidHours?: number }) {
   return (
     <section className="lb" aria-label={`ມື້ລາຄົງເຫຼືອ ປີ ${year}`}>
       <div className="lb-head"><b>ມື້ລາຄົງເຫຼືອ</b><span className="muted small">ປີ {year}</span></div>
-      <div className="lb-grid">{tiles.map((t, i) => <BalanceTile key={t.key} t={t} index={i} />)}</div>
+      <div className="lb-grid">{tiles.map((t, i) => <BalanceTile key={t.key} t={t} index={i} paidHours={paidHours} />)}</div>
     </section>
   );
 }

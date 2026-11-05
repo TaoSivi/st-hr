@@ -29,6 +29,16 @@ export function leaveSpan(l: Pick<LeaveRequest, 'days' | 'part' | 'hours'>): str
   return `${l.days} ມື້`;
 }
 
+const CAP_LABEL = { sick: 'ລາປ່ວຍ', personal: 'ລາກິດ', special: 'ລາພັກພິເສດ', unpaid: 'ລາບໍ່ຮັບເງິນເດືອນ' };
+
+/** Days as people say them: 3.5 days of an 8 hour shift → "3 ມື້ 4 ຊມ". */
+export function daysText(n: number, paidHours = 8): string {
+  let d = Math.floor(n + 1e-9);
+  let h = Math.round((n - d) * paidHours * 2) / 2;
+  if (h >= paidHours) { d += 1; h = 0; }
+  return [d ? `${d} ມື້` : '', h ? `${h} ຊມ` : ''].filter(Boolean).join(' ') || '0 ມື້';
+}
+
 const live = (l: LeaveRequest) => l.status === 'pending' || l.status === 'approved';
 const covers = (l: Pick<LeaveRequest, 'from' | 'to'>, date: string) => l.from <= date && l.to >= date;
 
@@ -44,7 +54,7 @@ export interface LeaveAsk {
  */
 export function leaveRequestBlock(
   ask: LeaveAsk,
-  ctx: { existing: LeaveRequest[]; paidHours: number; weeklyOff: number[]; holidays: string[]; annualLeft: number; compLeft: number; sickLeft?: number | null; personalLeft?: number | null }
+  ctx: { existing: LeaveRequest[]; paidHours: number; weeklyOff: number[]; holidays: string[]; annualLeft: number; compLeft: number; capLeft?: Partial<Record<'sick' | 'personal' | 'special' | 'unpaid', number | null>> }
 ): string | null {
   if (!ask.from || !ask.to || ask.to < ask.from) return 'ວັນທີບໍ່ຖືກຕ້ອງ';
   if (!(ask.days > 0)) return 'ວັນທີບໍ່ຖືກຕ້ອງ';
@@ -68,8 +78,8 @@ export function leaveRequestBlock(
   }
 
   if (ask.type === 'annual' && ask.days > ctx.annualLeft + 1e-9) return `ມື້ລາພັກເຫຼືອ ${ctx.annualLeft} ມື້ ບໍ່ພໍ`;
-  if (ask.type === 'sick' && ctx.sickLeft != null && ask.days > ctx.sickLeft + 1e-9) return `ມື້ລາປ່ວຍເຫຼືອ ${ctx.sickLeft} ມື້ ບໍ່ພໍ`;
-  if (ask.type === 'personal' && ctx.personalLeft != null && ask.days > ctx.personalLeft + 1e-9) return `ມື້ລາກິດເຫຼືອ ${ctx.personalLeft} ມື້ ບໍ່ພໍ`;
+  const capped = ask.type === 'sick' || ask.type === 'personal' || ask.type === 'special' || ask.type === 'unpaid' ? ctx.capLeft?.[ask.type] : undefined;
+  if (capped != null && ask.days > capped + 1e-9) return `ມື້${CAP_LABEL[ask.type as keyof typeof CAP_LABEL]}ເຫຼືອ ${capped} ມື້ ບໍ່ພໍ`;
   if (ask.type === 'comp' && ask.days > ctx.compLeft + 1e-9) return `ມື້ພັກຊົດເຊີຍເຫຼືອ ${ctx.compLeft} ມື້ ບໍ່ພໍ`;
   return null;
 }
