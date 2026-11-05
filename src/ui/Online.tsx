@@ -3,7 +3,7 @@ import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
 import { RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
 import {
   approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
-  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, type Member
+  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, type Member
 } from '../data/server';
 import type { SheetCard } from '../data/sheets';
 import { newCompanyRecords } from '../data/seed';
@@ -37,8 +37,9 @@ const roleLabel = (role: string) => (role === 'superadmin' ? 'Super admin' : rol
  * A server that cannot list its people (Supabase), or someone not on the list, uses the employee code instead.
  */
 function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member) => void; onBack?: () => void; onOther: () => void }) {
-  const [name, setName] = useState<string | null | undefined>(undefined);
-  const [cards, setCards] = useState<SheetCard[] | null>(null);
+  const seed = useMemo(() => peekSignIn(companyId), [companyId]); // what this device saw last time: on screen at once, refreshed behind it
+  const [name, setName] = useState<string | null | undefined>(seed ? seed.name : undefined);
+  const [cards, setCards] = useState<SheetCard[] | null>(seed ? seed.cards : null);
   const [pick, setPick] = useState<SheetCard | null>(null);
   const [manual, setManual] = useState(false);
   const [code, setCode] = useState('');
@@ -223,17 +224,24 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
 
 /** An online company: sign in, then the same app as always over the shared database. */
 export default function OnlineApp({ companyId, onLeave, children }: { companyId: string | null; onLeave?: () => void; children: (p: { companyId: string; online: OnlineSession }) => React.ReactNode }) {
-  const [id, setId] = useState(companyId);
+  // a Google Sheet holds one company: this device remembers which, so the sign-in screen needs no wait (the real answer follows and corrects it)
+  const remembered = useMemo(() => (!companyId && serverKind() === 'sheets' && readServerConfig() ? peekSheetCompany()?.companyId ?? null : null), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const [id, setId] = useState(companyId ?? remembered);
   const [member, setMember] = useState<Member | null | undefined>(undefined);
   const [company, setCompany] = useState<Company | null>(null);
   const [err, setErr] = useState('');
   const [logins, setLogins] = useState<Set<string>>(new Set());
   // a Google Sheet holds one company: when the address is already known, find the company and go straight to sign-in
-  const [probing, setProbing] = useState(() => !companyId && serverKind() === 'sheets' && !!readServerConfig());
+  const [probing, setProbing] = useState(() => !companyId && !remembered && serverKind() === 'sheets' && !!readServerConfig());
   useEffect(() => {
     if (!probing) return;
     sheetCompany().then(i => { if (i.companyId) { setOnlineCompany(i.companyId); setId(i.companyId); setMember(undefined); } }).catch(() => { /* the connect screen shows the problem */ }).finally(() => setProbing(false));
   }, [probing]);
+  // the id remembered on this device may be of a company that no longer exists (the Sheet was wiped and made again): the Sheet decides
+  useEffect(() => {
+    if (!id || serverKind() !== 'sheets' || !readServerConfig()) return;
+    sheetCompany().then(i => { if (i.companyId && i.companyId !== id) { setOnlineCompany(i.companyId); setId(i.companyId); setMember(undefined); } }).catch(() => { /* offline: keep what we have */ });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // an existing sign-in on this device is picked up again (the session survives a reload)
   useEffect(() => {

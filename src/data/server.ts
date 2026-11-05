@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AuditEntry } from '../domain/types';
 import type { Company } from '../domain/company';
 import type { Backend, Row } from './remote';
-import { sheetsApi, type SheetCard } from './sheets';
+import { sheetsApi, peekSheetInfo, type SheetCard, type SheetsApi } from './sheets';
 
 /**
  * Everything that talks to the online database: connection settings, the Supabase transport for RemoteStore,
@@ -25,7 +25,9 @@ export function readServerConfig(): ServerConfig | null {
 }
 export function saveServerConfig(c: ServerConfig) { localStorage.setItem(CFG, JSON.stringify({ kind: c.kind ?? 'supabase', url: c.url.trim().replace(/\/+$/, ''), key: (c.key ?? '').trim() })); client = null; }
 export const serverKind = (): 'supabase' | 'sheets' => readServerConfig()?.kind === 'sheets' ? 'sheets' : 'supabase';
-const sheets = () => sheetsApi(readServerConfig()!.url);
+let sheetsConn: { url: string; api: SheetsApi } | null = null;
+/** One connection for the whole session: a new one per call would lose the cached sign-in info, the company that sign-in already brought along, and the approval token. */
+const sheets = (): SheetsApi => { const url = readServerConfig()!.url; if (sheetsConn?.url !== url) sheetsConn = { url, api: sheetsApi(url) }; return sheetsConn.api; };
 
 /** Which online company this device is signed in to (or about to). */
 export const readOnlineCompany = (): string | null => { try { return localStorage.getItem(ONLINE); } catch { return null; } };
@@ -127,6 +129,12 @@ export const signOut = async () => { if (serverKind() === 'sheets') return sheet
 export async function sheetCompany(): Promise<{ companyId: string | null; name: string | null }> { return sheets().info(); }
 
 /** The sign-in screen: the company's name and, for a Google Sheet, the people to offer as cards (null = type the code instead). */
+export function peekSheetCompany(): { companyId: string | null; name: string | null } | null { return serverKind() === 'sheets' ? peekSheetInfo() : null; }
+/** What this device remembers from the last visit: the sign-in screen shows it at once while the sheet answers. */
+export function peekSignIn(id: string): { name: string | null; cards: SheetCard[] | null } | null {
+  const i = serverKind() === 'sheets' ? peekSheetInfo() : null;
+  return i && i.companyId === id ? { name: i.name, cards: i.users } : null;
+}
 export async function signInInfo(id: string): Promise<{ name: string | null; cards: SheetCard[] | null }> {
   if (serverKind() === 'sheets') { const i = await sheets().info(); return { name: i.companyId === id ? i.name : null, cards: i.users ?? [] }; }
   return { name: await companyName(id), cards: null };

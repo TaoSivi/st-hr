@@ -10,6 +10,14 @@ import type { Backend, Row } from './remote';
 
 /** One sign-in card: the code to sign in with, the name and the top role. No pay, no face, nothing private. */
 export interface SheetCard { code: string; name: string; role: string }
+/** What the sign-in screen needs: the company and the people to offer as cards. Nothing private. */
+export type SheetInfo = { companyId: string | null; name: string | null; users: SheetCard[] };
+const INFO = 'sthr-sheets-info';
+/** The last answer, kept on this device so the sign-in screen can appear at once and be refreshed behind it. */
+export function peekSheetInfo(): SheetInfo | null {
+  try { const i = JSON.parse(localStorage.getItem(INFO) || 'null'); return i && Array.isArray(i.users) ? (i as SheetInfo) : null; } catch { return null; }
+}
+const keepInfo = (i: SheetInfo) => { try { localStorage.setItem(INFO, JSON.stringify(i)); } catch { /* private mode: no head start next time */ } };
 export interface SheetMember { userId: string; companyId: string; employeeId: string; roles: string[] }
 
 const TOKEN = 'sthr-sheets-token';
@@ -74,12 +82,12 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
 
   // sign-in and `me` bring the company along, so opening the app takes one trip fewer
   let firstCompany: Company | undefined;
-  type Info = { companyId: string | null; name: string | null; users: SheetCard[] };
+  type Info = SheetInfo;
   let infoTrip: { at: number; p: Promise<Info> } | null = null;
   // the connect step and the sign-in screen both ask: one trip to the sheet serves both for a short while
   const info = (): Promise<Info> => {
     if (infoTrip && Date.now() - infoTrip.at < 30_000) return infoTrip.p;
-    const p = post<Info>({ action: 'info' });
+    const p = post<Info>({ action: 'info' }).then(i => { keepInfo(i); return i; });
     const mine = { at: Date.now(), p };
     infoTrip = mine;
     p.catch(() => { if (infoTrip === mine) infoTrip = null; });
