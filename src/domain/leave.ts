@@ -1,4 +1,4 @@
-import type { AccrualMethod, LeaveRequest, Role, Settings } from './types';
+import type { AccrualMethod, Employee, LeaveRequest, LeaveType, Role, Settings } from './types';
 import { scopeBlock } from './scope';
 
 const parse = (d: string) => new Date(d + 'T00:00:00');
@@ -98,4 +98,33 @@ export function annualLeaveBalance(a: {
   const carried = carriedInto(year);
   const used = a.usedInYear(year);
   return { earned: round(earned), carried: round(carried), used: round(used), left: round(earned + carried - used) };
+}
+
+/** Days used this calendar year of one kind of leave (pending and approved both count: they are already booked). */
+export function usedInYear(leaves: LeaveRequest[], employeeId: string, type: LeaveType, year: number): number {
+  const n = leaves.filter(l => l.employeeId === employeeId && l.type === type && (l.status === 'pending' || l.status === 'approved') && l.from.startsWith(String(year))).reduce((a, l) => a + l.days, 0);
+  return Math.round(n * 100) / 100;
+}
+
+export interface TypeBalance { type: LeaveType; quota: number | null; used: number; left: number | null }
+
+/** Sick and personal leave: the yearly allowance from Settings (0 = no limit → quota null), what is used and what is left. Unpaid leave has no allowance. */
+export function capBalance(type: 'sick' | 'personal' | 'unpaid', leaves: LeaveRequest[], employeeId: string, year: number, s: Pick<Settings, 'sickDaysPerYear' | 'personalDaysPerYear'>): TypeBalance {
+  const cap = type === 'sick' ? s.sickDaysPerYear : type === 'personal' ? s.personalDaysPerYear : 0;
+  const used = usedInYear(leaves, employeeId, type, year);
+  const quota = cap > 0 ? cap : null;
+  return { type, quota, used, left: quota === null ? null : Math.round((quota - used) * 100) / 100 };
+}
+
+/**
+ * Who a leave request can be sent to: active people with a role that may approve leave (Settings), who may decide for the requester's department
+ * (a head only for their own departments). Department heads come first; the person asking is never listed.
+ */
+export function leaveApprovers(employees: Employee[], s: Pick<Settings, 'leaveApproverRoles'>, requesterId: string): Employee[] {
+  const target = employees.find(e => e.id === requesterId);
+  if (!target) return [];
+  const ok = employees.filter(e => !e.endDate && e.id !== requesterId && e.roles.some(r => s.leaveApproverRoles.includes(r))
+    && scopeBlock({ roles: e.roles, dept: e.dept, headOf: e.headOf }, target.dept, s.leaveApproverRoles) === null);
+  const rank = (e: Employee) => (e.roles.includes('head') && !e.roles.includes('owner') ? 0 : e.roles.includes('owner') ? 2 : 1);
+  return ok.sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }

@@ -39,14 +39,27 @@ export function averageDescriptors(list: number[][]): number[] {
 }
 
 /**
- * Euclidean distance → 0..100 score. Distance 0.3 or less = 100, 0.54 ≈ 70 (default pass mark),
- * 0.6 (face-api's usual "same person" limit) ≈ 62.
+ * Euclidean distance → 0..100 score. Distance 0.30 or less = 100, 0.45 = 70 (default pass mark), 0.55 = 50, 0.80 = 0.
+ * (The first version passed anything up to 0.54, which let look-alikes through: face-api's descriptors are weaker on similar faces, so the pass mark sits well inside its usual 0.6 "same person" limit.)
  */
 export function matchScore(a: number[], b: number[]): number {
   let sum = 0;
   for (let i = 0; i < a.length; i++) sum += (a[i] - b[i]) ** 2;
   const d = Math.sqrt(sum);
-  return Math.max(0, Math.min(100, Math.round((100 * (1.1 - d)) / 0.8)));
+  return Math.max(0, Math.min(100, Math.round((100 * (0.8 - d)) / 0.5)));
+}
+
+/** How many camera frames must agree before a face counts as matched: one lucky frame out of twenty is not a match. */
+export const FACE_FRAMES = 3;
+
+/**
+ * The score a person is held to: the FACE_FRAMES-th best of the frames seen, so passing needs that many frames at or above the pass mark.
+ * Fewer frames than that → the lowest seen. No frames → null (no face found).
+ */
+export function consensusScore(frames: number[], need = FACE_FRAMES): number | null {
+  if (!frames.length) return null;
+  const best = [...frames].sort((a, b) => b - a);
+  return frames.length >= need ? best[need - 1] : best[best.length - 1];
 }
 
 type FaceOwner = Pick<Employee, 'faceEnrolled' | 'facePoses' | 'faceReenroll'>;

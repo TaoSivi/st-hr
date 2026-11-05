@@ -103,6 +103,7 @@ export interface LeaveRequest {
   approvals: { by: string; at: string; decision: 'approve' | 'reject'; note?: string }[];
   status: 'pending' | 'approved' | 'rejected' | 'cancelled';
   escalatedAt?: string;
+  approverId?: string; // the person the employee sent it to (they are told, and see it first); others with the right can still decide
 }
 
 export interface OtRequest {
@@ -150,6 +151,8 @@ export interface Settings {
   maxClockSkewMin: number;
   faceMinScore: number;
   leaveDaysPerYear: number;
+  sickDaysPerYear: number; // 0 = no limit
+  personalDaysPerYear: number; // 0 = no limit
   leaveAccrual: AccrualMethod;
   leaveCarryOverMax: number;
   leaveApproversRequired: 1 | 2;

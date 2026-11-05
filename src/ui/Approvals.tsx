@@ -80,7 +80,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
   const reqs = hr.requests.filter(r => visible(r.employeeId) && SECTION_KINDS[section].includes(r.kind) && (tab === 'pending' ? r.status === 'pending' : r.status !== 'pending'))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const scans: ScanRecord[] = section === 'scan' ? hr.scans.filter(s => visible(s.employeeId) && (tab === 'pending' ? s.status === 'pending' : s.status === 'approved' || s.status === 'rejected')).slice(-30).reverse() : [];
-  const leaves: LeaveRequest[] = section === 'leave' ? hr.leaves.filter(l => visible(l.employeeId) && (tab === 'pending' ? l.status === 'pending' : l.status !== 'pending')).reverse() : [];
+  const leaves: LeaveRequest[] = section === 'leave' ? hr.leaves.filter(l => visible(l.employeeId) && (tab === 'pending' ? l.status === 'pending' : l.status !== 'pending')).reverse().sort((a, b) => Number(b.approverId === me.id) - Number(a.approverId === me.id)) : []; // sent to me first
   const empty = reqs.length + scans.length + leaves.length === 0;
 
   if (access === 'none') return <NoAccess />;
@@ -106,7 +106,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
 
       {leaves.map(l => (
         <div key={l.id} className="card col">
-          {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${leaveSpan(l)}`, `${l.from} → ${l.to} · “${l.reason}”`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : null) : statusPill(l.status))}
+          {head(l.employeeId, `${LEAVE_TYPES[l.type]} · ${leaveSpan(l)}`, `${l.from} → ${l.to} · “${l.reason}”${l.approverId && l.approverId !== me.id ? ` · ສົ່ງຫາ ${nameOf(l.approverId)}` : ''}`, l.status === 'pending' ? (isEscalated(l, hr.settings, now) ? <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ</span> : l.approverId === me.id ? <span className="pill warn">ສົ່ງຫາທ່ານ</span> : null) : statusPill(l.status))}
           {l.status === 'pending' && actions(l.id, approvalBlock(l, ap, hr.settings, now, deptOf(hr.employees, l.employeeId)),
             async () => { const n = decide(l, ap, 'approve', hr.settings, now, undefined, deptOf(hr.employees, l.employeeId)); await hr.save('leaves', n, 'leave-approve'); if (n.status === 'approved') await hr.notify([l.employeeId], 'ການລາ — ອະນຸມັດແລ້ວ', 'leave'); },
             async note => { await hr.save('leaves', decide(l, ap, 'reject', hr.settings, now, note, deptOf(hr.employees, l.employeeId)), 'leave-reject'); await hr.notify([l.employeeId], `ການລາ — ບໍ່ອະນຸມັດ: ${note}`, 'leave'); })}

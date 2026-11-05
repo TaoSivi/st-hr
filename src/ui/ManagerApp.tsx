@@ -168,13 +168,22 @@ function StatusPill({ s }: { s: ScanRecord }) {
 function Review({ readOnly }: { readOnly: boolean }) {
   const hr = useHR();
   const me = hr.me!;
-  const [tab, setTab] = useState<'pending' | 'sample' | 'ot'>('pending');
+  const [tab, setTab] = useState<'pending' | 'sample' | 'all' | 'ot'>('pending');
+  // the whole log, for checking back when nobody reviewed on the day: by period, by result, and lowest face match first
+  const [days, setDays] = useState('14');
+  const [only, setOnly] = useState<'all' | ScanRecord['status']>('all');
+  const [order, setOrder] = useState<'new' | 'face'>('new');
   const [note, setNote] = useState('');
   const [err, setErr] = useState('');
   const todayKey = ymd(new Date());
   const sample = useMemo(() => dailySample(hr.scans.filter(s => s.status === 'ok' && sameDay(s.deviceTime, new Date())), hr.settings.randomSamplePerDay, todayKey), [hr.scans, hr.settings.randomSamplePerDay, todayKey]);
   const mine = (id: string) => inMyScope(me, hr.employees, id, actionRoles('scan.review', hr.settings));
-  const list = tab === 'pending' ? hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)) : tab === 'sample' ? sample.filter(s => mine(s.employeeId)) : [];
+  const since = Date.now() - Number(days) * 86_400_000;
+  const everything = useMemo(() => {
+    const rows = hr.scans.filter(s => mine(s.employeeId) && new Date(s.deviceTime).getTime() >= since && (only === 'all' || s.status === only));
+    return rows.sort((a, b) => order === 'face' ? (a.faceScore ?? -1) - (b.faceScore ?? -1) || b.deviceTime.localeCompare(a.deviceTime) : b.deviceTime.localeCompare(a.deviceTime));
+  }, [hr.scans, hr.employees, days, only, order]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = tab === 'pending' ? hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)) : tab === 'sample' ? sample.filter(s => mine(s.employeeId)) : tab === 'all' ? everything.slice(0, 200) : [];
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find(s => s.id === selId) ?? list[0];
 
@@ -195,24 +204,38 @@ function Review({ readOnly }: { readOnly: boolean }) {
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'pending'} onClick={() => setTab('pending')}>ລໍກວດ ({hr.scans.filter(s => s.status === 'pending' && mine(s.employeeId)).length})</button>
           <button role="tab" aria-selected={tab === 'sample'} onClick={() => setTab('sample')}>ສຸ່ມກວດມື້ນີ້ ({sample.length})</button>
+          <button role="tab" aria-selected={tab === 'all'} onClick={() => setTab('all')}>ທັງໝົດ</button>
           <button role="tab" aria-selected={tab === 'ot'} onClick={() => setTab('ot')}>OT ({hr.ots.filter(o => o.status === 'pending').length})</button>
         </div></div>
       {err && <div className="error" role="alert">{err}</div>}
       {tab === 'ot' ? <OtList readOnly={readOnly} /> : (
         <div className="row wrap" style={{ alignItems: 'flex-start' }}>
           <div className="col" style={{ flex: '1 1 320px' }}>
+            {tab === 'all' && (
+              <div className="card col">
+                <div className="row wrap">
+                  <label className="field grow">ໄລຍະ<select className="input" value={days} onChange={e => setDays(e.target.value)}><option value="7">7 ມື້ຜ່ານມາ</option><option value="14">14 ມື້ຜ່ານມາ</option><option value="30">30 ມື້ຜ່ານມາ</option></select></label>
+                  <label className="field grow">ຜົນ<select className="input" value={only} onChange={e => setOnly(e.target.value as typeof only)}><option value="all">ທັງໝົດ</option><option value="ok">ຜ່ານ (ຍັງບໍ່ມີຄົນກວດ)</option><option value="pending">ລໍກວດ</option><option value="approved">ຢືນຢັນແລ້ວ</option><option value="rejected">ປະຕິເສດ</option></select></label>
+                  <label className="field grow">ລຽງ<select className="input" value={order} onChange={e => setOrder(e.target.value as typeof order)}><option value="new">ໃໝ່ສຸດກ່ອນ</option><option value="face">ໃບໜ້າກົງກັນຕ່ຳສຸດກ່ອນ</option></select></label>
+                </div>
+                <span className="muted small">{everything.length} ລາຍການ{everything.length > 200 ? ' (ສະແດງ 200 ອັນທຳອິດ)' : ''} · ກົດແຕ່ລະອັນເພື່ອເບິ່ງຮູບ ແລະ ຕັດສິນ</span>
+              </div>
+            )}
             {list.length === 0 && <div className="card empty">ບໍ່ມີລາຍການ</div>}
             {list.map(s => (
               <button key={s.id} className="card row" onClick={() => setSelId(s.id)} style={{ border: `2px solid ${sel?.id === s.id ? 'var(--accent)' : 'transparent'}`, textAlign: 'left' }}>
                 {s.photo ? <img src={s.photo} alt="" width={52} height={52} style={{ borderRadius: 14, objectFit: 'cover' }} /> : <span className="logo" style={{ width: 52, height: 52 }}>?</span>}
-                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b><span className="muted small">{KIND_LABEL[s.kind]} · {hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
-                <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>{s.reasons.length ? s.reasons.map(r => <span key={r} className="pill warn">{r}</span>) : <span className="pill info">ສຸ່ມກວດ</span>}</div>
+                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b><span className="muted small">{KIND_LABEL[s.kind]} · {tab === 'all' ? `${new Date(s.deviceTime).getDate()}/${new Date(s.deviceTime).getMonth() + 1} ` : ''}{hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
+                <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
+                  {tab === 'all' && <span><StatusPill s={s} />{s.faceScore != null && <span className={`pill ${s.faceScore < hr.settings.faceMinScore ? 'warn' : 'info'}`} style={{ marginLeft: 4 }}>ໜ້າ {s.faceScore}%</span>}</span>}
+                  {s.reasons.length ? s.reasons.map(r => <span key={r} className="pill warn">{r}</span>) : tab === 'all' ? null : <span className="pill info">ສຸ່ມກວດ</span>}</div>
               </button>
             ))}
           </div>
           {sel && (
             <div className="card col" style={{ flex: '1 1 340px' }}>
-              <div className="row"><div className="col grow" style={{ gap: 0 }}><b style={{ fontSize: 18 }}>{nameOf(hr.employees, sel.employeeId)}</b><span className="muted small">{laoDate(new Date(sel.deviceTime))} {hhmm(sel.deviceTime)}</span></div><StatusPill s={sel} /></div>
+              <div className="row"><div className="col grow" style={{ gap: 0 }}><b style={{ fontSize: 18 }}>{nameOf(hr.employees, sel.employeeId)}</b><span className="muted small">{KIND_LABEL[sel.kind]} · {laoDate(new Date(sel.deviceTime))} {hhmm(sel.deviceTime)}</span></div><StatusPill s={sel} /></div>
+              {list.length > 1 && <div className="row"><button className="btn ghost grow" disabled={list.indexOf(sel) <= 0} onClick={() => setSelId(list[list.indexOf(sel) - 1].id)}>‹ ກ່ອນ</button><span className="muted small">{list.indexOf(sel) + 1} / {list.length}</span><button className="btn ghost grow" disabled={list.indexOf(sel) >= list.length - 1} onClick={() => setSelId(list[list.indexOf(sel) + 1].id)}>ຖັດໄປ ›</button></div>}
               {sel.photo ? <img src={sel.photo} alt="ຮູບຕອນສະແກນ" style={{ width: '100%', maxWidth: 280, borderRadius: 16, alignSelf: 'center' }} /> : <div className="empty">ບໍ່ມີຮູບ (ກ້ອງບໍ່ໄດ້ເປີດ)</div>}
               <div className="row"><span className="grow muted">ໃບໜ້າກົງກັນ</span><b>{sel.faceScore != null ? sel.faceScore + '%' : '—'}</b></div>
               <div className="row"><span className="grow muted">ໄລຍະຫ່າງຈາກຮ້ານ</span><b>{sel.distanceM != null ? sel.distanceM + ' ມ.' : 'ບໍ່ມີ GPS'}</b></div>
@@ -323,7 +346,7 @@ function Leaves() {
     if (status !== 'pending') await hr.notify([a.employeeId], status === 'approved' ? 'ເບີກເງິນລ່ວງໜ້າ — ອະນຸມັດແລ້ວ' : `ເບີກເງິນລ່ວງໜ້າ — ບໍ່ອະນຸມັດ: ${note[a.id]}`, 'advance');
   };
   const seeMine = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
-  const pend = hr.leaves.filter(l => l.status === 'pending' && seeMine(l.employeeId, hr.settings.leaveApproverRoles));
+  const pend = hr.leaves.filter(l => l.status === 'pending' && seeMine(l.employeeId, hr.settings.leaveApproverRoles)).sort((a, b) => Number(b.approverId === me.id) - Number(a.approverId === me.id)); // the ones sent to me first
   const done = hr.leaves.filter(l => l.status !== 'pending' && seeMine(l.employeeId, hr.settings.leaveApproverRoles)).slice(-10).reverse();
   return (
     <>
@@ -337,7 +360,7 @@ function Leaves() {
           return (
             <div key={l.id} className="row wrap" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 10 }}>
               <div className="col grow" style={{ gap: 2 }}>
-                <div className="row wrap"><b>{nameOf(hr.employees, l.employeeId)}</b><span className="pill ok">{LEAVE_TYPES[l.type]}</span>{isEscalated(l, hr.settings, now) && <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ → ເຈົ້າຂອງ</span>}</div>
+                <div className="row wrap"><b>{nameOf(hr.employees, l.employeeId)}</b><span className="pill ok">{LEAVE_TYPES[l.type]}</span>{l.approverId && <span className={`pill ${l.approverId === me.id ? 'warn' : 'info'}`}>{l.approverId === me.id ? 'ສົ່ງຫາທ່ານ' : `ສົ່ງຫາ ${nameOf(hr.employees, l.approverId)}`}</span>}{isEscalated(l, hr.settings, now) && <span className="pill bad">ເກີນ {hr.settings.escalateAfterHours} ຊມ → ເຈົ້າຂອງ</span>}</div>
                 <span className="muted small">{l.from} → {l.to} · {l.days} ມື້ · “{l.reason}” · ອະນຸມັດແລ້ວ {l.approvals.length}/{hr.settings.leaveApproversRequired}</span>
               </div>
               {!readOnly && (block ? <span className="muted small">{block}</span> : <>
@@ -1003,7 +1026,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
         {num('faceMinScore', RULE_LABEL.faceMinScore, 1, 1, 'ຕ່ຳກວ່ານີ້ → ລໍຫົວໜ້າກວດ. ຖ້າພະນັກງານສະແກນບໍ່ຕິດຫຼາຍ ລອງລົດລົງເທື່ອລະ 5')}{num('maxClockSkewMin', RULE_LABEL.maxClockSkewMin, 1, 1, 'ໂມງໂທລະສັບຜິດຈາກເຊີບເວີເກີນນີ້ → ລໍກວດ')}{num('randomSamplePerDay', RULE_LABEL.randomSamplePerDay, 1, 1, 'ລາຍການທີ່ຜ່ານແລ້ວ ແຕ່ສຸ່ມໃຫ້ຫົວໜ້າກວດຊ້ຳ')}{num('photoRetentionDays', RULE_LABEL.photoRetentionDays, 1, 1, 'ຮູບສະແກນຖືກລຶບເອງຫຼັງຈາກນີ້')}
       </div></div>}
       {tab === 'leave' && <div className="card col"><h2>ລາພັກ & ອະນຸມັດ</h2><div className="grid">
-        {num('leaveDaysPerYear', RULE_LABEL.leaveDaysPerYear)}{num('leaveCarryOverMax', RULE_LABEL.leaveCarryOverMax, 1, 1, 'ມື້ທີ່ເຫຼືອຍົກໄປປີໜ້າໄດ້ບໍ່ເກີນນີ້')}{num('compLeaveExpiryDays', RULE_LABEL.compLeaveExpiryDays + ' (0 = ບໍ່ໝົດ)', 1, 1, 'ນັບຈາກວັນຫຍຸດທີ່ມາເຮັດວຽກ')}
+        {num('leaveDaysPerYear', RULE_LABEL.leaveDaysPerYear)}{num('sickDaysPerYear', RULE_LABEL.sickDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('personalDaysPerYear', RULE_LABEL.personalDaysPerYear + ' (0 = ບໍ່ຈຳກັດ)', 1, 1, 'ພະນັກງານເຫັນມື້ເຫຼືອ ແລະ ຂໍເກີນບໍ່ໄດ້')}{num('leaveCarryOverMax', RULE_LABEL.leaveCarryOverMax, 1, 1, 'ມື້ທີ່ເຫຼືອຍົກໄປປີໜ້າໄດ້ບໍ່ເກີນນີ້')}{num('compLeaveExpiryDays', RULE_LABEL.compLeaveExpiryDays + ' (0 = ບໍ່ໝົດ)', 1, 1, 'ນັບຈາກວັນຫຍຸດທີ່ມາເຮັດວຽກ')}
         <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={s.leavePayoutOnExit} onChange={e => setS({ ...s, leavePayoutOnExit: e.target.checked })} />{RULE_LABEL.leavePayoutOnExit}</label>{num('escalateAfterHours', RULE_LABEL.escalateAfterHours, 1, 1, 'ຄຳຂໍທີ່ຄ້າງນານກວ່ານີ້ ເຈົ້າຂອງອະນຸມັດແທນໄດ້')}
         <label className="field">ວິທີໄດ້ສິດລາ<select className="input" disabled={readOnly} value={s.leaveAccrual} onChange={e => setS({ ...s, leaveAccrual: e.target.value as Settings['leaveAccrual'] })}>
           <option value="monthly">ສະສົມເປັນເດືອນ</option><option value="yearStart">ໄດ້ເຕັມຕົ້ນປີ</option><option value="anniversary">ຕາມວັນຄົບຮອບ</option></select></label>

@@ -20,6 +20,8 @@ export const defaultSettings = (companyId: string): Settings => ({
   maxClockSkewMin: 2,
   faceMinScore: 70,
   leaveDaysPerYear: 15,
+  sickDaysPerYear: 0,
+  personalDaysPerYear: 0,
   leaveAccrual: 'monthly',
   leaveCarryOverMax: 5,
   leaveApproversRequired: 1,

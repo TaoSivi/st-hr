@@ -44,7 +44,7 @@ export interface LeaveAsk {
  */
 export function leaveRequestBlock(
   ask: LeaveAsk,
-  ctx: { existing: LeaveRequest[]; paidHours: number; weeklyOff: number[]; holidays: string[]; annualLeft: number; compLeft: number }
+  ctx: { existing: LeaveRequest[]; paidHours: number; weeklyOff: number[]; holidays: string[]; annualLeft: number; compLeft: number; sickLeft?: number | null; personalLeft?: number | null }
 ): string | null {
   if (!ask.from || !ask.to || ask.to < ask.from) return 'ວັນທີບໍ່ຖືກຕ້ອງ';
   if (!(ask.days > 0)) return 'ວັນທີບໍ່ຖືກຕ້ອງ';
@@ -68,6 +68,8 @@ export function leaveRequestBlock(
   }
 
   if (ask.type === 'annual' && ask.days > ctx.annualLeft + 1e-9) return `ມື້ລາພັກເຫຼືອ ${ctx.annualLeft} ມື້ ບໍ່ພໍ`;
+  if (ask.type === 'sick' && ctx.sickLeft != null && ask.days > ctx.sickLeft + 1e-9) return `ມື້ລາປ່ວຍເຫຼືອ ${ctx.sickLeft} ມື້ ບໍ່ພໍ`;
+  if (ask.type === 'personal' && ctx.personalLeft != null && ask.days > ctx.personalLeft + 1e-9) return `ມື້ລາກິດເຫຼືອ ${ctx.personalLeft} ມື້ ບໍ່ພໍ`;
   if (ask.type === 'comp' && ask.days > ctx.compLeft + 1e-9) return `ມື້ພັກຊົດເຊີຍເຫຼືອ ${ctx.compLeft} ມື້ ບໍ່ພໍ`;
   return null;
 }

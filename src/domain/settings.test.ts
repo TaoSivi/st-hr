@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { defaultSettings } from './defaults';
 import { dailySample, evaluateScan, lateMinutes, purgeExpiredPhotos } from './attendance';
 import { changeNeedsSecondPerson, computePayslip, lateDeductionAmount, maxAdvance, payrollLockBlock, progressiveTax } from './payroll';
-import { accruedLeave, annualLeaveBalance, approvalBlock, decide, isEscalated, leaveDays } from './leave';
+import { accruedLeave, annualLeaveBalance, approvalBlock, capBalance, decide, isEscalated, leaveDays } from './leave';
+import { leaveRequestBlock } from './leavePart';
 import { dayStatus } from './day';
 import { compBalance } from './comp';
 import { finalSettlement } from './settlement';
@@ -76,6 +77,23 @@ const EFFECT: Record<Key, () => void> = {
     expect(accruedLeave('yearStart', '2020-01-01', '2026-11-02', 15)).toBe(15);
     expect(accruedLeave('yearStart', '2020-01-01', '2026-11-02', 20)).toBe(20);
     expect(annualLeaveBalance({ startDate: '2020-01-01', asOf: '2026-11-02', s: { ...S, leaveDaysPerYear: 24, leaveCarryOverMax: 0 }, usedInYear: () => 0 }).earned).toBe(20); // 10 of 12 months
+  },
+  sickDaysPerYear: () => {
+    const ask = { type: 'sick' as const, from: '2026-11-04', to: '2026-11-05', days: 2 };
+    const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
+    const left = (cap: number, used: number) => capBalance('sick', [leave({ type: 'sick', days: used, from: '2026-03-01' })], 'e1', 2026, { ...S, sickDaysPerYear: cap, personalDaysPerYear: 0 }).left;
+    expect(left(30, 4)).toBe(26);
+    expect(left(0, 4)).toBeNull(); // 0 = no limit
+    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: 1 })).toContain('ລາປ່ວຍເຫຼືອ 1');
+    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: 2 })).toBeNull();
+    expect(leaveRequestBlock(ask, { ...ctx, sickLeft: null })).toBeNull();
+  },
+  personalDaysPerYear: () => {
+    const ask = { type: 'personal' as const, from: '2026-11-04', to: '2026-11-04', days: 1 };
+    const ctx = { existing: [], paidHours: 8, weeklyOff: [0], holidays: [], annualLeft: 10, compLeft: 0 };
+    expect(capBalance('personal', [], 'e1', 2026, { ...S, sickDaysPerYear: 0, personalDaysPerYear: 3 }).left).toBe(3);
+    expect(leaveRequestBlock(ask, { ...ctx, personalLeft: 0 })).toContain('ລາກິດເຫຼືອ 0');
+    expect(leaveRequestBlock(ask, { ...ctx, personalLeft: 3 })).toBeNull();
   },
   leaveAccrual: () => {
     const left = (m: Settings['leaveAccrual']) => annualLeaveBalance({ startDate: '2025-12-01', asOf: '2026-11-02', s: { ...S, leaveAccrual: m, leaveCarryOverMax: 0 }, usedInYear: () => 0 }).left;

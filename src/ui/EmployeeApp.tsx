@@ -4,11 +4,11 @@ import { uid } from '../data/store';
 import type { Advance, Branch, LeaveRequest, LeaveType, ScanKind, ScanRecord } from '../domain/types';
 import { evaluateScan, nearestBranch } from '../domain/attendance';
 import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
-import { leaveDays } from '../domain/leave';
+import { capBalance, leaveApprovers, leaveDays } from '../domain/leave';
 import { maxAdvance } from '../domain/payroll';
 import { loadFaceModels, openFrontCamera, readFrame, snapshot, stopCamera } from '../device/face';
 import { frameAdvice, ISSUE_TEXT } from '../domain/faceQuality';
-import { averageDescriptors, bestFaceScore, faceTemplates, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE } from '../domain/face';
+import { averageDescriptors, bestFaceScore, consensusScore, FACE_FRAMES, faceTemplates, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE } from '../domain/face';
 import { getPosition, type Position } from '../device/geo';
 import { getDeviceId } from '../device/deviceId';
 import { leaveBalance, monthKey, summarize } from '../app/payrun';
@@ -32,7 +32,7 @@ import { leaveRequestBlock, leaveSpan, partialDays, PART_LABEL, shiftPaidHours, 
 import { closesAtFor } from '../domain/missedOut';
 import { activeSession, actionsNow, scansOn, toSessions } from '../domain/sessions';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
-import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, ymd } from './format';
+import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, ROLE_NAMES, ymd } from './format';
 
 const Tick = ({ color = 'currentColor', size = 18 }) => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="3.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>;
 
@@ -447,10 +447,22 @@ function LeaveTab() {
         {subs.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </nav>
       <div className="screen" style={{ paddingTop: 12 }}>
-        <div className="card row" style={{ background: 'var(--ok-bg)' }}>
-          <span className="grow">ມື້ລາພັກປະຈຳປີເຫຼືອ</span><b style={{ fontSize: 22 }}>{bal.left} ມື້</b>
+        <div className="card col" style={{ gap: 0 }}>
+          <b>ມື້ລາຄົງເຫຼືອ ປີ {new Date().getFullYear()}</b>
+          <div className="row" style={{ minHeight: 48, background: 'var(--ok-bg)', borderRadius: 12, padding: '0 12px', marginTop: 8 }}>
+            <span className="grow">ລາພັກປະຈຳປີ <span className="muted small">(ໄດ້ {Math.round((bal.earned + bal.carried) * 100) / 100} · ໃຊ້ແລ້ວ {bal.used})</span></span><b style={{ fontSize: 22 }}>{bal.left} ມື້</b>
+          </div>
+          {([['sick', 'ລາປ່ວຍ'], ['personal', 'ລາກິດ'], ['unpaid', 'ລາບໍ່ຮັບເງິນເດືອນ']] as const).map(([t, label]) => {
+            const b = capBalance(t, leaves, me!.id, new Date().getFullYear(), hr.settings);
+            return (
+              <div key={t} className="row" style={{ minHeight: 44, borderTop: '1px solid var(--line)' }}>
+                <span className="grow">{label} <span className="muted small">{b.quota === null ? `(ໃຊ້ແລ້ວ ${b.used} ມື້ · ບໍ່ຈຳກັດ)` : `(ໃຊ້ແລ້ວ ${b.used} ຈາກ ${b.quota})`}</span></span>
+                {b.left !== null && <b style={{ fontSize: 18 }}>{b.left} ມື້</b>}
+              </div>
+            );
+          })}
+          {(comp.earned > 0 || comp.left > 0) && <div className="row" style={{ minHeight: 44, borderTop: '1px solid var(--line)' }}><span className="grow">ພັກຊົດເຊີຍ <span className="muted small">(ມາເຮັດວຽກວັນພັກລັດຖະການ{comp.expired ? ` · ໝົດອາຍຸແລ້ວ ${comp.expired}` : ''})</span></span><b style={{ fontSize: 18 }}>{comp.left} ມື້</b></div>}
         </div>
-        {(comp.earned > 0 || comp.left > 0) && <div className="card row"><span className="grow">ມື້ພັກຊົດເຊີຍເຫຼືອ <span className="muted small">(ມາເຮັດວຽກວັນພັກລັດຖະການ{comp.expired ? ` · ໝົດອາຍຸແລ້ວ ${comp.expired}` : ''})</span></span><b style={{ fontSize: 22 }}>{comp.left} ມື້</b></div>}
         {shown.length === 0 && <div className="empty">ບໍ່ມີລາຍການ<br /><span className="small">ກົດ + ເພື່ອຂໍລາ</span></div>}
         {shown.map(l => (
           <div key={l.id} className="card row" style={{ alignItems: 'flex-start' }}>
@@ -458,6 +470,7 @@ function LeaveTab() {
             <div className="col grow" style={{ gap: 2 }}>
               <b style={{ fontSize: 17 }}>{l.reason}</b>
               <span>{LEAVE_TYPES[l.type]} · {leaveSpan(l)}</span>
+              {l.approverId && <span className="muted small">ສົ່ງຫາ {hr.employees.find(x => x.id === l.approverId)?.name ?? '—'}</span>}
               <span className="muted small">{l.from.split('-').reverse().join('/')}{l.to !== l.from ? ` - ${l.to.split('-').reverse().join('/')}` : ''}</span>
               <div style={{ marginTop: 4 }}>{pill(l.status)}</div>
             </div>
@@ -471,8 +484,14 @@ function LeaveTab() {
 }
 
 function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: number; compLeft: number; initialDate?: string; onClose: () => void }) {
-  const { me, save, settings, leaves, shifts, overrides } = useHR();
+  const { me, save, settings, leaves, shifts, overrides, employees, notify } = useHR();
   const { closing, close: onClose } = useClosing(closeNow);
+  const year = new Date().getFullYear();
+  const sick = capBalance('sick', leaves, me!.id, year, settings), personal = capBalance('personal', leaves, me!.id, year, settings);
+  // who this can be sent to: the department head first; the one picked is told straight away and sees it at the top of their list
+  const approvers = useMemo(() => leaveApprovers(employees, settings, me!.id), [employees, settings, me]);
+  const [approverId, setApproverId] = useState(approvers[0]?.id ?? '');
+  const leftOf = (t: LeaveType): number | null => (t === 'annual' ? left : t === 'comp' ? compLeft : t === 'sick' ? sick.left : t === 'personal' ? personal.left : null);
   const today = ymd(new Date());
   const [type, setType] = useState<LeaveType>('annual');
   const [from, setFrom] = useState(initialDate ?? today);
@@ -492,11 +511,13 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
   const submit = async () => {
     setErr('');
     const ask = { type, from, to: partial ? from : to, days, part: partial ? (part as LeavePart) : undefined, hours: part === 'hours' ? hoursNum : undefined };
-    const block = leaveRequestBlock(ask, { existing: leaves.filter(l => l.employeeId === me!.id), paidHours, weeklyOff: me!.dayOff ?? [0], holidays: settings.holidays, annualLeft: left, compLeft });
+    const block = leaveRequestBlock(ask, { existing: leaves.filter(l => l.employeeId === me!.id), paidHours, weeklyOff: me!.dayOff ?? [0], holidays: settings.holidays, annualLeft: left, compLeft, sickLeft: sick.left, personalLeft: personal.left });
     if (block) return setErr(block);
     if (!reason.trim()) return setErr('ກະລຸນາໃສ່ເຫດຜົນ');
-    const req: LeaveRequest = { id: uid(), companyId: me!.companyId, employeeId: me!.id, type, from, to: ask.to, days, ...(ask.part ? { part: ask.part } : {}), ...(ask.part === 'hours' ? { hours: hoursNum } : {}), reason: reason.trim(), createdAt: new Date().toISOString(), approvals: [], status: 'pending' };
+    const req: LeaveRequest = { id: uid(), companyId: me!.companyId, employeeId: me!.id, type, from, to: ask.to, days, ...(ask.part ? { part: ask.part } : {}), ...(ask.part === 'hours' ? { hours: hoursNum } : {}), reason: reason.trim(), createdAt: new Date().toISOString(), approvals: [], status: 'pending', ...(approverId ? { approverId } : {}) };
     await save('leaves', req, 'leave-request');
+    // the person it was sent to (or, when nobody was picked, everyone who could decide) is told
+    await notify(approverId ? [approverId] : approvers.map(a => a.id), `${me!.name} ຂໍ${LEAVE_TYPES[type]} ${leaveSpan(req)} (${from.split('-').reverse().join('/')}${to !== from ? ' - ' + to.split('-').reverse().join('/') : ''})${approverId ? ' — ສົ່ງຫາທ່ານ' : ''}`, 'leave').catch(() => { /* the request is saved; the approver still sees it in their list */ });
     onClose();
   };
   return (
@@ -505,7 +526,7 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
         <h2>ຂໍລາ</h2>
         <div className="col" style={{ gap: 6 }}><span className="muted small">ປະເພດການລາ</span>
         <div className="row wrap">{(['annual', 'sick', 'personal', 'unpaid', 'comp'] as LeaveType[]).filter(t => t !== 'comp' || compLeft > 0).map(t => (
-          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}</button>))}</div></div>
+          <button key={t} className={`btn ${type === t ? '' : 'ghost'}`} onClick={() => setType(t)} aria-pressed={type === t}>{LEAVE_TYPES[t]}{leftOf(t) !== null ? ` · ເຫຼືອ ${leftOf(t)}` : ''}</button>))}</div></div>
         <div className="col" style={{ gap: 6 }}><span className="muted small">ລາເທົ່າໃດ</span>
         <div className="row wrap">{([['full', 'ເຕັມວັນ'], ['am', PART_LABEL.am], ['pm', PART_LABEL.pm], ['hours', PART_LABEL.hours]] as [LeavePart | 'full', string][]).map(([p, label]) => (
           <button key={p} className={`btn ${part === p ? '' : 'ghost'}`} onClick={() => pickPart(p)} aria-pressed={part === p}>{label}</button>))}</div></div>
@@ -514,6 +535,7 @@ function LeaveForm({ left, compLeft, initialDate, onClose: closeNow }: { left: n
           {part === 'hours' && <label className="field" style={{ width: 110 }}>ຊົ່ວໂມງ<input className="input" inputMode="decimal" value={hours} onChange={e => setHours(e.target.value.replace(/[^\d.]/g, ''))} /></label>}</div>
         <span className="muted small">{partial ? `ນັບ ${days} ມື້ (ກະຂອງເຈົ້າເຮັດວຽກ ${paidHours} ຊມ/ມື້)` : `ລວມ ${days} ມື້ເຮັດວຽກ`}</span>
         <label className="field">ເຫດຜົນ<input className="input" value={reason} onChange={e => setReason(e.target.value)} placeholder="ເຊັ່ນ: ໄປໂຮງໝໍ" /></label>
+        {approvers.length > 0 ? <label className="field">ສົ່ງຫາຜູ້ອະນຸມັດ<select className="input" value={approverId} onChange={e => setApproverId(e.target.value)}>{approvers.map(a => <option key={a.id} value={a.id}>{a.name} · {ROLE_NAMES[a.roles.find(r => settings.leaveApproverRoles.includes(r)) ?? 'head']}</option>)}</select></label> : <span className="muted small">ຍັງບໍ່ມີຜູ້ອະນຸມັດທີ່ກຳນົດໄວ້ — ຄຳຂໍຈະລໍຢູ່ໃນລະບົບ</span>}
         {err && <div className="error" role="alert">{err}</div>}
         <div className="row"><button className="btn ghost grow" onClick={onClose}>ຍົກເລີກ</button><button className="btn grow" onClick={submit}>ສົ່ງຄຳຂໍ</button></div>
       </div>
@@ -696,6 +718,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
     (async () => {
       const posP = getPosition();
       let score: number | null = null;
+      const seen: number[] = []; // each frame's best match: the person passes only when several frames agree, not on one lucky frame
       let photo: string | undefined;
       try {
         self.stream = await openFrontCamera(video.current!);
@@ -705,9 +728,10 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
           const look = await readFrame(video.current!);
           const d = look.face?.descriptor;
           if (d && faceTemplates(me!).length) {
-            score = Math.max(score ?? 0, bestFaceScore(d, me!) ?? 0);
+            seen.push(bestFaceScore(d, me!) ?? 0);
+            score = consensusScore(seen);
             photo = snapshot(video.current!);
-            if (score >= settings.faceMinScore) { setHint(''); break; }
+            if (seen.length >= FACE_FRAMES && score! >= settings.faceMinScore) { setHint(''); break; }
           }
           if (i >= 2) { const issue = frameAdvice(look.stats, look.face?.faceFrac ?? null); setHint(issue ? ISSUE_TEXT[issue] : ''); }
           await new Promise(r => setTimeout(r, 250));

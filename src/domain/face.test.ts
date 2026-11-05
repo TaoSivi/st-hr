@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { averageDescriptors, bestFaceScore, faceResetBlock, faceTemplates, matchScore, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE, yawOf } from './face';
+import { averageDescriptors, bestFaceScore, consensusScore, FACE_FRAMES, faceResetBlock, faceTemplates, matchScore, needsEnroll, poseOk, POSES, SAMPLES_PER_POSE, yawOf } from './face';
 import { decideRequest, requestBlock, validateRequest, type HRRequest } from './requests';
 import { approvalAccess } from './permissions';
 import { decideAndApply } from '../app/workflow';
@@ -53,7 +53,9 @@ describe('templates and matching', () => {
   it('scores identical faces 100 and far ones 0, as before', () => {
     expect(matchScore(vec(0.1), vec(0.1))).toBe(100);
     expect(matchScore(vec(0), away(2))).toBe(0);
-    expect(matchScore(vec(0), away(0.54))).toBe(70);
+    expect(matchScore(vec(0), away(0.45))).toBe(70);
+    expect(matchScore(vec(0), away(0.54))).toBeLessThan(55); // the old pass mark: a look-alike now goes to review
+    expect(matchScore(vec(0), away(0.6))).toBeLessThan(45);
   });
   it('lists the front template first, then each side; none when not enrolled', () => {
     expect(faceTemplates({})).toEqual([]);
@@ -72,6 +74,20 @@ describe('templates and matching', () => {
     expect(bestFaceScore(away(1), { faceEnrolled: vec(0), facePoses: [away(0.2), away(-0.2)] })!).toBeLessThan(60);
   });
   it('nothing enrolled scores null, never 0 or a pass', () => expect(bestFaceScore(vec(0), {})).toBeNull());
+});
+
+describe('several frames must agree', () => {
+  it('one good frame among poor ones does not pass', () => {
+    const frames = [40, 38, 91, 42, 39];
+    expect(consensusScore(frames)).toBe(40); // third best
+    expect(consensusScore(frames)!).toBeLessThan(70);
+  });
+  it('a steady match passes', () => expect(consensusScore([88, 90, 86, 40])).toBe(86));
+  it('too few frames uses the lowest, and nothing seen is no face', () => {
+    expect(FACE_FRAMES).toBe(3);
+    expect(consensusScore([95, 60])).toBe(60);
+    expect(consensusScore([])).toBeNull();
+  });
 });
 
 describe('who has to take the face (again)', () => {
