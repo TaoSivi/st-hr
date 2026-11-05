@@ -394,3 +394,27 @@ table.t td.num, table.t th.num { text-align: right; }
 
 /* no-signal note */
 .offline-note { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 60; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-size: 13px; font-weight: 600; line-height: 1.5; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,.15); pointer-events: none; }
+
+/* leave balance tiles: the whole year's picture on one screen */
+.lb { display: flex; flex-direction: column; gap: 8px; }
+.lb-head { display: flex; align-items: baseline; justify-content: space-between; padding: 0 4px; }
+.lb-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.lb-tile { display: flex; align-items: center; gap: 10px; min-height: 76px; padding: 10px 12px; border-radius: 20px; background: var(--card); box-shadow: var(--sh-1); animation: lb-in .45s cubic-bezier(.2, .8, .2, 1) both; }
+.lb-tile:last-child:nth-child(odd) { grid-column: 1 / -1; }
+.lb-tile.main { background: linear-gradient(135deg, #0f4744 0%, #0a7e7a 100%); color: #fff; box-shadow: var(--sh-2); }
+.lb-tile.main .muted { color: rgba(255, 255, 255, .78); }
+.lb-ring { position: relative; flex: none; width: 52px; height: 52px; display: grid; place-items: center; }
+.lb-ring svg { position: absolute; inset: 0; }
+.lb-track { fill: none; stroke: var(--line-2); stroke-width: 5; }
+.lb-tile.main .lb-track { stroke: rgba(255, 255, 255, .22); }
+.lb-arc { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; transition: stroke-dashoffset .9s cubic-bezier(.2, .8, .2, 1) .15s; }
+.lb-tile.main .lb-arc { stroke: var(--mint-ink); }
+.lb-tile.mid .lb-arc { stroke: #e0a100; }
+.lb-tile.low .lb-arc { stroke: var(--bad); }
+.lb-tile.free .lb-arc { stroke: var(--line-2); }
+.lb-tile.free .lb-num { color: var(--muted); }
+.lb-num { position: relative; font-size: 17px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.lb-text { display: flex; flex-direction: column; min-width: 0; gap: 1px; line-height: 1.35; }
+.lb-text b { font-size: 14px; font-weight: 700; }
+.lb-text .small { font-size: 12px; }
+@keyframes lb-in { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }

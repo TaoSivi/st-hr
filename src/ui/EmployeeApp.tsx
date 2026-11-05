@@ -5,6 +5,7 @@ import type { Advance, Branch, LeaveRequest, LeaveType, ScanKind, ScanRecord } f
 import { evaluateScan, nearestBranch } from '../domain/attendance';
 import { dayStatus, monthGrid, type DayStatus } from '../domain/day';
 import { capBalance, leaveApprovers, leaveDays } from '../domain/leave';
+import LeaveBalances from './LeaveBalances';
 import { maxAdvance } from '../domain/payroll';
 import { loadFaceModels, openFrontCamera, readFrame, snapshot, stopCamera } from '../device/face';
 import { frameAdvice, ISSUE_TEXT } from '../domain/faceQuality';
@@ -447,22 +448,14 @@ function LeaveTab() {
         {subs.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}>{label}</button>)}
       </nav>
       <div className="screen" style={{ paddingTop: 12 }}>
-        <div className="card col" style={{ gap: 0 }}>
-          <b>ມື້ລາຄົງເຫຼືອ ປີ {new Date().getFullYear()}</b>
-          <div className="row" style={{ minHeight: 48, background: 'var(--ok-bg)', borderRadius: 12, padding: '0 12px', marginTop: 8 }}>
-            <span className="grow">ລາພັກປະຈຳປີ <span className="muted small">(ໄດ້ {Math.round((bal.earned + bal.carried) * 100) / 100} · ໃຊ້ແລ້ວ {bal.used})</span></span><b style={{ fontSize: 22 }}>{bal.left} ມື້</b>
-          </div>
-          {([['sick', 'ລາປ່ວຍ'], ['personal', 'ລາກິດ'], ['unpaid', 'ລາບໍ່ຮັບເງິນເດືອນ']] as const).map(([t, label]) => {
+        <LeaveBalances year={new Date().getFullYear()} tiles={[
+          { key: 'annual', label: 'ລາພັກປະຈຳປີ', left: bal.left, total: Math.round((bal.earned + bal.carried) * 100) / 100, used: bal.used },
+          ...(['sick', 'personal', 'unpaid'] as const).map(t => {
             const b = capBalance(t, leaves, me!.id, new Date().getFullYear(), hr.settings);
-            return (
-              <div key={t} className="row" style={{ minHeight: 44, borderTop: '1px solid var(--line)' }}>
-                <span className="grow">{label} <span className="muted small">{b.quota === null ? `(ໃຊ້ແລ້ວ ${b.used} ມື້ · ບໍ່ຈຳກັດ)` : `(ໃຊ້ແລ້ວ ${b.used} ຈາກ ${b.quota})`}</span></span>
-                {b.left !== null && <b style={{ fontSize: 18 }}>{b.left} ມື້</b>}
-              </div>
-            );
-          })}
-          {(comp.earned > 0 || comp.left > 0) && <div className="row" style={{ minHeight: 44, borderTop: '1px solid var(--line)' }}><span className="grow">ພັກຊົດເຊີຍ <span className="muted small">(ມາເຮັດວຽກວັນພັກລັດຖະການ{comp.expired ? ` · ໝົດອາຍຸແລ້ວ ${comp.expired}` : ''})</span></span><b style={{ fontSize: 18 }}>{comp.left} ມື້</b></div>}
-        </div>
+            return { key: t, label: LEAVE_TYPES[t], left: b.left, total: b.quota, used: b.used };
+          }),
+          ...((comp.earned > 0 || comp.left > 0) ? [{ key: 'comp', label: 'ພັກຊົດເຊີຍ', left: comp.left, total: comp.earned > 0 ? comp.earned : null, used: Math.max(0, comp.earned - comp.left) }] : [])
+        ]} />
         {shown.length === 0 && <div className="empty">ບໍ່ມີລາຍການ<br /><span className="small">ກົດ + ເພື່ອຂໍລາ</span></div>}
         {shown.map(l => (
           <div key={l.id} className="card row" style={{ alignItems: 'flex-start' }}>
