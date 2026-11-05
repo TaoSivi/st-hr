@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { useHR } from '../app/state';
 import type { ApprovalKey, Employee, Role, SelfMenu, Settings } from '../domain/types';
 import { actionRoles, canDo, canGrantRoles, roleChangeBlock, SELF_MENUS } from '../domain/permissions';
+import { ALL_RIGHTS, EDITABLE_ROLES, ROLE_RIGHTS, hasAllRights, permProblem, rightsOf, roleGives, type PersonRights, type RightKey, type RoleRights } from '../domain/rights';
+import { RIGHT_GROUPS, RIGHT_LABEL, PAGE_LABEL } from './rightLabels';
 import { REQUEST_LABEL, requestApprovers, APPROVER_ROLES, type RequestKind } from '../domain/requests';
 import { validateSettings } from '../domain/settingsCheck';
-import { pinFields, tempPin } from '../domain/pin';
+import { ONLINE_PIN_LEN, pinFields, tempPin } from '../domain/pin';
 import { isActiveOn } from '../domain/hiring';
 import { ROLE_NAMES, ymd } from './format';
 
@@ -32,9 +34,13 @@ const sameRoles = (a: Role[], b: Role[]) => a.length === b.length && a.every(r =
 export default function AccessPage() {
   const hr = useHR();
   const me = hr.me!;
-  const readOnly = !canDo(me.roles, 'settings.edit');
-  const canRoles = canGrantRoles(me.roles);
+  const readOnly = !canDo(me, 'settings.edit', hr.settings);
+  const canRoles = canGrantRoles(me, hr.settings);
   const isSuper = !!me.superAdmin;
+  const hasSuper = hr.employees.some(x => x.superAdmin);
+  // what each role gives is the Super admin's to change (the Admin's, in a company that has no Super admin)
+  const canEditRoleRights = !readOnly && (isSuper || (!hasSuper && me.roles.includes('owner')));
+  const mine = rightsOf(me, hr.settings);
   // an Admin's or the Super admin's account is the Super admin's to manage (the database refuses anyone else)
   const superOnly = (e: Employee) => !isSuper && e.id !== me.id && (!!e.superAdmin || e.roles.includes('owner')) && !!hr.employees.some(x => x.superAdmin);
   const today = ymd(new Date());
@@ -43,12 +49,14 @@ export default function AccessPage() {
   const [msg, setMsg] = useState('');
   const [editing, setEditing] = useState<{ id: string; roles: Role[]; headOf: string[] } | null>(null);
   const [issued, setIssued] = useState<{ code: string; name: string; pin: string }[]>([]);
+  const [ticks, setTicks] = useState<{ id: string; perm: PersonRights } | null>(null); // rights being ticked on one person
+  useEffect(() => { hr.online?.refreshLogins().catch(() => { /* only the PIN column depends on it */ }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // approvals + menus are edited together and saved with one button
   const [draft, setDraft] = useState(() => ({ ...hr.settings }));
-  const stored = JSON.stringify([hr.settings.leaveApproverRoles, hr.settings.approverRoles, hr.settings.employeeMenus, hr.settings.leaveApproversRequired, hr.settings.makerChecker]);
+  const stored = JSON.stringify([hr.settings.leaveApproverRoles, hr.settings.approverRoles, hr.settings.employeeMenus, hr.settings.leaveApproversRequired, hr.settings.makerChecker, hr.settings.roleRights ?? {}]);
   useEffect(() => { setDraft({ ...hr.settings }); }, [stored]); // eslint-disable-line react-hooks/exhaustive-deps
-  const dirty = JSON.stringify([draft.leaveApproverRoles, draft.approverRoles, draft.employeeMenus, draft.leaveApproversRequired, draft.makerChecker]) !== stored;
+  const dirty = JSON.stringify([draft.leaveApproverRoles, draft.approverRoles, draft.employeeMenus, draft.leaveApproversRequired, draft.makerChecker, draft.roleRights ?? {}]) !== stored;
   const errors = validateSettings(draft);
 
   const toggleApprover = (key: ApprovalKey | 'leave', role: Role) => setDraft(d => {
@@ -68,8 +76,39 @@ export default function AccessPage() {
   });
   const saveRules = async () => {
     if (readOnly || errors.length) return;
-    await hr.save('settings', { ...hr.settings, leaveApproverRoles: draft.leaveApproverRoles, approverRoles: draft.approverRoles, employeeMenus: draft.employeeMenus, leaveApproversRequired: draft.leaveApproversRequired, makerChecker: draft.makerChecker, id: hr.settings.companyId }, 'settings-update');
-    setMsg('ບັນທຶກສິດການອະນຸມັດ ແລະ ເມນູແລ້ວ');
+    await hr.save('settings', { ...hr.settings, leaveApproverRoles: draft.leaveApproverRoles, approverRoles: draft.approverRoles, employeeMenus: draft.employeeMenus, leaveApproversRequired: draft.leaveApproversRequired, makerChecker: draft.makerChecker, roleRights: draft.roleRights ?? {}, id: hr.settings.companyId }, 'settings-update');
+    setMsg('ບັນທຶກສິດການອະນຸມັດ, ສິດຂອງບົດບາດ ແລະ ເມນູແລ້ວ');
+  };
+
+  const toggleRoleRight = (role: Role, key: RightKey) => setDraft(d => {
+    const cur = roleGives(role, d);
+    const next = cur.includes(key) ? cur.filter(k => k !== key) : [...cur, key];
+    const roleRights: RoleRights = { ...d.roleRights };
+    const sameAsDefault = next.length === ROLE_RIGHTS[role].length && next.every(k => ROLE_RIGHTS[role].includes(k));
+    if (sameAsDefault) delete roleRights[role]; else roleRights[role] = ALL_RIGHTS.filter(k => next.includes(k));
+    return { ...d, roleRights };
+  });
+  const resetRole = (role: Role) => setDraft(d => { const roleRights: RoleRights = { ...d.roleRights }; delete roleRights[role]; return { ...d, roleRights }; });
+
+  // rights ticked on one person, on top of their roles
+  const startTicks = (e: Employee) => setTicks({ id: e.id, perm: { ...(e.perm ?? {}) } });
+  const roleHas = (e: Employee, k: RightKey) => rightsOf({ roles: e.roles }, hr.settings).has(k);
+  const tickOn = (e: Employee, perm: PersonRights, k: RightKey) => (perm[k] !== undefined ? perm[k]! : roleHas(e, k));
+  const toggleTick = (e: Employee, k: RightKey) => setTicks(t => {
+    if (!t) return t;
+    const perm = { ...t.perm };
+    const next = !tickOn(e, perm, k);
+    if (next === roleHas(e, k)) delete perm[k]; else perm[k] = next;
+    return { ...t, perm };
+  });
+  const saveTicks = async () => {
+    if (!ticks) return;
+    const e = hr.employees.find(x => x.id === ticks.id)!;
+    const problem = permProblem(ticks.perm, me, hr.settings);
+    if (problem) return setMsg(problem);
+    await hr.save('employees', { ...e, perm: Object.keys(ticks.perm).length ? ticks.perm : undefined }, 'rights-change');
+    setMsg(`ບັນທຶກສິດຂອງ ${e.name} ແລ້ວ`);
+    setTicks(null);
   };
 
   const saveRoles = async () => {
@@ -87,7 +126,7 @@ export default function AccessPage() {
     setMsg('');
     try {
       for (const e of list) {
-        const pin = tempPin();
+        const pin = tempPin(hr.online ? ONLINE_PIN_LEN : 6);
         if (hr.online) {
           // an online login is made (or its PIN replaced) on the server; the flag makes the person choose their own PIN at first sign-in
           await (hr.online.logins.has(e.id) ? hr.online.resetPin(e, pin) : hr.online.createLogin(e, pin));
@@ -139,7 +178,8 @@ export default function AccessPage() {
             <td className="small">{e.roles.includes('head') ? ((e.headOf ?? [e.dept]).includes('*') ? 'ທຸກພະແນກ' : (e.headOf ?? [e.dept]).join(', ')) : '—'}</td>
             <td>{pinState(e)}</td>
             <td className="row" style={{ gap: 6 }}>{canRoles && superOnly(e) && <span className="muted small">ສະເພາະ Super admin</span>}{canRoles && e.id !== me.id && !superOnly(e) && <>
-              <button className="btn ghost" onClick={() => setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] })}>ບົດບາດ</button>
+              <button className="btn ghost" onClick={() => { setTicks(null); setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] }); }}>ບົດບາດ</button>
+              <button className="btn ghost" onClick={() => { setEditing(null); startTicks(e); }}>ສິດ{e.perm && Object.keys(e.perm).length > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>ປັບແລ້ວ</span>}</button>
               <button className="btn ghost" onClick={() => { if (confirm(`ຕັ້ງ PIN ຊົ່ວຄາວໃໝ່ໃຫ້ ${e.name}? PIN ເກົ່າຈະໃຊ້ບໍ່ໄດ້.`)) resetPins([e]); }}>ຕັ້ງ PIN ໃໝ່</button></>}
               {e.id === me.id && <span className="muted small">ປ່ຽນ PIN ຂອງຕົນເອງໃນ ຕັ້ງຄ່າ</span>}</td>
           </tr>)}
@@ -155,6 +195,35 @@ export default function AccessPage() {
                 onChange={() => setEditing({ ...editing, headOf: editing.headOf.includes(d) ? editing.headOf.filter(x => x !== d) : [...editing.headOf.filter(x => x !== '*'), d] })} />{d}</label>)}</div>}
             <div className="row"><button className="btn ghost" onClick={() => setEditing(null)}>ຍົກເລີກ</button><button className="btn" onClick={saveRoles}>ບັນທຶກບົດບາດ</button></div>
           </div>); })()}
+        {ticks && (() => { const e = hr.employees.find(x => x.id === ticks.id)!; const all = hasAllRights(e); const nTicks = Object.keys(ticks.perm).length; return (
+          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
+            <div className="row wrap"><b className="grow">ສິດຂອງ {e.name}</b>{nTicks > 0 && <button className="btn ghost" onClick={() => setTicks({ ...ticks, perm: {} })}>ຄືນຄ່າຕາມບົດບາດ</button>}</div>
+            {all ? <span className="muted small">{e.superAdmin ? 'Super admin' : 'Admin'} ມີທຸກສິດສະເໝີ (ປັບບໍ່ໄດ້ ເພື່ອກັນລັອກຕົວເອງອອກ)</span> : <>
+              <span className="muted small">{nTicks ? `ປັບຈາກບົດບາດ ${nTicks} ລາຍການ` : 'ຕາມບົດບາດ'} · ຕິກ = ອະນຸຍາດ · ໃຫ້ໄດ້ສະເພາະສິດທີ່ເຈົ້າເອງມີ</span>
+              {RIGHT_GROUPS.map(g => <div key={g.title} className="col" style={{ gap: 2 }}>
+                <span className="muted small"><b>{g.title}</b></span>
+                <div className="grid">{g.keys.map(k => { const on = tickOn(e, ticks.perm, k), ov = ticks.perm[k] !== undefined; return (
+                  <label key={k} className="row" style={{ minHeight: 44, opacity: !on && !mine.has(k) ? .55 : 1 }}>
+                    <input type="checkbox" checked={on} disabled={!on && !mine.has(k)} onChange={() => toggleTick(e, k)} />
+                    <span>{k.startsWith('p.') ? PAGE_LABEL[k.slice(2) as keyof typeof PAGE_LABEL] : RIGHT_LABEL(k)}</span>{ov && <span className="pill warn">ປັບແລ້ວ</span>}
+                  </label>); })}</div>
+              </div>)}
+            </>}
+            <div className="row"><button className="btn ghost" onClick={() => setTicks(null)}>ປິດ</button>{!all && <button className="btn" onClick={saveTicks}>ບັນທຶກສິດ</button>}</div>
+          </div>); })()}
+      </div>
+
+      <div className="card col">
+        <h2>ສິດຂອງແຕ່ລະບົດບາດ</h2>
+        <span className="muted small">ສິດເລີ່ມຕົ້ນຂອງ ຫົວໜ້າ, ບັນຊີ ແລະ ຜູ້ກວດສອບ — ປ່ຽນໄດ້ສະເພາະ Super admin{hasSuper ? '' : ' (ບໍລິສັດນີ້ບໍ່ມີ Super admin ຈຶ່ງເປັນເຈົ້າຂອງ)'}. ມີຜົນກັບທຸກຄົນໃນບົດບາດນັ້ນ ແລະ ຖານຂໍ້ມູນບັງຄັບໃຊ້ຈິງ. Admin ມີທຸກສິດສະເໝີ. ສິດທີ່ຕິກເພີ່ມລາຍຄົນ ຍັງມາກ່ອນສິດຂອງບົດບາດ.</span>
+        <div className="scroll-x"><table className="t"><thead><tr><th>ສິດ</th>{EDITABLE_ROLES.map(r => <th key={r} style={{ textAlign: 'center' }}>{ROLE_NAMES[r]}{draft.roleRights?.[r] && <><br /><span className="pill warn">ປັບແລ້ວ</span>{canEditRoleRights && <><br /><button className="btn ghost" style={{ minHeight: 32, padding: '0 10px' }} onClick={() => resetRole(r)}>ຄືນຄ່າ</button></>}</>}</th>)}<th style={{ textAlign: 'center' }}>Admin</th></tr></thead><tbody>
+          {RIGHT_GROUPS.map(g => <Fragment key={g.title}>
+            <tr key={g.title}><td colSpan={EDITABLE_ROLES.length + 2}><b className="small">{g.title}</b></td></tr>
+            {g.keys.map(k => <tr key={k}><td>{k.startsWith('p.') ? PAGE_LABEL[k.slice(2) as keyof typeof PAGE_LABEL] : RIGHT_LABEL(k)}</td>
+              {EDITABLE_ROLES.map(r => <td key={r} style={{ textAlign: 'center' }}><input type="checkbox" aria-label={`${RIGHT_LABEL(k)} — ${ROLE_NAMES[r]}`} disabled={!canEditRoleRights} checked={roleGives(r, draft).includes(k)} onChange={() => toggleRoleRight(r, k)} /></td>)}
+              <td style={{ textAlign: 'center' }}><input type="checkbox" checked disabled aria-label={`${RIGHT_LABEL(k)} — Admin (ສະເໝີ)`} /></td></tr>)}
+          </Fragment>)}
+        </tbody></table></div>
       </div>
 
       <div className="card col">

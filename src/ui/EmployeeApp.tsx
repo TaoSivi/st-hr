@@ -127,7 +127,7 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
       {page === 'ot' && <MyRequests kinds={['ot']} />}
       {page === 'expense' && <MyRequests kinds={['expense']} />}
       {page === 'certificate' && <MyRequests kinds={['certificate']} onPrint={setCert} />}
-      {page === 'map' && (canViewPage(me.roles, 'map') ? <TeamMap /> : <NoAccess />)}
+      {page === 'map' && (canViewPage(me, 'map', hr.settings) ? <TeamMap /> : <NoAccess />)}
       {page === 'about' && <About />}
       {page === 'privacy' && <Privacy />}
       {page === 'settings' && <EmpSettings onLogout={onSwitch} />}
@@ -142,11 +142,11 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
               <span className="small" style={{ color: '#9fd8d4' }}>{me.position}</span>
             </div>
             {PERSONAL.filter(([id]) => !SELF_MENUS.includes(id as SelfMenu) || menuOn(id as SelfMenu, hr.settings, me.roles)).map(([id, label, d]) => <button key={id} onClick={() => go(id)} aria-current={page === id ? 'page' : undefined}><Ico n={d} /><span className="grow">{label}</span>{id === 'notifications' && badge(unread)}</button>)}
-            {isManager(me.roles) && <>
+            {isManager(me, hr.settings) && <>
               <div className="drawer-sec">ລາຍງານ ແລະ ການອະນຸມັດ</div>
               {onManagerView && <button onClick={() => { closeDrawer(); onManagerView(); }}><Ico n="dashboard" /><span className="grow">ໜ້າຈໍບໍລິຫານ HR</span></button>}
               {APPROVALS.filter(([sec]) => sections.includes(sec)).map(([sec, d]) => <button key={sec} onClick={() => go(`approve:${sec}`)} aria-current={page === `approve:${sec}` ? 'page' : undefined}><Ico n={d} /><span className="grow">{SECTION_LABEL[sec]}</span>{badge(actionableCount(hr, sec))}</button>)}
-              {canViewPage(me.roles, 'map') && <button onClick={() => go('map')}><Ico n="map" /><span className="grow">ແຜນທີ່</span></button>}
+              {canViewPage(me, 'map', hr.settings) && <button onClick={() => go('map')}><Ico n="map" /><span className="grow">ແຜນທີ່</span></button>}
             </>}
             <div className="drawer-sec" />
             {OTHER.map(([id, label, d]) => <button key={id} onClick={() => go(id)}><Ico n={d} /><span className="grow">{label}</span></button>)}

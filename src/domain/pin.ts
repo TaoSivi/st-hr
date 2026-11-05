@@ -10,8 +10,8 @@ export const LOCK_MINUTES = 5;
 /** On a shared device the session ends by itself after this long without a touch. */
 export const IDLE_LOGOUT_MIN = 3;
 
-/** On the online system a PIN is the account password and can be tried over the internet, so it must be the full 6 digits. */
-export const ONLINE_PIN_LEN = 6;
+/** On the online system a PIN is the account password, typed on a number pad like ST POS: exactly 4 digits. It can be tried over the internet, so 5 wrong tries lock the account for 5 minutes (on the server). */
+export const ONLINE_PIN_LEN = 4;
 
 /** Why a PIN cannot be used, or null. `online` asks for exactly 6 digits. */
 export function pinProblem(pin: string, online = false): string | null {
@@ -47,12 +47,12 @@ export async function pinMatches(e: { pinHash?: string; pinSalt?: string }, pin:
   return (await hashPin(pin, e.pinSalt)) === e.pinHash;
 }
 
-/** A random temporary PIN for a reset: 6 digits that pass the checks above. */
-export function tempPin(): string {
+/** A random temporary PIN for a reset: 6 digits (the online system takes exactly ONLINE_PIN_LEN) that pass the checks above. */
+export function tempPin(len = 6): string {
   for (;;) {
     const a = new Uint32Array(1);
     crypto.getRandomValues(a);
-    const p = String(a[0] % 1_000_000).padStart(6, '0');
+    const p = String(a[0] % 10 ** len).padStart(len, '0');
     if (!pinProblem(p)) return p;
   }
 }

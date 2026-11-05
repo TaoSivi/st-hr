@@ -9,7 +9,7 @@ import { validateCompanyName } from './domain/company';
 import { createCompany, DEMO_COMPANY_ID, getCompany, listCompanies, meKey, storePrefix } from './data/companies';
 import { LocalStore } from './data/store';
 import { seedNewCompany } from './data/seed';
-import { landsInBackOffice } from './domain/permissions';
+import { isManager as isManagerOf, landsInBackOffice } from './domain/permissions';
 import { IDLE_LOGOUT_MIN, pinFields, pinProblem } from './domain/pin';
 import type { Employee } from './domain/types';
 import Login, { NewPin } from './ui/Login';
@@ -100,7 +100,7 @@ function CompanyPicker({ current, onChoose, onPlatform, onClose }: { current: st
 }
 
 function Shell({ onChooseCompany, onPlatform, onGoOnline }: { onChooseCompany: (id: string) => void; onPlatform: () => void; onGoOnline: () => void }) {
-  const { me, setMe, employees, company, companyId, online, save } = useHR();
+  const { me, setMe, employees, company, companyId, online, save, settings } = useHR();
   // phone: everyone opens on the clock screen and managers reach the back office from the menu; computer: managers open in the back office.
   // null = nobody has chosen yet, so the screen decides
   const [chosenView, setChosenView] = useState<boolean | null>(null);
@@ -162,8 +162,8 @@ function Shell({ onChooseCompany, onPlatform, onGoOnline }: { onChooseCompany: (
       </div></div>
     );
   }
-  const isManager = me.roles.some(r => r !== 'employee');
-  const managerView = isManager && (chosenView ?? landsInBackOffice(me.roles, isWideScreen()));
+  const isManager = isManagerOf(me, settings);
+  const managerView = isManager && (chosenView ?? landsInBackOffice(me, isWideScreen(), settings));
   if (managerView) return <ManagerApp onSwitch={() => setMe(null)} onEmployeeView={() => setChosenView(false)} />;
   return <EmployeeApp onSwitch={() => setMe(null)} onManagerView={isManager ? () => setChosenView(true) : undefined} />;
 }

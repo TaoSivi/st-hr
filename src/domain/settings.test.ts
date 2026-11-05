@@ -9,6 +9,7 @@ import { dayStatus } from './day';
 import { compBalance } from './comp';
 import { finalSettlement } from './settlement';
 import { approvalAccess, canDoIn, canViewPage, menuOn } from './permissions';
+import type { RightKey } from './rights';
 import { requestBlock, type HRRequest } from './requests';
 import { ASSIGNABLE_APPROVER_ROLES, validateSettings } from './settingsCheck';
 import { seed } from '../data/seed';
@@ -165,6 +166,15 @@ const EFFECT: Record<Key, () => void> = {
     expect(canDoIn(acc.roles, 'advance.decide', S)).toBe(false);
     expect(canDoIn(acc.roles, 'advance.decide', { ...S, approverRoles: { 'advance.decide': ['accountant'] } })).toBe(true);
   },
+  roleRights: () => {
+    const acc = { roles: ['employee', 'accountant'] as Role[] };
+    expect(canViewPage(acc, 'pay', S)).toBe(true);
+    const noPay = { ...S, roleRights: { accountant: ['p.overview'] as RightKey[] } };
+    expect(canViewPage(acc, 'pay', noPay)).toBe(false); // the Super admin took the pay page away from accountants
+    expect(canViewPage(acc, 'overview', noPay)).toBe(true);
+    expect(canDoIn(acc, 'payroll.lock', noPay)).toBe(false);
+    expect(canViewPage(['owner'], 'pay', noPay)).toBe(true); // the Admin keeps everything
+  },
   employeeMenus: () => {
     expect(menuOn('advance', S)).toBe(true);
     expect(menuOn('advance', { ...S, employeeMenus: { advance: false } })).toBe(false);
@@ -191,7 +201,7 @@ describe('the Admin settings screen matches the settings', () => {
   it('branch radius, which GPS checks depend on, can be edited too', () => expect(settingsPage).toMatch(/radiusM/));
   it('a save is refused while the form is invalid, and needs the settings.edit permission', () => {
     expect(settingsPage).toMatch(/errors\.length/);
-    expect(settingsPage).toMatch(/canDo\(me\.roles, 'settings\.edit'\)/);
+    expect(settingsPage).toMatch(/canDo\(me, 'settings\.edit', hr\.settings\)/);
   });
   it('texts that quote a configurable value read it from Settings instead of hard-coding it', () => {
     const consent = src('ui/EmployeeApp.tsx');

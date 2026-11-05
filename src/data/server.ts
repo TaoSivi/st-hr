@@ -2,7 +2,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { AuditEntry } from '../domain/types';
 import type { Company } from '../domain/company';
 import type { Backend, Row } from './remote';
-import { sheetsApi } from './sheets';
+import { sheetsApi, type SheetCard } from './sheets';
 
 /**
  * Everything that talks to the online database: connection settings, the Supabase transport for RemoteStore,
@@ -57,7 +57,7 @@ export function db(): SupabaseClient {
 }
 
 export const emailFor = (companyId: string, code: string) => `${code.trim().toLowerCase()}@${companyId}.sthr.app`;
-/** The sign-in system wants 6+ characters; the PIN (6 digits online) is padded with a fixed prefix, which adds no secrecy and none is claimed. */
+/** The sign-in system wants 6+ characters; the PIN (4 digits online) is padded with a fixed prefix, which adds no secrecy and none is claimed. */
 export const passwordFor = (pin: string) => `sthr-${pin}`;
 const must = <T>(r: { data: T | null; error: { message: string } | null }): T => { if (r.error) throw new Error(r.error.message); return r.data as T; };
 
@@ -126,6 +126,12 @@ export const signOut = async () => { if (serverKind() === 'sheets') return sheet
 /** A Google Sheet holds exactly one company, so its id comes from the sheet rather than from the person typing it. */
 export async function sheetCompany(): Promise<{ companyId: string | null; name: string | null }> { return sheets().info(); }
 
+/** The sign-in screen: the company's name and, for a Google Sheet, the people to offer as cards (null = type the code instead). */
+export async function signInInfo(id: string): Promise<{ name: string | null; cards: SheetCard[] | null }> {
+  if (serverKind() === 'sheets') { const i = await sheets().info(); return { name: i.companyId === id ? i.name : null, cards: i.users ?? [] }; }
+  return { name: await companyName(id), cards: null };
+}
+
 export async function companyName(id: string): Promise<string | null> {
   if (serverKind() === 'sheets') { const i = await sheets().info(); return i.companyId === id ? i.name : null; }
   const r = await db().rpc('public_company', { p_id: id });
@@ -170,6 +176,11 @@ export async function resetPin(employeeId: string, pin: string): Promise<void> {
   const r = await db().rpc('admin_set_pin', { p_employee: employeeId, p_password: passwordFor(pin) });
   if (r.error) throw new Error(r.error.message);
 }
+/** Approving with someone else's PIN works on a Google Sheet company only. */
+export const canApprove = () => serverKind() === 'sheets';
+export const approveWith = (code: string, pin: string) => sheets().approve(code, pin);
+export const runApproved = <T,>(token: string, run: () => Promise<T>) => sheets().withApproval(token, run);
+
 export async function changeOwnPin(pin: string): Promise<void> {
   if (serverKind() === 'sheets') { await sheets().changeOwnPin(pin); return; }
   const r = await db().auth.updateUser({ password: passwordFor(pin) });

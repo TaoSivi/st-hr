@@ -29,7 +29,8 @@ export const RULE_LABEL: Record<RuleKey, string> = {
   leavePayoutOnExit: 'ຈ່າຍວັນລາພັກຄ້າງ ເມື່ອພະນັກງານອອກ',
   compLeaveExpiryDays: 'ວັນພັກຊົດເຊີຍໝົດອາຍຸ (ມື້)',
   approverRoles: 'ຜູ້ອະນຸມັດແຕ່ລະເລື່ອງ',
-  employeeMenus: 'ເມນູທີ່ປິດສຳລັບພະນັກງານ'
+  employeeMenus: 'ເມນູທີ່ປິດສຳລັບພະນັກງານ',
+  roleRights: 'ສິດຂອງແຕ່ລະບົດບາດ'
 };
 
 const ROLE_LAO: Record<Role, string> = { employee: 'ພະນັກງານ', head: 'ຫົວໜ້າ', accountant: 'ບັນຊີ', owner: 'ເຈົ້າຂອງ / HR', auditor: 'ຜູ້ກວດສອບ' };
@@ -52,6 +53,7 @@ export function ruleValue(key: RuleKey, s: Settings): string {
     case 'taxBrackets': return taxText(s.taxBrackets);
     case 'approverRoles': { const o = s.approverRoles ?? {}; const keys = Object.keys(o) as (keyof typeof o)[]; return keys.length ? keys.map(k => `${k}: ${(o[k] ?? []).map(r => ROLE_LAO[r]).join('+')}`).join(' · ') : 'ຄ່າເລີ່ມຕົ້ນ'; }
     case 'employeeMenus': { const off = Object.entries(s.employeeMenus ?? {}).filter(([, v]) => v === false).map(([k]) => k); return off.length ? `ປິດ: ${off.join(', ')}` : 'ເປີດທັງໝົດ'; }
+    case 'roleRights': { const o = Object.keys(s.roleRights ?? {}) as Role[]; return o.length ? `ປັບແລ້ວ: ${o.map(r => ROLE_LAO[r]).join(', ')}` : 'ຄ່າເລີ່ມຕົ້ນ'; }
     case 'compLeaveExpiryDays': return s.compLeaveExpiryDays === 0 ? 'ບໍ່ໝົດອາຍຸ' : `${num(s.compLeaveExpiryDays)} ມື້`;
     default: return num(s[key] as number);
   }

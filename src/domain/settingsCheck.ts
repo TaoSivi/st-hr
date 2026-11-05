@@ -1,4 +1,5 @@
 import type { Role, Settings } from './types';
+import { EDITABLE_ROLES, isRightKey } from './rights';
 
 /** Roles Admin may name as leave approvers. The auditor reads, the plain employee requests; neither decides. */
 export const ASSIGNABLE_APPROVER_ROLES: Role[] = ['head', 'accountant', 'owner'];
@@ -27,6 +28,7 @@ export function validateSettings(s: Settings): string[] {
   if (s.leaveApproverRoles.some(r => !ASSIGNABLE_APPROVER_ROLES.includes(r))) e.push('ຜູ້ກວດສອບ ແລະ ພະນັກງານທົ່ວໄປ ອະນຸມັດບໍ່ໄດ້');
   // the auditor stays independent and a plain employee never approves, whatever the company picks
   if (Object.values(s.approverRoles ?? {}).some(rs => !rs || rs.some(r => !ASSIGNABLE_APPROVER_ROLES.includes(r)))) e.push('ຜູ້ອະນຸມັດຕ້ອງເປັນ ຫົວໜ້າ, ບັນຊີ ຫຼື ເຈົ້າຂອງ ເທົ່ານັ້ນ');
+  if (Object.entries(s.roleRights ?? {}).some(([r, ks]) => !EDITABLE_ROLES.includes(r as Role) || !Array.isArray(ks) || ks.some(k => !isRightKey(k)))) e.push('ສິດຂອງບົດບາດ ຕ້ອງເປັນຂອງ ຫົວໜ້າ, ບັນຊີ ຫຼື ຜູ້ກວດສອບ ແລະ ເປັນສິດທີ່ມີໃນລະບົບ');
   if (Object.values(s.employeeMenus ?? {}).some(v => typeof v !== 'boolean')) e.push('ເມນູພະນັກງານ ຕ້ອງເປັນ ເປີດ ຫຼື ປິດ');
 
   const b = s.taxBrackets;

@@ -8,6 +8,8 @@ import type { Backend, Row } from './remote';
  * body as text/plain so the browser sends no pre-flight request, and a session token kept on the phone after sign-in.
  */
 
+/** One sign-in card: the code to sign in with, the name and the top role. No pay, no face, nothing private. */
+export interface SheetCard { code: string; name: string; role: string }
 export interface SheetMember { userId: string; companyId: string; employeeId: string; roles: string[] }
 
 const TOKEN = 'sthr-sheets-token';
@@ -25,8 +27,10 @@ class SheetError extends Error { constructor(message: string, public code = '') 
 export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
   const doFetch: Fetch = (...a) => (fetchImpl ?? fetch)(...a);
 
+  let approval: string | null = null; // set only while an action approved with someone else's PIN is running
+
   async function post<T>(body: Record<string, unknown>): Promise<T> {
-    const res = await doFetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, token: tokens.get() ?? undefined }), redirect: 'follow' });
+    const res = await doFetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, token: tokens.get() ?? undefined, approval: approval ?? undefined }), redirect: 'follow' });
     const text = await res.text();
     if (looksLikeLoginPage(text)) throw new SheetError('ເຊື່ອມຕໍ່ Google Sheet ບໍ່ໄດ້ — ກວດລິ້ງ Web app ແລະ ການແບ່ງປັນ "ທຸກຄົນ (Anyone)"');
     let r: { ok: boolean; data?: T; error?: string; code?: string };
@@ -70,8 +74,18 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
 
   // sign-in and `me` bring the company along, so opening the app takes one trip fewer
   let firstCompany: Company | undefined;
-  const info = () => post<{ companyId: string | null; name: string | null }>({ action: 'info' });
-  const asMember = (r: { token: string; member: SheetMember; company?: Company }) => { tokens.set(r.token); firstCompany = r.company; return r.member; };
+  type Info = { companyId: string | null; name: string | null; users: SheetCard[] };
+  let infoTrip: { at: number; p: Promise<Info> } | null = null;
+  // the connect step and the sign-in screen both ask: one trip to the sheet serves both for a short while
+  const info = (): Promise<Info> => {
+    if (infoTrip && Date.now() - infoTrip.at < 30_000) return infoTrip.p;
+    const p = post<Info>({ action: 'info' });
+    const mine = { at: Date.now(), p };
+    infoTrip = mine;
+    p.catch(() => { if (infoTrip === mine) infoTrip = null; });
+    return p;
+  };
+  const asMember = (r: { token: string; member: SheetMember; company?: Company }) => { tokens.set(r.token); firstCompany = r.company; infoTrip = null; return r.member; };
 
   return {
     backend,
@@ -95,6 +109,9 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string; superAdmin?: { employeeId: string; code: string; pin: string } }) {
       return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin, superAdmin: p.superAdmin }));
     },
+    /** A colleague with the right types their PIN: the answer is a short-lived approval to run one action with (see withApproval). */
+    approve: (code: string, pin: string) => post<{ approval: string; approverId: string; approverName: string; seconds: number }>({ action: 'approve', code, pin }),
+    async withApproval<T>(token: string, run: () => Promise<T>): Promise<T> { approval = token; try { return await run(); } finally { approval = null; } },
     createLogin: (employeeId: string, code: string, pin: string) => post<true>({ action: 'createLogin', employeeId, code, pin }),
     setPin: (employeeId: string, pin: string) => post<true>({ action: 'setPin', employeeId, pin }),
     changeOwnPin: (pin: string) => post<true>({ action: 'changeOwnPin', pin }),

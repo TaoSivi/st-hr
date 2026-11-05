@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { afterFail, hashPin, lockedMinutes, LOCK_MINUTES, MAX_FAILS, pinFields, pinMatches, pinProblem, tempPin } from './pin';
+import { afterFail, hashPin, lockedMinutes, LOCK_MINUTES, MAX_FAILS, ONLINE_PIN_LEN, pinFields, pinMatches, pinProblem, tempPin } from './pin';
 
 describe('which PINs are allowed', () => {
   it('4 to 6 digits', () => {
@@ -15,6 +15,7 @@ describe('which PINs are allowed', () => {
   });
   it('a temporary PIN always passes the rules', () => {
     for (let i = 0; i < 200; i++) { const p = tempPin(); expect(pinProblem(p), p).toBeNull(); expect(p).toHaveLength(6); }
+    for (let i = 0; i < 200; i++) { const p = tempPin(ONLINE_PIN_LEN); expect(pinProblem(p, true), p).toBeNull(); } // the online length passes the online check
   });
 });
 

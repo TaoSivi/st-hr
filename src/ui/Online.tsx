@@ -2,14 +2,16 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
 import { RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
 import {
-  changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
-  activeBackend, resetPin, saveServerConfig, serverKind, setOnlineCompany, sheetCompany, signIn, signOut, type Member
+  approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
+  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, type Member
 } from '../data/server';
+import type { SheetCard } from '../data/sheets';
 import { newCompanyRecords } from '../data/seed';
 import { newCompany, validateCompanyName, type Company } from '../domain/company';
 import { ONLINE_PIN_LEN, pinProblem } from '../domain/pin';
 import type { Employee } from '../domain/types';
-import { ymd } from './format';
+import { initials, ROLE_NAMES, ymd } from './format';
+import PinPad from './PinPad';
 
 /** The scans a phone made with no signal, kept in the browser until they can be sent. One list per company. */
 const outboxFor = (companyId: string): Outbox => ({
@@ -28,31 +30,70 @@ function Pin({ label, value, set, auto }: { label: string; value: string; set: (
   return <label className="field">{label}<input className="input" type="password" inputMode="numeric" autoComplete={auto ?? 'current-password'} maxLength={ONLINE_PIN_LEN} value={value} onChange={e => set(digits(e.target.value))} style={{ letterSpacing: 6, fontSize: 20 }} /></label>;
 }
 
-/** Sign in to an online company: its name, then employee code + PIN. */
+const roleLabel = (role: string) => (role === 'superadmin' ? 'Super admin' : role === 'owner' ? 'Admin' : ROLE_NAMES[role] ?? role);
+
+/**
+ * Sign in to an online company, as in ST POS: tap your name, then the 4 digits of your PIN on the pad.
+ * A server that cannot list its people (Supabase), or someone not on the list, uses the employee code instead.
+ */
 function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member) => void; onBack?: () => void; onOther: () => void }) {
   const [name, setName] = useState<string | null | undefined>(undefined);
+  const [cards, setCards] = useState<SheetCard[] | null>(null);
+  const [pick, setPick] = useState<SheetCard | null>(null);
+  const [manual, setManual] = useState(false);
   const [code, setCode] = useState('');
   const [pin, setPin] = useState('');
+  const [find, setFind] = useState('');
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  useEffect(() => { companyName(companyId).then(setName).catch(() => setName(null)); }, [companyId]);
-  const go = async () => {
+  const [shake, setShake] = useState(false);
+  useEffect(() => { signInInfo(companyId).then(i => { setName(i.name); setCards(i.cards); }).catch(() => setName(null)); }, [companyId]);
+
+  const go = async (who: string, digits: string) => {
     setErr(''); setBusy(true);
-    try { onIn(await signIn(companyId, code, pin)); } catch (e: any) { setErr(/fetch|network/i.test(e?.message) ? 'ເຊື່ອມຕໍ່ເຊີບເວີບໍ່ໄດ້ — ກວດອິນເຕີເນັດ' : e?.message || 'ເຂົ້າບໍ່ໄດ້'); setPin(''); }
+    try { onIn(await signIn(companyId, who, digits)); return; } catch (e: any) { setErr(friendly(e, 'ເຂົ້າບໍ່ໄດ້')); setPin(''); setShake(true); setTimeout(() => setShake(false), 400); }
     setBusy(false);
   };
+  const showCards = !!cards && cards.length > 0 && !manual;
+  const q = find.trim().toLowerCase();
+  const shown = (cards ?? []).filter(c => !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q));
+  const choose = (c: SheetCard | null) => { setPick(c); setPin(''); setErr(''); };
+
   return (
     <div className="phone"><div className="screen">
       <div className="row"><span className="logo">ST</span><div className="col" style={{ gap: 0 }}><b style={{ fontSize: 20 }}>ST HR</b><span className="muted small">ອອນລາຍ · ບໍລິສັດ</span></div></div>
       <div className="card row" style={{ minHeight: 52 }}><b className="grow">{name === undefined ? 'ກຳລັງກວດ…' : name ?? 'ບໍ່ພົບບໍລິສັດນີ້'}</b></div>
-      <form className="card col" onSubmit={e => { e.preventDefault(); go(); }}>
-        <h2>ເຂົ້າລະບົບ</h2>
-        <label className="field">ລະຫັດພະນັກງານ<input className="input" autoComplete="username" autoCapitalize="characters" placeholder="ເຊັ່ນ ST-012" value={code} onChange={e => setCode(e.target.value)} style={{ fontSize: 18 }} /></label>
-        <Pin label={`PIN (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} />
-        {err && <div className="error" role="alert">{err}</div>}
-        <button className="btn block" type="submit" disabled={busy || !name || !code.trim() || pin.length !== ONLINE_PIN_LEN}>{busy ? 'ກຳລັງເຂົ້າ… (ລໍສັກຄູ່)' : 'ເຂົ້າລະບົບ'}</button>
-        <span className="muted small">ລືມ PIN: ຂໍໃຫ້ເຈົ້າຂອງ / HR ຕັ້ງ PIN ຊົ່ວຄາວໃຫ້ໃໝ່.</span>
-      </form>
+      {showCards ? (
+        <div className="card col">
+          <h2>ເຂົ້າລະບົບ</h2>
+          {!pick ? (<>
+            <span className="muted small">ເລືອກຊື່ຂອງເຈົ້າ ແລ້ວໃສ່ PIN {ONLINE_PIN_LEN} ຕົວເລກ</span>
+            {cards!.length > 12 && <input className="input" placeholder="ຄົ້ນຫາຊື່ ຫຼື ລະຫັດ" aria-label="ຄົ້ນຫາຊື່" value={find} onChange={e => setFind(e.target.value)} />}
+            <div className="usersgrid">
+              {shown.map(c => <button key={c.code} type="button" className="ucard" onClick={() => choose(c)}><span className="uav">{initials(c.name)}</span><span className="unm">{c.name}</span><span className="url">{c.code} · {roleLabel(c.role)}</span></button>)}
+            </div>
+            {shown.length === 0 && <div className="empty">ບໍ່ພົບຊື່ນີ້</div>}
+          </>) : (<>
+            <div className="ucard sel" style={{ alignSelf: 'center', minWidth: 176 }}><span className="uav">{initials(pick.name)}</span><span className="unm">{pick.name}</span><span className="url">{pick.code} · {roleLabel(pick.role)}</span></div>
+            <PinPad value={pin} onChange={setPin} onComplete={d => go(pick.code, d)} disabled={busy} shake={shake} />
+            <div role="status" aria-live="polite" className="small" style={{ textAlign: 'center', minHeight: 22 }}>{busy ? 'ກຳລັງເຂົ້າ… (ລໍສັກຄູ່)' : ''}</div>
+            {err && <div className="error" role="alert">{err}</div>}
+            <button className="btn ghost" type="button" disabled={busy} onClick={() => choose(null)}>‹ ປ່ຽນຄົນ</button>
+          </>)}
+          {!pick && <span className="muted small">ລືມ PIN: ຂໍໃຫ້ Admin / HR ຕັ້ງ PIN ຊົ່ວຄາວໃຫ້ໃໝ່.</span>}
+          {!pick && <button className="btn ghost" type="button" onClick={() => setManual(true)}>ໃສ່ລະຫັດພະນັກງານເອງ</button>}
+        </div>
+      ) : (
+        <form className="card col" onSubmit={e => { e.preventDefault(); go(code, pin); }}>
+          <h2>ເຂົ້າລະບົບ</h2>
+          <label className="field">ລະຫັດພະນັກງານ<input className="input" autoComplete="username" autoCapitalize="characters" placeholder="ເຊັ່ນ ST-012" value={code} onChange={e => setCode(e.target.value)} style={{ fontSize: 18 }} /></label>
+          <Pin label={`PIN (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} />
+          {err && <div className="error" role="alert">{err}</div>}
+          <button className="btn block" type="submit" disabled={busy || !name || !code.trim() || pin.length !== ONLINE_PIN_LEN}>{busy ? 'ກຳລັງເຂົ້າ… (ລໍສັກຄູ່)' : 'ເຂົ້າລະບົບ'}</button>
+          <span className="muted small">ລືມ PIN: ຂໍໃຫ້ Admin / HR ຕັ້ງ PIN ຊົ່ວຄາວໃຫ້ໃໝ່.</span>
+          {manual && cards && cards.length > 0 && <button className="btn ghost" type="button" onClick={() => setManual(false)}>‹ ເລືອກຈາກລາຍຊື່</button>}
+        </form>
+      )}
       {!isBuiltIn() && <button className="btn ghost" onClick={onOther}>ບໍລິສັດອອນລາຍອື່ນ</button>}
       {onBack && <button className="btn ghost" onClick={onBack}>‹ ກັບໂໝດສາທິດ / ໃນເຄື່ອງ</button>}
     </div></div>
@@ -169,8 +210,8 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
           <label className="field">ລະຫັດສ້າງບໍລິສັດ<input className="input" type="password" autoComplete="off" value={signup} onChange={e => setSignup(e.target.value)} /></label>
           <label className="field">ຊື່ບໍລິສັດ<input className="input" value={name} onChange={e => setName(e.target.value)} /></label>
           <label className="field">{sheets ? 'ຊື່ Admin ຂອງບໍລິສັດ (ລະຫັດ ST-001)' : 'ຊື່ເຈົ້າຂອງ (ຜູ້ໃຊ້ຄົນທຳອິດ · ລະຫັດ ST-001)'}<input className="input" value={owner} onChange={e => setOwner(e.target.value)} /></label>
-          <div className="row"><div className="grow"><Pin label={sheets ? `PIN Super admin (ເຈົ້າຂອງລະບົບ · ST-000)` : `PIN ເຈົ້າຂອງ (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} auto="new-password" /></div><div className="grow"><Pin label="ໃສ່ PIN ອີກເທື່ອ" value={pin2} set={setPin2} auto="new-password" /></div></div>
-          {sheets && <><Pin label="PIN ເລີ່ມຕົ້ນຂອງ Admin (ST-001 ຈະຕ້ອງປ່ຽນເທື່ອທຳອິດ)" value={adminPin} set={setAdminPin} auto="new-password" /><span className="muted small">Super admin ຄືເຈົ້າຂອງລະບົບ — ຕັ້ງ/ຣີເຊັດ PIN ຂອງ Admin ໄດ້ ແລະ Admin ແກ້ບັນຊີ Super admin ບໍ່ໄດ້. Admin ບໍລິຫານບໍລິສັດ.</span></>}
+          <div className="row"><div className="grow"><Pin label={sheets ? `PIN Super admin ${ONLINE_PIN_LEN} ຕົວ (ເຈົ້າຂອງລະບົບ · ST-000)` : `PIN ເຈົ້າຂອງ (${ONLINE_PIN_LEN} ຕົວເລກ)`} value={pin} set={setPin} auto="new-password" /></div><div className="grow"><Pin label="ໃສ່ PIN ອີກເທື່ອ" value={pin2} set={setPin2} auto="new-password" /></div></div>
+          {sheets && <><Pin label={`PIN ເລີ່ມຕົ້ນຂອງ Admin ${ONLINE_PIN_LEN} ຕົວ (ST-001 ຈະຕ້ອງປ່ຽນເທື່ອທຳອິດ)`} value={adminPin} set={setAdminPin} auto="new-password" /><span className="muted small">Super admin ຄືເຈົ້າຂອງລະບົບ — ຕັ້ງ/ຣີເຊັດ PIN ຂອງ Admin ໄດ້ ແລະ Admin ແກ້ບັນຊີ Super admin ບໍ່ໄດ້. Admin ບໍລິຫານບໍລິສັດ.</span></>}
           {err && <div className="error" role="alert">{err}</div>}
           <button className="btn block" disabled={busy} onClick={create}>{busy ? 'ກຳລັງສ້າງ…' : 'ສ້າງບໍລິສັດ'}</button>
         </div>
@@ -216,6 +257,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     createLogin: async (e: Employee, pin: string) => { await createLogin(id!, e.id, e.code, pin); await refreshLogins(); },
     resetPin: async (e: Employee, pin: string) => { await resetPin(e.id, pin); },
     changeOwnPin,
+    ...(canApprove() ? { approve: approveWith, runApproved } : {}),
     joinLink: () => joinLink(readServerConfig()!, id!)
   }), [id, logins, refreshLogins]);
 

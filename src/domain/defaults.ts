@@ -33,5 +33,6 @@ export const defaultSettings = (companyId: string): Settings => ({
   leavePayoutOnExit: true,
   compLeaveExpiryDays: 90,
   approverRoles: {},
-  employeeMenus: {}
+  employeeMenus: {},
+  roleRights: {}
 });

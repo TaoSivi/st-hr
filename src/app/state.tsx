@@ -72,6 +72,9 @@ export interface OnlineApi {
   resetPin: (e: Employee, pin: string) => Promise<void>;
   changeOwnPin: (pin: string) => Promise<void>;
   joinLink: () => string;
+  /** Approving with a colleague's PIN (Google Sheet only): check the PIN, then run the action with the approval attached. */
+  approve?: (code: string, pin: string) => Promise<{ approval: string; approverId: string; approverName: string }>;
+  runApproved?: <T>(approval: string, run: () => Promise<T>) => Promise<T>;
 }
 
 /** What the app is given when the company is online: its store, the company record, who signed in, and how to sign out. */

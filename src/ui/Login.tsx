@@ -2,17 +2,17 @@ import { useState } from 'react';
 import { useHR } from '../app/state';
 import type { Employee } from '../domain/types';
 import { isActiveOn } from '../domain/hiring';
-import { afterFail, lockedMinutes, MAX_FAILS, pinFields, pinMatches, pinProblem, type LockState } from '../domain/pin';
+import { afterFail, lockedMinutes, MAX_FAILS, ONLINE_PIN_LEN, pinFields, pinMatches, pinProblem, type LockState } from '../domain/pin';
 import { ymd } from './format';
 
 const lockKey = (companyId: string, code: string) => `sthr-lock:${companyId}:${code.trim().toUpperCase()}`;
 const readLock = (k: string): LockState | undefined => { try { return JSON.parse(localStorage.getItem(k) || 'null') ?? undefined; } catch { return undefined; } };
 const writeLock = (k: string, s: LockState | null) => { try { s ? localStorage.setItem(k, JSON.stringify(s)) : localStorage.removeItem(k); } catch { /* private mode: no lock memory */ } };
 
-const pinInput = (value: string, set: (v: string) => void, label: string, auto?: string) => (
+const pinInput = (value: string, set: (v: string) => void, label: string, auto?: string, len = 6) => (
   <label className="field">{label}
-    <input className="input" type="password" inputMode="numeric" autoComplete={auto ?? 'current-password'} maxLength={6} value={value}
-      onChange={e => set(e.target.value.replace(/\D/g, '').slice(0, 6))} style={{ letterSpacing: 6, fontSize: 20 }} />
+    <input className="input" type="password" inputMode="numeric" autoComplete={auto ?? 'current-password'} maxLength={len} value={value}
+      onChange={e => set(e.target.value.replace(/\D/g, '').slice(0, len))} style={{ letterSpacing: 6, fontSize: 20 }} />
   </label>
 );
 
@@ -34,8 +34,8 @@ export function NewPin({ who, title, note, onSet, onCancel, online }: { who: Emp
       <h2>{title}</h2>
       <span className="muted">{who.name} ({who.code})</span>
       <span className="muted small">{note}</span>
-      {pinInput(a, setA, online ? 'PIN ໃໝ່ (6 ຕົວເລກ)' : 'PIN ໃໝ່ (4–6 ຕົວເລກ)', 'new-password')}
-      {pinInput(b, setB, 'ໃສ່ PIN ອີກເທື່ອ', 'new-password')}
+      {pinInput(a, setA, online ? `PIN ໃໝ່ (${ONLINE_PIN_LEN} ຕົວເລກ)` : 'PIN ໃໝ່ (4–6 ຕົວເລກ)', 'new-password', online ? ONLINE_PIN_LEN : 6)}
+      {pinInput(b, setB, 'ໃສ່ PIN ອີກເທື່ອ', 'new-password', online ? ONLINE_PIN_LEN : 6)}
       {err && <div className="error" role="alert">{err}</div>}
       <div className="row"><button className="btn ghost grow" onClick={onCancel}>ຍົກເລີກ</button><button className="btn grow" disabled={busy || !a || !b} onClick={go}>ບັນທຶກ PIN</button></div>
     </div>

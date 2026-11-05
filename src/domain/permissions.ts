@@ -1,49 +1,13 @@
 import type { Role, SelfMenu, Settings } from './types';
 import { requestApprovers, withOwner, type RequestKind } from './requests';
+import { ACTION_ROLES, PAGE_ROLES, hasAllRights, rightsOf, type Action, type ManagerPage, type PersonRights, type RightsPerson } from './rights';
 
-/** Single source of truth for who may see and do what. UI and tests both read this. */
-
-export type ManagerPage = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'access' | 'settings' | 'audit';
-
-export const PAGE_ROLES: Record<ManagerPage, Role[]> = {
-  overview: ['head', 'accountant', 'owner', 'auditor'],
-  review: ['head', 'owner', 'auditor'],
-  approvals: ['head', 'owner', 'accountant', 'auditor'],
-  time: ['head', 'owner', 'accountant', 'auditor'],
-  reports: ['head', 'owner', 'accountant', 'auditor'],
-  map: ['head', 'owner', 'auditor'],
-  leave: ['head', 'owner', 'auditor'],
-  staff: ['owner', 'accountant', 'auditor'],
-  pay: ['owner', 'accountant', 'auditor'],
-  access: ['owner', 'auditor'],
-  settings: ['owner', 'auditor'],
-  audit: ['owner', 'auditor']
-};
-
-export type Action =
-  | 'scan.review' | 'ot.preapprove' | 'advance.decide'
-  | 'staff.edit' | 'staff.change.decide'
-  | 'payroll.prepare' | 'payroll.lock' | 'payroll.confirmLate' | 'payroll.items' | 'payroll.items.decide'
-  | 'settings.edit';
-
-/** Every write-type action. The auditor and the plain employee must never appear here. */
-export const ACTION_ROLES: Record<Action, Role[]> = {
-  'scan.review': ['head', 'owner'],
-  'ot.preapprove': ['head', 'owner'],
-  'advance.decide': ['head', 'owner'],
-  'staff.edit': ['owner', 'accountant'],
-  'staff.change.decide': ['owner', 'accountant'],
-  'payroll.prepare': ['owner', 'accountant'],
-  'payroll.lock': ['owner', 'accountant'],
-  'payroll.confirmLate': ['owner', 'accountant'],
-  'payroll.items': ['owner', 'accountant'],
-  'payroll.items.decide': ['owner', 'accountant'],
-  'settings.edit': ['owner']
-};
+/** Single source of truth for who may see and do what. UI and tests both read this. The tables themselves live in rights.ts. */
+export { ACTION_ROLES, PAGE_ROLES, type Action, type ManagerPage };
 
 const intersects = (a: Role[], b: Role[]) => a.some(r => b.includes(r));
 
-type ApproverSettings = Partial<Pick<Settings, 'leaveApproverRoles' | 'approverRoles'>>;
+type ApproverSettings = Partial<Pick<Settings, 'leaveApproverRoles' | 'approverRoles' | 'roleRights'>>;
 /** Roles for an action. Reviewing scans and deciding salary advances follow the company's choice when it made one. */
 export function actionRoles(action: Action, s?: ApproverSettings): Role[] {
   if (action === 'scan.review' || action === 'advance.decide') { const o = s?.approverRoles?.[action]; if (o && o.length) return withOwner(o); }
@@ -60,23 +24,53 @@ export function ownerSelfOk(me: { id: string; roles: Role[] }, s: Pick<Settings,
   return !employees.some(e => e.id !== me.id && !e.endDate && e.roles.some(r => r === 'head' || r === 'accountant' || r === 'owner'));
 }
 
-export const canDoIn = (roles: Role[], action: Action, s?: ApproverSettings) => intersects(roles, actionRoles(action, s));
+/** A list of roles (the plain check) or a whole person (roles plus the rights the Super admin and Admin gave them). */
+export type Who = Role[] | (RightsPerson & { perm?: PersonRights });
+const asPerson = (w: Who): RightsPerson => (Array.isArray(w) ? { roles: w } : w);
+/** True when the company changed what one of this person's roles gives, so the default tables no longer apply to them. */
+const customRole = (p: RightsPerson, s?: ApproverSettings) => !!s?.roleRights && p.roles.some(r => r !== 'owner' && s.roleRights![r]);
 
+export function canDoIn(who: Who, action: Action, s?: ApproverSettings): boolean {
+  const p = asPerson(who);
+  if (hasAllRights(p)) return true;
+  const ticked = p.perm?.[action];
+  if (ticked !== undefined) return ticked;
+  if (customRole(p, s)) return rightsOf({ roles: p.roles }, s).has(action);
+  return intersects(p.roles, actionRoles(action, s));
+}
 /** Self-service menus, in drawer order, and whether the company uses each (on unless switched off). */
 export const SELF_MENUS: SelfMenu[] = ['directory', 'reports', 'clockFix', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'pay', 'advance'];
 export const menuOn = (m: SelfMenu, s?: Partial<Pick<Settings, 'employeeMenus'>>, roles?: Role[]) => roles?.includes('owner') || s?.employeeMenus?.[m] !== false; // the owner is never shut out of a menu
 
 /** The leave page also opens for whoever Admin made a leave approver in Settings. */
-export const canViewPage = (roles: Role[], page: ManagerPage, s?: ApproverSettings) =>
-  intersects(roles, PAGE_ROLES[page])
-  || (page === 'leave' && !!s && (intersects(roles, s.leaveApproverRoles ?? []) || canDoIn(roles, 'advance.decide', s)))
-  || (page === 'review' && !!s && canDoIn(roles, 'scan.review', s));
-export const canDo = (roles: Role[], action: Action) => intersects(roles, ACTION_ROLES[action]);
+export function canViewPage(who: Who, page: ManagerPage, s?: ApproverSettings): boolean {
+  const p = asPerson(who);
+  if (hasAllRights(p)) return true;
+  const ticked = p.perm?.[`p.${page}`];
+  if (ticked !== undefined) return ticked;
+  if (customRole(p, s)) return rightsOf({ roles: p.roles }, s).has(`p.${page}`);
+  return intersects(p.roles, PAGE_ROLES[page])
+    || (page === 'leave' && !!s && (intersects(p.roles, s.leaveApproverRoles ?? []) || canDoIn(who, 'advance.decide', s)))
+    || (page === 'review' && !!s && canDoIn(who, 'scan.review', s));
+}
+export const canDo = (who: Who, action: Action, s?: ApproverSettings) => canDoIn(who, action, s);
 /** True for someone who can look at the back office but change nothing in it. */
-export const isReadOnly = (roles: Role[]) => roles.includes('auditor') && !intersects(roles, ['owner', 'head', 'accountant']);
-export const isManager = (roles: Role[]) => roles.some(r => r !== 'employee');
+export function isReadOnly(who: Who, s?: ApproverSettings): boolean {
+  const p = asPerson(who);
+  if (!Array.isArray(who)) {
+    const mine = rightsOf(p, s);
+    return !mine.has('writeAll') && !(['scan.review', 'ot.preapprove', 'advance.decide', 'staff.edit', 'staff.change.decide', 'payroll.prepare', 'payroll.lock', 'payroll.confirmLate', 'payroll.items', 'payroll.items.decide', 'settings.edit'] as Action[]).some(a => mine.has(a));
+  }
+  return p.roles.includes('auditor') && !intersects(p.roles, ['owner', 'head', 'accountant']);
+}
+/** A back-office role, or at least one back-office page ticked for them. */
+export function isManager(who: Who, s?: ApproverSettings): boolean {
+  const p = asPerson(who);
+  if (p.roles.some(r => r !== 'employee')) return true;
+  return !Array.isArray(who) && [...rightsOf(p, s)].some(k => k.startsWith('p.'));
+}
 /** On a computer-sized screen anyone with a back-office role opens straight into it; on a phone everyone opens on the clock screen. */
-export const landsInBackOffice = (roles: Role[], wideScreen: boolean) => wideScreen && isManager(roles);
+export const landsInBackOffice = (who: Who, wideScreen: boolean, s?: ApproverSettings) => wideScreen && isManager(who, s);
 
 export type ApprovalSection = 'scan' | 'leave' | 'shift' | 'schedule' | 'ot' | 'expense' | 'certificate' | 'leaveCancel' | 'device' | 'face';
 export const APPROVAL_SECTIONS: ApprovalSection[] = ['scan', 'leave', 'shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face'];
@@ -107,7 +101,7 @@ export function approvalAccess(roles: Role[], section: ApprovalSection, s: Appro
 export const ALL_ROLES: Role[] = ['employee', 'head', 'accountant', 'owner', 'auditor'];
 
 /** Who may grant roles at all: only the owner. Kept out of ACTION_ROLES' maker-checker flow on purpose (see roleChangeBlock). */
-export const canGrantRoles = (roles: Role[]) => roles.includes('owner');
+export const canGrantRoles = (who: Who, s?: ApproverSettings) => (Array.isArray(who) ? who.includes('owner') : rightsOf(who, s).has('userMng'));
 
 /**
  * Why a role change is not allowed, or null.

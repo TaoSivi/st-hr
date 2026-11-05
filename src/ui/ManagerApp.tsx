@@ -30,16 +30,14 @@ import Icon, { type IconName } from './Icon';
 import StaffImport from './StaffImport';
 import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
+import ApproveButton from './ApproveButton';
+import { PAGE_LABEL } from './rightLabels';
 import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
 
 type Page = ManagerPage;
-const PAGE_LABEL: Record<Page, string> = {
-  overview: 'ພາບລວມ', review: 'ກວດການລົງເວລາ', approvals: 'ອະນຸມັດຄຳຂໍ', time: 'ລົງເວລາມື້ນີ້', reports: 'ລາຍງານທີມ', map: 'ແຜນທີ່',
-  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'ບັນທຶກການແກ້ໄຂ'
-};
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
 const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', access: 'privacy', settings: 'settings', audit: 'audit' };
 
@@ -51,9 +49,9 @@ const nameOf = (emps: Employee[], id?: string) => emps.find(e => e.id === id)?.n
 export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () => void; onEmployeeView: () => void }) {
   const hr = useHR();
   const me = hr.me!;
-  const pages = PAGE_ORDER.filter(p => canViewPage(me.roles, p, hr.settings));
+  const pages = PAGE_ORDER.filter(p => canViewPage(me, p, hr.settings));
   const [page, setPage] = useState<Page>(pages[0]);
-  const readOnly = isReadOnly(me.roles);
+  const readOnly = isReadOnly(me, hr.settings);
   // badges count only what this person could decide: a head's own departments
   const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
   const pendingScans = hr.scans.filter(s => s.status === 'pending' && inScope(s.employeeId, actionRoles('scan.review', hr.settings))).length + hr.ots.filter(o => o.status === 'pending' && inScope(o.employeeId, actionRoles('scan.review', hr.settings))).length;
@@ -75,11 +73,11 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
         <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
       </nav>
       <main>
-        {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ (ຜູ້ກວດສອບ)</div>}
-        {!canViewPage(me.roles, page, hr.settings) && <NoAccess />}
-        {canViewPage(me.roles, page, hr.settings) && <>
+        {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ{me.roles.includes('auditor') ? ' (ຜູ້ກວດສອບ)' : ''}</div>}
+        {!canViewPage(me, page, hr.settings) && <NoAccess />}
+        {canViewPage(me, page, hr.settings) && <>
           {page === 'overview' && <Overview />}
-          {page === 'review' && <Review readOnly={!canDoIn(me.roles, 'scan.review', hr.settings)} />}
+          {page === 'review' && <Review readOnly={!canDoIn(me, 'scan.review', hr.settings)} />}
           {page === 'approvals' && <ApprovalsHub />}
           {page === 'time' && <TimeToday />}
           {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
@@ -88,7 +86,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
           {page === 'staff' && <Staff />}
           {page === 'pay' && <Payroll />}
           {page === 'access' && <AccessPage />}
-          {page === 'settings' && <SettingsPage readOnly={!canDo(me.roles, 'settings.edit')} />}
+          {page === 'settings' && <SettingsPage readOnly={!canDo(me, 'settings.edit', hr.settings)} />}
           {page === 'audit' && <Audit />}
         </>}
       </main>
@@ -176,13 +174,14 @@ function Review({ readOnly }: { readOnly: boolean }) {
   const [selId, setSelId] = useState<string | null>(null);
   const sel = list.find(s => s.id === selId) ?? list[0];
 
-  const decideScan = async (s: ScanRecord, ok: boolean) => {
+  /** `approver` is set when a colleague with the right typed their PIN for someone without it: the database checks their authority, and the record names them. */
+  const decideScan = async (s: ScanRecord, ok: boolean, approver?: string) => {
     setErr('');
-    const sb = scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings));
+    const sb = approver ? null : scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings));
     if (sb) return setErr(sb);
-    if (s.employeeId === me.id && !hr.approver!.selfOk) return setErr('ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້');
+    if (s.employeeId === (approver ?? me.id) && !hr.approver!.selfOk) return setErr('ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້');
     if (!ok && !note.trim()) return setErr('ຕ້ອງໃສ່ໝາຍເຫດເມື່ອປະຕິເສດ');
-    await hr.save('scans', { ...s, status: ok ? 'approved' : 'rejected', reviewedBy: me.id, reviewNote: note.trim() || undefined }, ok ? 'scan-approve' : 'scan-reject');
+    await hr.save('scans', { ...s, status: ok ? 'approved' : 'rejected', reviewedBy: approver ?? me.id, reviewNote: note.trim() || undefined }, ok ? 'scan-approve' : 'scan-reject');
     setNote('');
   };
 
@@ -220,6 +219,13 @@ function Review({ readOnly }: { readOnly: boolean }) {
                   <label className="field">ໝາຍເຫດ (ຕ້ອງໃສ່ຖ້າປະຕິເສດ)<input className="input" value={note} onChange={e => setNote(e.target.value)} /></label>
                   <div className="row"><button className="btn danger grow" onClick={() => decideScan(sel, false)}>ປະຕິເສດ</button>
                     {sel.status === 'pending' && <button className="btn grow" onClick={() => decideScan(sel, true)}>ຢືນຢັນວ່າຖືກຕ້ອງ</button>}</div>
+                </>
+              )}
+              {readOnly && !me.roles.includes('auditor') && (sel.status === 'pending' || sel.status === 'ok') && (
+                <>
+                  <label className="field">ໝາຍເຫດ (ຕ້ອງໃສ່ຖ້າປະຕິເສດ)<input className="input" value={note} onChange={e => setNote(e.target.value)} /></label>
+                  <span className="muted small">ເຈົ້າບໍ່ມີສິດຕັດສິນເອງ — ໃຫ້ຜູ້ທີ່ມີສິດໃສ່ PIN ອະນຸມັດແທນ</span>
+                  <div className="row"><ApproveButton label="ຂໍ PIN ປະຕິເສດ" onApproved={by => decideScan(sel, false, by)} />{sel.status === 'pending' && <ApproveButton label="ຂໍ PIN ຢືນຢັນ" onApproved={by => decideScan(sel, true, by)} />}</div>
                 </>
               )}
             </div>
@@ -289,7 +295,7 @@ function Leaves() {
   const now = new Date();
   // leave and advances have different approvers: Settings decides the first, the permission table the second
   const readOnly = approvalAccess(me.roles, 'leave', hr.settings) !== 'act';
-  const advReadOnly = !canDoIn(me.roles, 'advance.decide', hr.settings);
+  const advReadOnly = !canDoIn(me, 'advance.decide', hr.settings);
   const act = async (l: LeaveRequest, d: 'approve' | 'reject') => {
     setErr('');
     try {
@@ -300,7 +306,7 @@ function Leaves() {
   };
   const actAdv = async (a: Advance, d: 'approve' | 'reject') => {
     setErr('');
-    if (!canDoIn(me.roles, 'advance.decide', hr.settings)) return setErr('ບໍ່ມີສິດອະນຸມັດ');
+    if (!canDoIn(me, 'advance.decide', hr.settings)) return setErr('ບໍ່ມີສິດອະນຸມັດ');
     const sb = scopeBlock(me, deptOf(hr.employees, a.employeeId), actionRoles('advance.decide', hr.settings));
     if (sb) return setErr(sb);
     const own = a.employeeId === me.id;
@@ -379,8 +385,8 @@ function Staff() {
   const [msg, setMsg] = useState('');
   const [changes, setChanges] = useState<ChangeRequest[]>([]);
   useEffect(() => { hr.store.list<ChangeRequest>('changes').then(setChanges); }, [hr.store, hr.employees, msg]);
-  const canEdit = canDo(me.roles, 'staff.edit');
-  const canDecideChange = canDo(me.roles, 'staff.change.decide');
+  const canEdit = canDo(me, 'staff.edit', hr.settings);
+  const canDecideChange = canDo(me, 'staff.change.decide', hr.settings);
 
   const [shiftSel, setShiftSel] = useState('');
   const [dayOffSel, setDayOffSel] = useState<number[]>([0]);
@@ -392,7 +398,7 @@ function Staff() {
   const [rolesSel, setRolesSel] = useState<Role[]>(['employee']);
   const [headSel, setHeadSel] = useState<string[]>([]);
   const depts = [...new Set(hr.employees.map(e => e.dept))];
-  const canRoles = canGrantRoles(me.roles);
+  const canRoles = canGrantRoles(me, hr.settings);
   const [hire, setHire] = useState<Employee | null>(null);
   const [importing, setImporting] = useState(false);
   const [endDate, setEndDate] = useState(ymd(new Date()));
@@ -529,7 +535,7 @@ function Staff() {
   };
 
   const pendingHires = changes.filter(c => c.status === 'pending' && c.field === 'hire' && (c.by !== me.id || !(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk)));
-  const otherDecider = hr.employees.some(x => x.id !== me.id && !x.endDate && canDo(x.roles, 'staff.change.decide'));
+  const otherDecider = hr.employees.some(x => x.id !== me.id && !x.endDate && canDo(x, 'staff.change.decide', hr.settings));
   const [approvingAll, setApprovingAll] = useState(false);
   const approveAllHires = async () => {
     setApprovingAll(true);
@@ -583,7 +589,7 @@ function Staff() {
           {(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) && !otherDecider && changes.some(c => c.status === 'pending' && c.by === me.id) && (
             <div className="row wrap" style={{ background: 'var(--warn-bg)', borderRadius: 12, padding: '8px 12px' }}>
               <span className="grow small">ບໍ່ມີຄົນອື່ນທີ່ອະນຸມັດໄດ້ (ເຈົ້າຂອງ ຫຼື ບັນຊີ). ຖ້າບໍ່ຕ້ອງການກວດ 2 ຄົນ ໃຫ້ປິດ ແລ້ວກົດ "ນຳໃຊ້ເລີຍ" — ມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ.</span>
-              {canDo(me.roles, 'settings.edit') && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
+              {canDo(me, 'settings.edit', hr.settings) && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
             </div>)}
         </div>)}
       <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th><th /></tr></thead><tbody>
@@ -687,12 +693,12 @@ function Payroll() {
   const rows = staff.map(e => summarize(hr, e, key, run.lateConfirmed.includes(e.id)));
   const total = rows.reduce((a, r) => a + r.slip.net, 0);
   const locked = run.status === 'locked';
-  const canPrepare = canDo(me.roles, 'payroll.prepare');
-  const canLock = canDo(me.roles, 'payroll.lock');
-  const canConfirmLate = canDo(me.roles, 'payroll.confirmLate');
+  const canPrepare = canDo(me, 'payroll.prepare', hr.settings);
+  const canLock = canDo(me, 'payroll.lock', hr.settings);
+  const canConfirmLate = canDo(me, 'payroll.confirmLate', hr.settings);
   const itemsGate = featureBlock(hr.company, 'payItems', ymd(now));
-  const canItems = canDo(me.roles, 'payroll.items') && !locked;
-  const canDecideItems = canDo(me.roles, 'payroll.items.decide') && !locked;
+  const canItems = canDo(me, 'payroll.items', hr.settings) && !locked;
+  const canDecideItems = canDo(me, 'payroll.items.decide', hr.settings) && !locked;
   const monthItems = (hr.payItems ?? []).filter(i => i.month === key);
   const piAmount = pi ? (pi.kind === 'commission' && pi.base && pi.rate ? commissionAmount(Number(pi.base), Number(pi.rate)) : Number(pi.amount.replace(/\D/g, ''))) : 0;
   const addItem = async () => {
@@ -719,9 +725,10 @@ function Payroll() {
 
   const toggleLate = (id: string) => hr.save('payrollRuns', { ...run, lateConfirmed: run.lateConfirmed.includes(id) ? run.lateConfirmed.filter(x => x !== id) : [...run.lateConfirmed, id] }, 'late-confirm');
   const prepare = () => hr.save('payrollRuns', { ...run, status: 'prepared', preparedBy: me.id }, 'payroll-prepare');
-  const lock = async () => {
-    const block = payrollLockBlock(run.preparedBy, me.id, { makerChecker: hr.settings.makerChecker && !hr.approver!.selfOk }) ?? pendingPayItemsBlock(hr.payItems ?? [], key); if (block) return setMsg(block);
-    await hr.save('payrollRuns', { ...run, status: 'locked', approvedBy: me.id, slips: Object.fromEntries(rows.map(r => [r.employee.id, r.slip.net])) }, 'payroll-lock');
+  /** `approver` is set when someone with the right typed their PIN for a person without it: they are the one who approves, so the two-person check is about them. */
+  const lock = async (approver?: string) => {
+    const block = payrollLockBlock(run.preparedBy, approver ?? me.id, { makerChecker: hr.settings.makerChecker && !hr.approver!.selfOk && !approver }) ?? pendingPayItemsBlock(hr.payItems ?? [], key); if (block) return setMsg(block);
+    await hr.save('payrollRuns', { ...run, status: 'locked', approvedBy: approver ?? me.id, slips: Object.fromEntries(rows.map(r => [r.employee.id, r.slip.net])) }, 'payroll-lock');
     // advances are settled only when the period is locked
     for (const r of rows) for (const a of hr.advances.filter(a => a.employeeId === r.employee.id && a.status === 'approved' && a.remaining > 0)) {
       await hr.save('advances', { ...a, remaining: Math.max(0, a.remaining - Math.ceil(a.amount / a.installments)) }, 'advance-deduct');
@@ -749,7 +756,8 @@ function Payroll() {
         <button className="btn ghost" onClick={exportBank}>Export ໂອນທະນາຄານ</button>
         <button className="btn ghost" onClick={exportCash}>Export ເງິນສົດ</button>
         {canPrepare && run.status === 'draft' && <button className="btn" onClick={prepare}>ກະກຽມ & ສົ່ງອະນຸມັດ</button>}
-        {canLock && run.status === 'prepared' && <button className="btn" onClick={lock}>ອະນຸມັດ & ລັອກງວດ</button>}
+        {canLock && run.status === 'prepared' && <button className="btn" onClick={() => lock()}>ອະນຸມັດ & ລັອກງວດ</button>}
+        {!canLock && !me.roles.includes('auditor') && run.status === 'prepared' && <ApproveButton label="ຂໍ PIN ອະນຸມັດ & ລັອກງວດ" onApproved={by => lock(by)} />}
       </div>
       {msg && <div className="error" role="alert">{msg}</div>}
       <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => itemsGate ? setPiMsg(itemsGate) : setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' })}>+ ເພີ່ມລາຍການ</button>}</div>
@@ -815,7 +823,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   };
   const addBranch = async () => {
     const b = nbBranch();
-    if (!b || !canDo(me.roles, 'settings.edit')) return;
+    if (!b || !canDo(me, 'settings.edit', hr.settings)) return;
     const errs = [...validateBranch(b, hr.branches), ...asList(branchBlock(hr.company, hr.branches.length, ymd(new Date())))];
     if (errs.length) return setMsg(errs.join(' · '));
     await hr.save('branches', b, 'branch-add');
@@ -864,7 +872,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
     setMsg(`ລຶບສາຂາ "${b.name}" ແລ້ວ`);
   };
   const useHere = async (branchId: string) => {
-    if (!canDo(me.roles, 'settings.edit')) return;
+    if (!canDo(me, 'settings.edit', hr.settings)) return;
     const p = await getPosition();
     if (!p) return setMsg('ອ່ານ GPS ບໍ່ໄດ້ (ກວດສິດຕຳແໜ່ງ)');
     const b = hr.branches.find(x => x.id === branchId)!;
@@ -882,7 +890,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
     setMsg(`ລຶບກະ "${saved.name}" ແລ້ວ`);
   };
   const saveAll = async () => {
-    if (!canDo(me.roles, 'settings.edit') || errors.length) return;
+    if (!canDo(me, 'settings.edit', hr.settings) || errors.length) return;
     await hr.save('settings', { ...s, id: s.companyId }, 'settings-update');
     for (const b of hr.branches) if (radii[b.id] !== b.radiusM) await hr.save('branches', { ...b, radiusM: radii[b.id] }, 'branch-radius');
     for (const sh of shiftRows) if (JSON.stringify(sh) !== JSON.stringify(hr.shifts.find(x => x.id === sh.id))) await hr.save('shifts', sh, 'shift-update');

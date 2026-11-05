@@ -1,3 +1,4 @@
+import type { PersonRights, RoleRights } from './rights';
 // Every record carries companyId so one deployment can serve many companies later.
 
 export type Role = 'employee' | 'head' | 'accountant' | 'owner' | 'auditor';
@@ -34,6 +35,7 @@ export interface Employee {
   dept: string;
   position: string;
   roles: Role[];
+  perm?: PersonRights; // rights ticked on (true) or off (false) for this person on top of their roles; set by Admin, checked by the database
   superAdmin?: boolean; // the platform owner's account: an Admin (owner) cannot change it or reset its PIN; the database enforces that
   homeBranchId: string;
   shiftId: string;
@@ -162,6 +164,7 @@ export interface Settings {
   compLeaveExpiryDays: number; // compensatory days off expire this long after the holiday worked; 0 = never
   approverRoles: Partial<Record<ApprovalKey, Role[]>>; // who may approve each kind of request, when the company changed the default; the owner always may
   employeeMenus: Partial<Record<SelfMenu, boolean>>; // self-service menus the company switched off (false); missing = on
+  roleRights?: RoleRights; // what the Super admin changed about a role's rights (head, accountant, auditor); a role not listed keeps its default
 }
 
 export interface AuditEntry {

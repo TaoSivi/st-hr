@@ -2,7 +2,7 @@
  * ST HR — Google Sheets backend (Google Apps Script web app).
  *
  * One Google Sheet = one company. The sheet is the database; this script is the only way the app reaches it:
- * it signs people in (employee code + 6-digit PIN), and for every read and write it checks the person's role,
+ * it signs people in (employee code + 4-digit PIN), and for every read and write it checks the person's role,
  * the same rules as supabase/schema.sql. Nobody needs access to the sheet itself, and the sheet should be shared with nobody.
  *
  * Two kinds of top accounts: Admin (role owner: runs the company) and Super admin (the platform owner: also owner, but only a Super admin may
@@ -39,7 +39,7 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
-var WRITES = { create: 1, login: 1, logout: 1, upsert: 1, del: 1, addAudit: 1, createLogin: 1, setPin: 1, changeOwnPin: 1, removeLogin: 1 };
+var WRITES = { approve: 1, create: 1, login: 1, logout: 1, upsert: 1, del: 1, addAudit: 1, createLogin: 1, setPin: 1, changeOwnPin: 1, removeLogin: 1 };
 
 function handle(req) {
   if (req.action === 'multi') {
@@ -64,9 +64,10 @@ function dispatch(req, token) {
     case 'company': session(token); return companyRecord();
     case 'list': return list(session(token), req.collection);
     case 'get': return get(session(token), req.collection, req.id);
-    case 'upsert': return upsert(session(token), req.collection, req.id, req.data);
-    case 'del': return del(session(token), req.collection, req.id);
-    case 'addAudit': return addAudit(session(token), req.entry);
+    case 'approve': return approve(session(token), req);
+    case 'upsert': return upsert(approved(session(token), req.approval), req.collection, req.id, req.data);
+    case 'del': return del(approved(session(token), req.approval), req.collection, req.id);
+    case 'addAudit': return addAudit(approved(session(token), req.approval), req.entry);
     case 'listAudit': return listAudit(session(token));
     case 'createLogin': return createLogin(session(token), req);
     case 'setPin': return setPin(session(token), req);
@@ -233,7 +234,15 @@ function readCompany() {
 
 function info() {
   var c = readCompany();
-  return c ? { companyId: c.id, name: c.name } : { companyId: null, name: null };
+  if (!c) return { companyId: null, name: null, users: [] };
+  var emps = employeesById(), today = new Date().toISOString().slice(0, 10);
+  var users = userRows().map(function (u) {
+    var e = emps[u.employeeId] || {};
+    if (e.endDate && e.endDate < today) return null; // someone who has left is not offered
+    var top = u.roles.indexOf('superadmin') >= 0 ? 'superadmin' : u.roles.filter(function (r) { return r !== 'employee'; })[0] || 'employee';
+    return { code: u.code.toUpperCase(), name: e.name || u.code.toUpperCase(), role: top };
+  }).filter(function (x) { return x; });
+  return { companyId: c.id, name: c.name, users: users };
 }
 
 function companyRecord() {
@@ -273,11 +282,11 @@ function createCompany(req) {
   if (readCompany()) throw fail('Google Sheet ນີ້ມີບໍລິສັດແລ້ວ');
   var co = req.company || {}, owner = req.owner || {};
   if (!co.id || !co.name || !owner.employeeId || !owner.code) throw fail('ຂໍ້ມູນບໍ່ຄົບ');
-  if (!/^\d{6}$/.test(String(req.pin || ''))) throw fail('PIN ຕ້ອງເປັນຕົວເລກ 6 ຕົວ');
+  checkPin(req.pin);
   var sup = req.superAdmin || null;
   if (sup) {
     if (!sup.employeeId || !sup.code) throw fail('ຂໍ້ມູນ Super admin ບໍ່ຄົບ');
-    if (!/^\d{6}$/.test(String(sup.pin || ''))) throw fail('PIN ຂອງ Super admin ຕ້ອງເປັນຕົວເລກ 6 ຕົວ');
+    checkPin(sup.pin);
     if (String(sup.code).toLowerCase() === String(owner.code).toLowerCase() || sup.employeeId === owner.employeeId) throw fail('ລະຫັດ Super admin ຕ້ອງບໍ່ຊ້ຳກັບ Admin');
   }
   var cells = [co.id, co.name, co.plan || 'pro'].concat(chunks(JSON.stringify(co)));
@@ -361,7 +370,7 @@ function session(token) {
 function memberOf(c) { return { userId: c.me, companyId: c.companyId, employeeId: c.me, roles: c.roles }; }
 function has(c, r) { return c.roles.indexOf(r) >= 0; }
 function hasAny(c, rs) { return rs.some(function (r) { return has(c, r); }); }
-function needOwner(c) { if (!has(c, 'owner')) throw fail('ສະເພາະເຈົ້າຂອງ'); }
+function needOwner(c) { needRight(c, 'userMng', 'ບໍ່ມີສິດຈັດການບັນຊີເຂົ້າລະບົບ'); }
 function isSuper(c) { return has(c, 'superadmin'); }
 /** Companies set up before Super admin existed have none, and keep working as they did. */
 function superExists() { return userRows().some(function (u) { return u.roles.indexOf('superadmin') >= 0; }); }
@@ -387,14 +396,63 @@ function recEmp(coll, rid, d) {
 }
 
 function headCovers(c, emp) {
-  if (!has(c, 'head')) return false;
-  var emps = employeesById(), h = emps[c.me], t = emps[emp];
-  if (!h || !t) return false;
-  if (h.headOf !== undefined && h.headOf !== null) return h.headOf.indexOf('*') >= 0 || h.headOf.indexOf(t.dept) >= 0;
-  return h.dept === t.dept;
+  if (!R(c, 'dataDept')) return false;
+  var emps = employeesById(), t = emps[emp];
+  if (!t) return false;
+  // the caller's own departments, or the approver's when someone stands behind them
+  return [c.me, c.approver].some(function (id) {
+    var h = id && emps[id];
+    if (!h) return false;
+    if (h.headOf !== undefined && h.headOf !== null) return h.headOf.indexOf('*') >= 0 || h.headOf.indexOf(t.dept) >= 0;
+    return h.dept === t.dept;
+  });
 }
 
-var MANAGERS = ['owner', 'accountant', 'auditor'];
+/**
+ * What each role may do, as rights (the same lists as src/domain/rights.ts; a test keeps them equal). The owner has every right; the Super admin may
+ * replace a role's list (settings.roleRights) and Admin may tick single rights on a person (employee.perm). Everything below asks for a right.
+ */
+var PAGE_KEYS = ['overview', 'review', 'approvals', 'time', 'reports', 'map', 'leave', 'staff', 'pay', 'access', 'settings', 'audit'];
+var ACTION_KEYS = ['scan.review', 'ot.preapprove', 'advance.decide', 'staff.edit', 'staff.change.decide', 'payroll.prepare', 'payroll.lock', 'payroll.confirmLate', 'payroll.items', 'payroll.items.decide', 'settings.edit'];
+var SCOPE_KEYS = ['dataAll', 'dataDept', 'writeAll', 'userMng', 'override'];
+var ALL_RIGHTS = PAGE_KEYS.map(function (p) { return 'p.' + p; }).concat(ACTION_KEYS, SCOPE_KEYS);
+var ROLE_RIGHTS = {
+  employee: [],
+  head: ['p.overview', 'p.review', 'p.approvals', 'p.time', 'p.reports', 'p.map', 'p.leave', 'scan.review', 'ot.preapprove', 'advance.decide', 'dataDept', 'override'],
+  accountant: ['p.overview', 'p.approvals', 'p.time', 'p.reports', 'p.staff', 'p.pay', 'staff.edit', 'staff.change.decide', 'payroll.prepare', 'payroll.lock', 'payroll.confirmLate', 'payroll.items', 'payroll.items.decide', 'dataAll', 'writeAll', 'override'],
+  auditor: ['p.overview', 'p.review', 'p.approvals', 'p.time', 'p.reports', 'p.map', 'p.leave', 'p.staff', 'p.pay', 'p.access', 'p.settings', 'p.audit', 'dataAll']
+};
+var EDITABLE_ROLES = ['head', 'accountant', 'auditor'];
+function isRight(k) { return ALL_RIGHTS.indexOf(k) >= 0; }
+
+function settingsRecord() {
+  if (REQ.settings === undefined) {
+    var rows = recordRows('settings').filter(function (r) { return r.data; });
+    REQ.settings = rows.length ? rows[0].data : null;
+  }
+  return REQ.settings;
+}
+
+/** The rights this caller has: their roles', then the ticks on them. The owner and the Super admin always have all of them. */
+function rightsOf(c) {
+  if (c.rights) return c.rights;
+  var set = {}, k;
+  if (has(c, 'owner') || has(c, 'superadmin')) { ALL_RIGHTS.forEach(function (x) { set[x] = true; }); return (c.rights = set); }
+  var st = settingsRecord(), custom = (st && st.roleRights) || {};
+  c.roles.forEach(function (r) {
+    var list = Array.isArray(custom[r]) && EDITABLE_ROLES.indexOf(r) >= 0 ? custom[r] : (ROLE_RIGHTS[r] || []);
+    list.forEach(function (x) { if (isRight(x)) set[x] = true; });
+  });
+  var emp = employeesById()[c.me], perm = emp && emp.perm;
+  if (perm && typeof perm === 'object') for (k in perm) {
+    if (!isRight(k)) continue;
+    if (perm[k] === true) set[k] = true; else if (perm[k] === false) delete set[k];
+  }
+  return (c.rights = set);
+}
+function R(c, key) { return rightsOf(c)[key] === true; }
+function RAny(c, keys) { return keys.some(function (k) { return R(c, k); }); }
+function needRight(c, key, msg) { if (!R(c, key)) throw fail(msg || 'ບໍ່ມີສິດ'); }
 
 function canRead(c, coll, rid, d) {
   var who = recEmp(coll, rid, d);
@@ -402,26 +460,29 @@ function canRead(c, coll, rid, d) {
     case 'employees': case 'branches': case 'shifts': case 'settings': case 'overrides': case 'payrollRuns': return true;
     case 'notifications': return who === c.me;
     case 'employeeSecret': return rid === c.me;
-    case 'changes': case 'exports': return hasAny(c, MANAGERS);
-    case 'employeePay': case 'payslips': case 'payItems': return hasAny(c, MANAGERS) || who === c.me;
-    default: return hasAny(c, MANAGERS) || who === c.me || headCovers(c, who);
+    case 'changes': case 'exports': return R(c, 'dataAll');
+    case 'employeePay': case 'payslips': case 'payItems': return RAny(c, ['p.pay', 'p.staff']) || who === c.me;
+    default: return R(c, 'dataAll') || who === c.me || headCovers(c, who);
   }
 }
 
 function canWrite(c, coll, rid, d, op) {
   var who = recEmp(coll, rid, d);
   switch (coll) {
-    case 'settings': case 'branches': return has(c, 'owner');
-    case 'shifts': return has(c, 'owner') || (has(c, 'accountant') && d && d.personal != null);
-    case 'employeePay': case 'changes': case 'payrollRuns': case 'payItems': case 'payslips': return hasAny(c, ['owner', 'accountant']);
-    case 'employees': return op !== 'delete' && (hasAny(c, ['owner', 'accountant']) || rid === c.me || (op === 'update' && headCovers(c, rid)));
-    case 'employeeSecret': return rid === c.me || (op === 'delete' && has(c, 'owner'));
-    case 'exports': return op === 'insert' && hasAny(c, ['owner', 'accountant', 'head', 'auditor']);
+    case 'settings': case 'branches': return R(c, 'settings.edit');
+    case 'shifts': return R(c, 'settings.edit') || (R(c, 'staff.edit') && d && d.personal != null);
+    case 'employeePay': case 'changes': return RAny(c, ['staff.edit', 'staff.change.decide']);
+    case 'payrollRuns': return RAny(c, ['payroll.prepare', 'payroll.lock', 'payroll.confirmLate']);
+    case 'payItems': return RAny(c, ['payroll.items', 'payroll.items.decide']);
+    case 'payslips': return RAny(c, ['payroll.prepare', 'payroll.lock']);
+    case 'employees': return op !== 'delete' && (R(c, 'staff.edit') || rid === c.me || (op === 'update' && headCovers(c, rid)));
+    case 'employeeSecret': return rid === c.me || (op === 'delete' && R(c, 'userMng'));
+    case 'exports': return op === 'insert' && R(c, 'p.reports');
     case 'notifications': return op === 'insert' || who === c.me;
-    case 'overrides': return hasAny(c, ['owner', 'head', 'accountant']);
+    case 'overrides': return RAny(c, ['scan.review', 'ot.preapprove', 'staff.edit']);
     default:
-      if (op === 'delete') return has(c, 'owner');
-      return hasAny(c, ['owner', 'accountant']) || who === c.me || headCovers(c, who);
+      if (op === 'delete') return R(c, 'settings.edit');
+      return R(c, 'writeAll') || who === c.me || headCovers(c, who);
   }
 }
 
@@ -435,23 +496,50 @@ function guardEmployee(c, id, old, next) {
     if ((old && old.superAdmin) || next.superAdmin) throw fail('ສະເພາະ Super admin ແກ້ Super admin ໄດ້');
   }
   if (!old) {
-    if (!hasAny(c, ['owner', 'accountant'])) throw fail('ບໍ່ມີສິດເພີ່ມພະນັກງານ');
+    if (!R(c, 'staff.edit')) throw fail('ບໍ່ມີສິດເພີ່ມພະນັກງານ');
     var r = next.roles || ['employee'];
-    if (JSON.stringify(r) !== '["employee"]' && !has(c, 'owner')) throw fail('ພະນັກງານໃໝ່ເລີ່ມດ້ວຍບົດບາດພະນັກງານເທົ່ານັ້ນ');
+    if (JSON.stringify(r) !== '["employee"]' && !R(c, 'userMng')) throw fail('ພະນັກງານໃໝ່ເລີ່ມດ້ວຍບົດບາດພະນັກງານເທົ່ານັ້ນ');
     if (supers && !isSuper(c) && r.indexOf('owner') >= 0) throw fail('ສະເພາະ Super admin ກຳນົດ Admin ໄດ້');
+    guardPerm(c, id, null, next);
     return;
   }
   if (JSON.stringify(old.roles) !== JSON.stringify(next.roles) || JSON.stringify(old.headOf) !== JSON.stringify(next.headOf)) {
-    if (!has(c, 'owner')) throw fail('ສະເພາະເຈົ້າຂອງ ປ່ຽນບົດບາດໄດ້');
+    if (!R(c, 'userMng')) throw fail('ບໍ່ມີສິດປ່ຽນບົດບາດ');
   }
   if (supers && !isSuper(c) && ((old.roles || []).indexOf('owner') >= 0) !== ((next.roles || []).indexOf('owner') >= 0)) throw fail('ສະເພາະ Super admin ກຳນົດ Admin ໄດ້');
-  if (hasAny(c, ['owner', 'accountant'])) return;
+  guardPerm(c, id, old, next);
+  if (R(c, 'staff.edit')) return;
   var keys = {}, k;
   for (k in old) keys[k] = 1;
   for (k in next) keys[k] = 1;
   var allowed = id === c.me ? SELF_KEYS : HEAD_KEYS;
   for (k in keys) {
     if (JSON.stringify(old[k]) !== JSON.stringify(next[k]) && allowed.indexOf(k) < 0) throw fail('ແກ້ຂໍ້ມູນນີ້ເອງບໍ່ໄດ້: ' + k);
+  }
+}
+
+/** The ticks on a person: only someone who manages rights sets them, never on themselves, and never a right the setter does not hold. */
+function guardPerm(c, id, old, next) {
+  var before = old && old.perm ? JSON.stringify(old.perm) : '', after = next.perm ? JSON.stringify(next.perm) : '';
+  if (before === after) return;
+  if (!R(c, 'userMng')) throw fail('ບໍ່ມີສິດຕັ້ງສິດຂອງພະນັກງານ');
+  if (id === c.me) throw fail('ຕັ້ງສິດຂອງຕົນເອງບໍ່ໄດ້');
+  var p = next.perm || {}, oldp = (old && old.perm) || {}, k;
+  if (typeof p !== 'object' || Array.isArray(p)) throw fail('ສິດບໍ່ຖືກຕ້ອງ');
+  for (k in p) {
+    if (!isRight(k) || typeof p[k] !== 'boolean') throw fail('ສິດບໍ່ຖືກຕ້ອງ');
+    if (p[k] === true && oldp[k] !== true && !R(c, k)) throw fail('ໃຫ້ສິດທີ່ຕົນເອງບໍ່ມີບໍ່ໄດ້');
+  }
+}
+
+/** What each role gives is the Super admin's to change (the Admin's, in a company that has no Super admin). */
+function guardSettings(c, old, next) {
+  var before = JSON.stringify((old && old.roleRights) || {}), after = JSON.stringify((next && next.roleRights) || {});
+  if (before === after) return;
+  if (superExists() ? !isSuper(c) : !has(c, 'owner')) throw fail('ສະເພາະ Super admin ປ່ຽນສິດຂອງບົດບາດໄດ້');
+  var rr = next.roleRights || {}, role;
+  for (role in rr) {
+    if (EDITABLE_ROLES.indexOf(role) < 0 || !Array.isArray(rr[role]) || !rr[role].every(isRight)) throw fail('ສິດຂອງບົດບາດບໍ່ຖືກຕ້ອງ');
   }
 }
 
@@ -483,9 +571,11 @@ function upsert(c, coll, id, data) {
   var op = old ? 'update' : 'insert';
   if (!canWrite(c, coll, id, data, op) || (old && !canWrite(c, coll, id, old, op))) throw fail('ບໍ່ມີສິດບັນທຶກຂໍ້ມູນນີ້');
   if (coll === 'employees') guardEmployee(c, id, old, data);
-  writeRow(s, row, [id, new Date().toISOString(), c.me].concat(chunks(JSON.stringify(data))));
+  if (coll === 'settings') guardSettings(c, old, data);
+  writeRow(s, row, [id, new Date().toISOString(), by(c)].concat(chunks(JSON.stringify(data))));
   collectionChanged(coll);
-  if (coll === 'employees') { syncRoles(id, data); REQ.emps = undefined; }
+  if (coll === 'employees') { syncRoles(id, data); REQ.emps = undefined; c.rights = undefined; }
+  if (coll === 'settings') { REQ.settings = undefined; c.rights = undefined; }
   return true;
 }
 
@@ -524,12 +614,12 @@ function appendAudit(by, action, entity, entityId, before, after) {
 
 function addAudit(c, e) {
   if (!e || !e.action) throw fail('ຂໍ້ມູນບໍ່ຖືກ');
-  appendAudit(c.me, String(e.action), String(e.entity || ''), String(e.entityId || ''), e.before, e.after);
+  appendAudit(by(c), String(e.action), String(e.entity || ''), String(e.entityId || ''), e.before, e.after);
   return true;
 }
 
 function listAudit(c) {
-  if (!hasAny(c, ['owner', 'auditor'])) throw fail('ບໍ່ມີສິດເບິ່ງບັນທຶກ');
+  if (!R(c, 'p.audit')) throw fail('ບໍ່ມີສິດເບິ່ງບັນທຶກ');
   var s = tab('_audit', AUDIT_HEADER), n = s.getLastRow();
   if (n < 2) return [];
   return s.getRange(2, 1, n - 1, 8).getValues().map(function (r) {
@@ -538,8 +628,53 @@ function listAudit(c) {
   });
 }
 
+// ---------------------------------------------------------------- approving with a PIN
+var APPROVAL_SECONDS = 120;
+/** Someone without the right asks a colleague who has it (and may approve for others) to type their PIN: the colleague's action rights then count for this caller, for two minutes. */
+function approve(c, req) {
+  var code = String(req.code || '').trim().toLowerCase(), pin = String(req.pin || '');
+  var all = userRows(), u = null;
+  for (var i = 0; i < all.length; i++) if (all[i].code === code) u = all[i];
+  var bad = 'ລະຫັດພະນັກງານ ຫຼື PIN ບໍ່ຖືກ';
+  if (!u) { Utilities.sleep(400); throw fail(bad); }
+  var now = Date.now();
+  if (u.lockUntil > now) throw fail('ໃສ່ PIN ຜິດຫຼາຍເທື່ອ — ລໍ ' + Math.ceil((u.lockUntil - now) / 60000) + ' ນາທີ');
+  if (hashPin(u.salt, pin) !== u.hash) {
+    u.fails += 1;
+    if (u.fails >= MAX_FAILS) { u.lockUntil = now + LOCK_MIN * 60000; u.fails = 0; }
+    saveUser(u);
+    throw fail(bad);
+  }
+  if (u.fails || u.lockUntil) { u.fails = 0; u.lockUntil = 0; saveUser(u); }
+  if (u.employeeId === c.me) throw fail('ຜູ້ອະນຸມັດຕ້ອງເປັນອີກຄົນໜຶ່ງ');
+  var who = { me: u.employeeId, roles: u.roles, companyId: c.companyId, user: u };
+  if (!R(who, 'override')) throw fail('ຄົນນີ້ບໍ່ມີສິດອະນຸມັດແທນ');
+  var token = newToken();
+  cachePut('a:' + c.companyId + ':' + sha256(token), { by: u.employeeId, to: c.me, until: now + APPROVAL_SECONDS * 1000 }, APPROVAL_SECONDS);
+  var e = employeesById()[u.employeeId];
+  appendAudit(u.employeeId, 'approve-for', 'employees', c.me, null, { to: c.me });
+  return { approval: token, approverId: u.employeeId, approverName: (e && e.name) || u.code.toUpperCase(), seconds: APPROVAL_SECONDS };
+}
+
+/** The caller with an approval behind them: their rights plus the approver's action rights. Managing logins and rights is never lent. */
+function approved(c, token) {
+  if (!token) return c;
+  var hit = cacheGet('a:' + c.companyId + ':' + sha256(String(token)));
+  if (!hit || hit.to !== c.me || hit.until < Date.now()) throw fail('ການອະນຸມັດໝົດເວລາແລ້ວ — ຂໍໃໝ່', '');
+  var u = null, all = userRows();
+  for (var i = 0; i < all.length; i++) if (all[i].employeeId === hit.by) u = all[i];
+  if (!u) throw fail('ຜູ້ອະນຸມັດຖືກປິດບັນຊີແລ້ວ');
+  var lent = rightsOf({ me: u.employeeId, roles: u.roles, companyId: c.companyId, user: u }), mine = rightsOf(c), set = {}, k;
+  for (k in mine) set[k] = true;
+  for (k in lent) if (k !== 'userMng') set[k] = true;
+  var out = {}; for (k in c) out[k] = c[k];
+  out.rights = set; out.approver = hit.by;
+  return out;
+}
+function by(c) { return c.approver ? c.me + ' ← ' + c.approver : c.me; }
+
 // ---------------------------------------------------------------- logins (owner only)
-function checkPin(pin) { if (!/^\d{6}$/.test(String(pin || ''))) throw fail('PIN ຕ້ອງເປັນຕົວເລກ 6 ຕົວ'); }
+function checkPin(pin) { if (!/^\d{4}$/.test(String(pin || ''))) throw fail('PIN ຕ້ອງເປັນຕົວເລກ 4 ຕົວ'); }
 
 function createLogin(c, req) {
   needOwner(c);

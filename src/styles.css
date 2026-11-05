@@ -330,3 +330,24 @@ table.t td.num, table.t th.num { text-align: right; }
 /* request page: equal buttons in a grid instead of ragged wrapping */
 .req-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .req-grid .btn { padding: 0 12px; }
+
+/* sign-in cards and the PIN pad (same look as ST POS) */
+.usersgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 10px; }
+.ucard { display: flex; flex-direction: column; align-items: center; gap: 4px; min-height: 108px; padding: 14px 8px 12px; border: 2px solid transparent; border-radius: 18px; background: var(--card); box-shadow: var(--sh-1); text-align: center; transition: border-color .15s, transform .08s; }
+.ucard:hover { border-color: var(--line-2); }
+.ucard:active { transform: scale(.98); }
+.ucard.sel { border-color: var(--accent); background: var(--ok-bg); }
+.ucard .uav { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, var(--mint), var(--accent)); color: var(--dark); font-weight: 800; }
+.ucard .unm { font-weight: 700; line-height: 1.3; word-break: break-word; }
+.ucard .url { font-size: 12px; color: var(--muted); }
+.pinpad { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.pindots { display: flex; gap: 14px; min-height: 22px; }
+.pindots span { width: 18px; height: 18px; border-radius: 50%; border: 2px solid var(--line-2); background: transparent; transition: background .12s, border-color .12s; }
+.pindots span.f { background: var(--primary); border-color: var(--primary); }
+.pindots.shake { animation: pinShake .35s; }
+@keyframes pinShake { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+@media (prefers-reduced-motion: reduce) { .pindots.shake { animation: none; } }
+.numpad { display: grid; grid-template-columns: repeat(3, 76px); gap: 12px; }
+.numpad button { height: 64px; border: none; border-radius: 18px; background: var(--card); box-shadow: var(--sh-1); font-size: 24px; font-weight: 700; transition: background .1s, transform .08s; }
+.numpad button:active:not(:disabled) { background: var(--ok-bg); transform: scale(.96); }
+.numpad button:disabled { opacity: .5; }
