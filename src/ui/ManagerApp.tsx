@@ -32,6 +32,7 @@ import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
 import ApproveButton from './ApproveButton';
 import PinDialog from './PinDialog';
+import PlacePicker from './PlacePicker';
 import { PAGE_LABEL } from './rightLabels';
 import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
@@ -833,12 +834,6 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
   const [nb, setNb] = useState<{ name: string; lat: string; lng: string; radiusM: string } | null>(null);
   const nbBranch = (): Branch | null => (nb ? { id: 'b-' + uid().slice(0, 8), companyId: me.companyId, name: nb.name.trim(), lat: nb.lat.trim() === '' ? NaN : Number(nb.lat), lng: nb.lng.trim() === '' ? NaN : Number(nb.lng), radiusM: nb.radiusM.trim() === '' ? NaN : Number(nb.radiusM) } : null);
   const nbErrors = (() => { const b = nbBranch(); return b ? [...validateBranch(b, hr.branches), ...asList(branchBlock(hr.company, hr.branches.length, ymd(new Date())))] : []; })();
-  const fillHere = async () => {
-    const p = await getPosition();
-    if (!p) return setMsg('ອ່ານ GPS ບໍ່ໄດ້ (ກວດສິດຕຳແໜ່ງ) — ໃສ່ພິກັດເອງໄດ້');
-    setNb(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v));
-    setMsg(`ໃຊ້ຕຳແໜ່ງນີ້ (±${Math.round(p.accuracyM)} ມ.)`);
-  };
   const addBranch = async () => {
     const b = nbBranch();
     if (!b || !canDo(me, 'settings.edit', hr.settings)) return;
@@ -949,7 +944,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       })()}
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {tab === 'places' && <div className="card col"><h2>ສາຂາ & GPS</h2>
-        <span className="muted small">ພະນັກງານລົງເວລາໄດ້ເມື່ອຢູ່ໃນລັດສະໝີຂອງສາຂາ. ຢືນຢູ່ສາຂາແລ້ວກົດ 'ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້' ເພື່ອຕັ້ງຈຸດໃຫ້ຖືກ.</span>
+        <span className="muted small">ພະນັກງານລົງເວລາໄດ້ເມື່ອຢູ່ໃນລັດສະໝີຂອງສາຂາ. ຢືນຢູ່ສາຂາແລ້ວກົດ 'ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້' ປຸ່ມດຽວຕັ້ງຈຸດໃຫ້ເລີຍ, ຫຼື ກົດ 'ແກ້ຊື່ / ພິກັດ' ເພື່ອຄົ້ນຫາຊື່ບ່ອນ.</span>
         {hr.branches.map(b => <div key={b.id} className="row wrap"><b className="grow">{b.name}</b><span className="muted small">{b.lat.toFixed(5)}, {b.lng.toFixed(5)}</span>
           <label className="row small">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
             onChange={e => setRadii({ ...radii, [b.id]: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
@@ -959,6 +954,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
           {bEdit?.id === b.id && (
             <div className="col" style={{ width: '100%', border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
               <label className="field">ຊື່ສາຂາ<input className="input" value={bEdit.name} onChange={e => setBEdit({ ...bEdit, name: e.target.value })} /></label>
+              <PlacePicker lat={bEdit.lat} lng={bEdit.lng} onPick={(p, note) => { setBEdit(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v)); setMsg(`${note} — ກົດ "ບັນທຶກສາຂາ" ເພື່ອເກັບ`); }} />
               <div className="row wrap"><label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={bEdit.lat} onChange={e => setBEdit({ ...bEdit, lat: e.target.value })} /></label>
                 <label className="field grow">ລອງຈິຈູດ (lng)<input className="input" inputMode="decimal" value={bEdit.lng} onChange={e => setBEdit({ ...bEdit, lng: e.target.value })} /></label></div>
               <div className="row"><button className="btn ghost" onClick={() => setBEdit(null)}>ຍົກເລີກ</button><button className="btn" onClick={saveBranch}>ບັນທຶກສາຂາ</button></div>
@@ -972,7 +968,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
               <label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={nb.lat} onChange={e => setNb({ ...nb, lat: e.target.value })} /></label>
               <label className="field grow">ລອງຈິຈູດ (lng)<input className="input" inputMode="decimal" value={nb.lng} onChange={e => setNb({ ...nb, lng: e.target.value })} /></label>
               <label className="field" style={{ width: 110 }}>ລັດສະໝີ (ມ.)<input className="input" inputMode="numeric" value={nb.radiusM} onChange={e => setNb({ ...nb, radiusM: e.target.value })} /></label></div>
-            <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={fillHere}>ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>
+            <PlacePicker lat={nb.lat} lng={nb.lng} onPick={(p, note) => { setNb(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v)); setMsg(note); }} />
             {nbErrors.length > 0 && (nb.name || nb.lat || nb.lng) && <span className="small" style={{ color: 'var(--bad, #c0392b)' }}>{nbErrors.join(' · ')}</span>}
             <div className="row"><button className="btn ghost" onClick={() => setNb(null)}>ຍົກເລີກ</button><button className="btn" disabled={nbErrors.length > 0} onClick={addBranch}>ເພີ່ມສາຂາ</button></div>
           </div>)}
