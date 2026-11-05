@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
 import { RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
+import { clearLocalCache, localCache } from '../data/offlineCache';
 import {
   approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
   activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
@@ -254,12 +255,12 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     loadCompany(id).then(setCompany).catch(e => setErr(e?.message || 'ໂຫຼດບໍລິສັດບໍ່ໄດ້'));
   }, [member, id]);
 
-  const store = useMemo(() => (id ? new RemoteStore(activeBackend(), id, outboxFor(id)) : null), [id]);
+  const store = useMemo(() => (id ? new RemoteStore(activeBackend(), id, outboxFor(id), localCache(id)) : null), [id]);
   const owner = !!member?.roles.includes('owner');
   const refreshLogins = useCallback(async () => { if (id && owner) setLogins(await listLogins(id)); }, [id, owner]);
   useEffect(() => { refreshLogins().catch(() => { /* the list is only for the owner's PIN page */ }); }, [refreshLogins]);
 
-  const leave = async () => { await signOut().catch(() => { /* already out */ }); setMember(null); };
+  const leave = async () => { await signOut().catch(() => { /* already out */ }); clearLocalCache(); setMember(null); };
   const api: OnlineApi = useMemo(() => ({
     logins,
     refreshLogins,
@@ -273,7 +274,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
   if (probing) return <div className="empty">ກຳລັງເຊື່ອມຕໍ່… <div className="small muted">ລໍສັກຄູ່</div></div>;
   if (!readServerConfig() || !id) return <Connect onDone={nid => { setId(nid); setMember(undefined); }} onBack={onLeave} />;
   if (member === undefined) return <div className="empty">ກຳລັງກວດ…</div>;
-  if (!member) return <ServerLogin companyId={id} onIn={setMember} onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
+  if (!member) return <ServerLogin companyId={id} onIn={m => { clearLocalCache(); setMember(m); }}onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
   if (err) return <div className="phone"><div className="screen"><div className="error" role="alert">{err}</div><button className="btn" onClick={leave}>ອອກ</button></div></div>;
   if (!company || !store) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
   return <>{children({ companyId: id, online: { store, company, meId: member.employeeId, onSignOut: leave, api, pollMs: serverKind() === 'sheets' ? 45_000 : undefined } })}</>;

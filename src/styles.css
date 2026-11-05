@@ -391,3 +391,6 @@ table.t td.num, table.t th.num { text-align: right; }
 /* manage records: one tidy line per record */
 .rec-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; }
 .rec-row:hover { background: #f8fbfb; }
+
+/* no-signal note */
+.offline-note { position: fixed; bottom: calc(84px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 60; max-width: calc(100% - 24px); padding: 6px 14px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-size: 13px; font-weight: 600; line-height: 1.5; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,.15); pointer-events: none; }

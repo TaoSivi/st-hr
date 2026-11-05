@@ -1,6 +1,6 @@
 import type { AuditEntry } from '../domain/types';
 import type { Company } from '../domain/company';
-import type { Backend, Row } from './remote';
+import { isOffline, type Backend, type Row } from './remote';
 
 /**
  * The Google Sheets side of the online mode. A Google Sheet holds one company; an Apps Script web app (apps-script/Code.gs) in front of it
@@ -19,6 +19,16 @@ export function peekSheetInfo(): SheetInfo | null {
 }
 const keepInfo = (i: SheetInfo) => { try { localStorage.setItem(INFO, JSON.stringify(i)); } catch { /* private mode: no head start next time */ } };
 export interface SheetMember { userId: string; companyId: string; employeeId: string; roles: string[] }
+
+/** Who this phone is signed in as (and their company), as the server last said: lets the app open with no signal. Wiped on sign-out. */
+const ME = 'sthr-sheets-me';
+type KeptMe = { member: SheetMember; company?: Company };
+function peekMe(): KeptMe | null {
+  try { const v = JSON.parse(localStorage.getItem(ME) || 'null'); return v?.member?.employeeId ? (v as KeptMe) : null; } catch { return null; }
+}
+function keepMe(member: SheetMember | null, company?: Company) {
+  try { member ? localStorage.setItem(ME, JSON.stringify({ member, company })) : localStorage.removeItem(ME); } catch { /* private mode: needs the signal to open */ }
+}
 
 const TOKEN = 'sthr-sheets-token';
 const store = {
@@ -118,7 +128,7 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     p.catch(() => { if (infoTrip === mine) infoTrip = null; });
     return p;
   };
-  const asMember = (r: { token: string; member: SheetMember; company?: Company }) => { tokens.set(r.token); firstCompany = r.company; infoTrip = null; return r.member; };
+  const asMember = (r: { token: string; member: SheetMember; company?: Company }) => { tokens.set(r.token); firstCompany = r.company; infoTrip = null; keepMe(r.member, r.company); return r.member; };
 
   return {
     backend,
@@ -129,15 +139,27 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
       try {
         const { company, ...m } = await post<SheetMember & { company?: Company }>({ action: 'me' });
         firstCompany = company;
+        keepMe(m, company);
         return m;
-      } catch (e: any) { if (e?.code === 'auth') return null; throw e; }
+      } catch (e: any) {
+        if (e?.code === 'auth') { keepMe(null); return null; }
+        // no signal: the person is still who the last answer said, so the app opens and a clock-in can be made
+        const kept = isOffline(e) ? peekMe() : null;
+        if (kept) { firstCompany = kept.company; return kept.member; }
+        throw e;
+      }
     },
     async signIn(code: string, pin: string) { return asMember(await post({ action: 'login', code, pin })); },
-    async signOut() { try { await post({ action: 'logout' }); } finally { tokens.set(null); } },
+    async signOut() { try { await post({ action: 'logout' }); } finally { tokens.set(null); keepMe(null); } },
     async loadCompany(): Promise<Company> {
       const c = firstCompany;
       firstCompany = undefined;
-      return c ?? await post<Company>({ action: 'company' });
+      if (c) return c;
+      try { return await post<Company>({ action: 'company' }); } catch (e) {
+        const kept = isOffline(e) ? peekMe()?.company : undefined;
+        if (kept) return kept;
+        throw e;
+      }
     },
     async createCompany(p: { signupCode: string; company: Company; ownerEmployeeId: string; ownerCode: string; pin: string; superAdmin?: { employeeId: string; code: string; pin: string } }) {
       return asMember(await post({ action: 'create', signupCode: p.signupCode, company: p.company, owner: { employeeId: p.ownerEmployeeId, code: p.ownerCode }, pin: p.pin, superAdmin: p.superAdmin }));

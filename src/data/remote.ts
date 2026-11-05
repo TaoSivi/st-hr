@@ -1,5 +1,6 @@
 import type { AuditEntry, Employee } from '../domain/types';
 import type { DataStore } from './store';
+import type { ReadCache } from './offlineCache';
 
 /**
  * The online store: the same DataStore the app already uses, over a shared database.
@@ -51,14 +52,24 @@ export const OUTBOX_COLLECTIONS = ['scans']; // clock-ins must work with no sign
 export class RemoteStore implements DataStore {
   private seen = new Map<string, any>(); // `${collection}/${id}` → what the database last said, to write only what changed
 
-  constructor(private be: Backend, private companyId: string, private outbox?: Outbox) {}
+  constructor(private be: Backend, private companyId: string, private outbox?: Outbox, private cache?: ReadCache) {}
 
   private key = (c: string, id: string) => `${c}/${id}`;
   private remember(c: string, rows: Row[]) { for (const r of rows) this.seen.set(this.key(c, r.id), r.data); }
 
+  /** Rows from the database; with no signal, the copy this phone kept the last time it had one. */
   private async rows(c: string): Promise<Row[]> {
-    const rows = await this.be.list(this.companyId, c);
+    let rows: Row[];
+    try {
+      rows = await this.be.list(this.companyId, c);
+    } catch (e) {
+      const kept = this.cache && isOffline(e) ? this.cache.read(c) : null;
+      if (!kept) throw e;
+      this.remember(c, kept);
+      return kept;
+    }
     this.remember(c, rows);
+    this.cache?.write(c, rows);
     return rows;
   }
 
