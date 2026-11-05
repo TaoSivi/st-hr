@@ -33,6 +33,7 @@ import AccessPage from './AccessPage';
 import ApproveButton from './ApproveButton';
 import PinDialog from './PinDialog';
 import PlacePicker from './PlacePicker';
+import RecordsPage from './RecordsPage';
 import { PAGE_LABEL } from './rightLabels';
 import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
@@ -41,7 +42,7 @@ import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, s
 
 type Page = ManagerPage;
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
-const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', access: 'privacy', settings: 'settings', audit: 'audit' };
+const PAGE_ICON: Record<Page, IconName> = { overview: 'dashboard', review: 'scan', approvals: 'ot', time: 'clock', reports: 'reports', map: 'map', leave: 'leave', staff: 'directory', pay: 'pay', access: 'privacy', settings: 'settings', audit: 'audit', records: 'schedule' };
 
 /** A blocking message as a list, so it can be spread next to other messages (spreading the string itself would split it into letters). */
 const asList = (m: string | null) => (m ? [m] : []);
@@ -90,6 +91,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
           {page === 'access' && <AccessPage />}
           {page === 'settings' && <SettingsPage readOnly={!canDo(me, 'settings.edit', hr.settings)} />}
           {page === 'audit' && <Audit />}
+          {page === 'records' && <RecordsPage />}
         </>}
       </main>
     </div>

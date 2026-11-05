@@ -7,8 +7,8 @@ import type { Role } from './types';
  * apps-script/Code.gs repeats ROLE_RIGHTS and enforces them on every read and write; a test keeps the two copies equal.
  */
 
-export type ManagerPage = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'access' | 'settings' | 'audit';
-export const PAGES: ManagerPage[] = ['overview', 'review', 'approvals', 'time', 'reports', 'map', 'leave', 'staff', 'pay', 'access', 'settings', 'audit'];
+export type ManagerPage = 'overview' | 'review' | 'approvals' | 'time' | 'reports' | 'map' | 'leave' | 'staff' | 'pay' | 'access' | 'settings' | 'audit' | 'records';
+export const PAGES: ManagerPage[] = ['overview', 'review', 'approvals', 'time', 'reports', 'map', 'leave', 'staff', 'pay', 'access', 'settings', 'audit', 'records'];
 
 export type Action =
   | 'scan.review' | 'ot.preapprove' | 'advance.decide'
@@ -38,7 +38,8 @@ export const PAGE_ROLES: Record<ManagerPage, Role[]> = {
   pay: ['owner', 'accountant', 'auditor'],
   access: ['owner', 'auditor'],
   settings: ['owner', 'auditor'],
-  audit: ['owner', 'auditor']
+  audit: ['owner', 'auditor'],
+  records: ['owner'] // edit or delete any record: the Admin and the Super admin
 };
 
 /** Every write-type action. The auditor and the plain employee must never appear here. */

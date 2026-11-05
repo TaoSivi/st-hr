@@ -33,3 +33,16 @@ An Admin or Super admin can look at a person's PIN and set a new one (Access pag
 - A PIN set before this feature has no sealed copy; it becomes viewable the next time its owner signs in, or when an Admin sets a new PIN.
 - Whoever can edit the Apps Script project or its Script Properties can read `PIN_KEY` and so unscramble PINs. Keep that access to the company owner.
 - Deleting `PIN_KEY` makes every sealed PIN unreadable (people still sign in normally; sealed copies are made again at their next sign-in).
+
+## Admin needs the Super admin for some things
+
+In a company that has a Super admin, an **Admin** (not the Super admin) needs the Super admin PIN behind these, and the database refuses them otherwise (error code `needsuper`):
+
+- deleting any record for good (people, leave, clock-ins, advances, pay items, payroll months, requests, shifts, branches);
+- changing a person pay, allowance or bank account;
+- closing **or reopening** a payroll month;
+- editing a clock-in after the fact (its kind, time, branch or owner; review decisions and photo purges stay free).
+
+The web app opens the Super admin PIN card by itself when that happens and repeats the action with the approval attached (one approval, 120 seconds, the sheet records "Admin <- Super admin"). The Super admin never needs approval. A company with no Super admin behaves as before.
+
+Every deletion writes the whole record to the audit log (`record-delete`). A person can be deleted only when nothing was ever recorded for them (use "close account" otherwise); their login and pay rows go with them. The "Manage records" page (Admin and Super admin only) lists and edits or deletes every kind of record.

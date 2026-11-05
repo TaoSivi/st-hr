@@ -580,3 +580,114 @@ describe('Admin and Super admin look up and set PINs (Code.gs run against a fake
     expect(audit().filter(a => a === 'pin-reveal')).toHaveLength(1);
   });
 });
+
+describe('the Super admin gate on an Admin (Code.gs run against a fake sheet)', () => {
+  let t: ReturnType<typeof loadScript>;
+  let sup: ReturnType<typeof phone>, admin: ReturnType<typeof phone>, acc: ReturnType<typeof phone>;
+  const grid = (name: string) => [...t.sheets.values()].find(x => x.name === name)?.grid ?? [];
+  const auditActions = () => grid('_audit').slice(1).map((r: any[]) => r[3]);
+  const leave = { id: 'l1', companyId: 'c1', employeeId: 'e-s', type: 'annual', from: '2026-11-10', to: '2026-11-10', days: 1, reason: 'x', status: 'approved', approvals: [] } as any;
+  const scan = (extra: object = {}) => ({ id: 's1', companyId: 'c1', employeeId: 'e-s', kind: 'in', deviceTime: '2026-11-04T08:00:00.000Z', status: 'ok', reasons: [], ...extra }) as any;
+  const run2 = { runs: 0 };
+  const viaSuper = async <T,>(who: typeof admin, run: () => Promise<T>) => who.api.withApproval((await who.api.approve('ST-000', '9999')).approval, run);
+  const slip = (status: string) => ({ id: '2026-10', companyId: 'c1', status, lateConfirmed: [] }) as any;
+  const asSalary = (n: number) => emp('e-s', 'ST-005', { name: 'ພະນັກງານ', baseSalary: n });
+
+  beforeEach(async () => {
+    t = loadScript();
+    sup = phone(t.post);
+    await sup.api.createCompany({ signupCode: 'secret-code', company: { id: 'c1', name: 'ບໍລິສັດຈິງ' } as any, ownerEmployeeId: 'e-admin', ownerCode: 'ST-001', pin: '1111', superAdmin: { employeeId: 'e-super', code: 'ST-000', pin: '9999' } });
+    const put = (e: Employee) => sup.store.put('employees', e, 'e-super', 'seed');
+    await put(emp('e-admin', 'ST-001', { name: 'Admin', roles: ['employee', 'owner'] }));
+    await put(emp('e-super', 'ST-000', { name: 'Super admin', roles: ['employee', 'owner'], superAdmin: true }));
+    await put(emp('e-acc', 'ST-002', { name: 'ບັນຊີ', roles: ['employee', 'accountant'] }));
+    await put(emp('e-s', 'ST-005', { name: 'ພະນັກງານ' }));
+    await put(emp('e-tmp', 'ST-009', { name: 'ຄົນໃໝ່' }));
+    await sup.api.createLogin('e-acc', 'ST-002', '2222');
+    await sup.api.createLogin('e-s', 'ST-005', '5555');
+    await sup.api.createLogin('e-tmp', 'ST-009', '9090');
+    [admin, acc] = [phone(t.post), phone(t.post)];
+    await admin.api.signIn('ST-001', '1111'); await acc.api.signIn('ST-002', '2222');
+    await sup.store.put('leaves', leave, 'e-super', 'seed');
+    await sup.store.put('scans', scan(), 'e-super', 'seed');
+    run2.runs++;
+  });
+
+  it('the Super admin deletes, edits pay, closes payroll and edits a clock-in with nobody approving', async () => {
+    await sup.store.put('employees', asSalary(6_000_000), 'e-super', 'x');
+    await sup.store.put('payrollRuns', slip('locked'), 'e-super', 'x');
+    await sup.store.put('scans', scan({ deviceTime: '2026-11-04T09:00:00.000Z' }), 'e-super', 'x');
+    await sup.store.remove('leaves', 'l1', 'e-super', 'x');
+  });
+
+  it('an Admin is told to get the Super admin for each of the four things, with a code the app can act on', async () => {
+    await expect(admin.store.remove('leaves', 'l1', 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+    await expect(admin.store.put('employees', asSalary(6_000_000), 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+    await expect(admin.store.put('employees', emp('e-s', 'ST-005', { name: 'ພະນັກງານ', bankAccount: '999' }), 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+    await expect(admin.store.put('payrollRuns', slip('locked'), 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+    await expect(admin.store.put('scans', scan({ deviceTime: '2026-11-04T09:00:00.000Z' }), 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+  });
+
+  it('with the Super admin PIN behind it each goes through, and the sheet names both people', async () => {
+    await viaSuper(admin, () => admin.store.remove('leaves', 'l1', 'e-admin', 'x'));
+    expect(await sup.store.list('leaves')).toHaveLength(0);
+    await viaSuper(admin, () => admin.store.put('employees', asSalary(6_000_000), 'e-admin', 'x'));
+    expect(grid('c_employeePay').find((r: any[]) => r[0] === 'e-s')![2]).toBe('e-admin ← e-super');
+    await viaSuper(admin, () => admin.store.put('scans', scan({ deviceTime: '2026-11-04T09:00:00.000Z' }), 'e-admin', 'x'));
+  });
+
+  it('every deletion keeps the whole record in the audit log, by the Admin and the Super admin who stood behind', async () => {
+    await viaSuper(admin, () => admin.store.remove('leaves', 'l1', 'e-admin', 'x'));
+    const row = grid('_audit').slice(1).find((r: any[]) => r[3] === 'record-delete')!;
+    expect(row[2]).toBe('e-admin ← e-super');
+    expect(row[4]).toBe('leaves');
+    expect(JSON.parse(row[6])).toMatchObject({ id: 'l1', employeeId: 'e-s', days: 1 });
+  });
+
+  it('the approval has to be the Super admin one: an accountant PIN does not do', async () => {
+    const a = await admin.api.approve('ST-002', '2222');
+    await expect(admin.api.withApproval(a.approval, () => admin.store.remove('leaves', 'l1', 'e-admin', 'x'))).rejects.toMatchObject({ code: 'needsuper' });
+  });
+
+  it('normal work is not gated: a new hire first pay, a review decision, a photo purge, a note', async () => {
+    await admin.store.put('employees', emp('e-new', 'ST-020', { name: 'ໃໝ່' }), 'e-admin', 'employee-hire');
+    await admin.store.put('scans', scan({ status: 'approved', reviewedBy: 'e-admin', photo: undefined }), 'e-admin', 'scan-approve');
+    await admin.store.put('notifications', { id: 'n1', companyId: 'c1', userId: 'e-admin', text: 'x', at: 'x', read: false } as any, 'e-admin', 'notify');
+    await admin.store.remove('notifications', 'n1', 'e-admin', 'x');
+  });
+
+  it('reopening a closed payroll month needs the Super admin too', async () => {
+    await sup.store.put('payrollRuns', slip('locked'), 'e-super', 'x');
+    await expect(admin.store.put('payrollRuns', slip('prepared'), 'e-admin', 'x')).rejects.toMatchObject({ code: 'needsuper' });
+    await viaSuper(admin, () => admin.store.put('payrollRuns', slip('prepared'), 'e-admin', 'x'));
+  });
+
+  it('a person with no history can be deleted (their login and pay rows go with them); one with history cannot', async () => {
+    await viaSuper(admin, () => admin.store.remove('employees', 'e-tmp', 'e-admin', 'x'));
+    expect((await sup.store.list<Employee>('employees')).some(e => e.id === 'e-tmp')).toBe(false);
+    expect(grid('c_employeePay').some((r: any[]) => r[0] === 'e-tmp')).toBe(false);
+    await expect(phone(t.post).api.signIn('ST-009', '9090')).rejects.toThrow();
+    await expect(viaSuper(admin, () => admin.store.remove('employees', 'e-s', 'e-admin', 'x'))).rejects.toThrow('ມີປະຫວັດ');
+  });
+
+  it('nobody deletes themselves, and an Admin cannot delete the Super admin', async () => {
+    await expect(viaSuper(admin, () => admin.store.remove('employees', 'e-admin', 'e-admin', 'x'))).rejects.toThrow('ຕົນເອງ');
+    await expect(viaSuper(admin, () => admin.store.remove('employees', 'e-super', 'e-admin', 'x'))).rejects.toThrow('Super admin');
+    await expect(sup.store.remove('employees', 'e-super', 'e-super', 'x')).rejects.toThrow('ຕົນເອງ');
+  });
+
+  it('an accountant cannot delete anything, approval or not', async () => {
+    await expect(acc.store.remove('leaves', 'l1', 'e-acc', 'x')).rejects.toThrow('ບໍ່ມີສິດ');
+    await expect(acc.store.remove('employees', 'e-tmp', 'e-acc', 'x')).rejects.toThrow('ບໍ່ມີສິດ');
+  });
+
+  it('a company with no Super admin works as before: the Admin does all of it alone', async () => {
+    const t2 = loadScript(); const a2 = phone(t2.post);
+    await a2.api.createCompany({ signupCode: 'secret-code', company: { id: 'c1', name: 'x' } as any, ownerEmployeeId: 'e-o', ownerCode: 'ST-001', pin: '1111' });
+    await a2.store.put('employees', emp('e-o', 'ST-001', { roles: ['employee', 'owner'] }), 'e-o', 'seed');
+    await a2.store.put('leaves', leave, 'e-o', 'seed');
+    await a2.store.put('employees', emp('e-o', 'ST-001', { roles: ['employee', 'owner'], baseSalary: 7_000_000 }), 'e-o', 'x');
+    await a2.store.remove('leaves', 'l1', 'e-o', 'x');
+    expect(auditActions()).not.toContain('record-delete'); // that was the other company's sheet; this one has its own log
+  });
+});

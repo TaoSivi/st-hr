@@ -3,7 +3,7 @@ import { ACTIONS, PAGES, SCOPE_RIGHTS, pageRight, type Action, type ManagerPage,
 /** The back-office pages, as named in the menu. */
 export const PAGE_LABEL: Record<ManagerPage, string> = {
   overview: 'ພາບລວມ', review: 'ກວດການລົງເວລາ', approvals: 'ອະນຸມັດຄຳຂໍ', time: 'ລົງເວລາມື້ນີ້', reports: 'ລາຍງານທີມ', map: 'ແຜນທີ່',
-  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'ບັນທຶກການແກ້ໄຂ'
+  leave: 'ລາພັກ & ເບີກ', staff: 'ພະນັກງານ', pay: 'ເງິນເດືອນ', access: 'ສິດ & ການອະນຸມັດ', settings: 'ກົດເກນ & ຕັ້ງຄ່າ', audit: 'ບັນທຶກການແກ້ໄຂ', records: 'ຈັດການຂໍ້ມູນ'
 };
 
 const ACTION_LABEL: Record<Action, string> = {

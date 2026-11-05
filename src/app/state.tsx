@@ -21,6 +21,7 @@ import { purgeExpiredPhotos } from '../domain/attendance';
 import { defaultSettings } from '../domain/defaults';
 import { syncOfflineScans } from './offlineSync';
 import { missedOutNotices } from './missedOut';
+import { withSuperApproval } from './superGate';
 
 export interface PayrollRun {
   id: string; // YYYY-MM
@@ -73,6 +74,8 @@ export interface OnlineApi {
   changeOwnPin: (pin: string) => Promise<void>;
   /** Admin and Super admin look up a person's PIN (Google Sheet only). Resolves to null when it is not known yet. */
   revealPin?: (e: Employee) => Promise<string | null>;
+  /** Opens the Super admin's PIN screen when the database says an Admin needs it (resolves with the approval, rejects on cancel). */
+  approveSuper?: (reason: string) => Promise<string>;
   joinLink: () => string;
   /** Approving with a colleague's PIN (Google Sheet only): check the PIN, then run the action with the approval attached. */
   approve?: (code: string, pin: string) => Promise<{ approval: string; approverId: string; approverName: string }>;
@@ -156,6 +159,7 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
     Promise.all(fresh.map(n => store.put<Notification>('notifications', n, 'system', 'missed-clock-out'))).then(load);
   }, [data?.scans, data?.employees, data?.shifts, data?.overrides]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const guard = <T,>(run: () => Promise<T>) => withSuperApproval(run, { ask: online?.api.approveSuper, runWith: online?.api.runApproved });
   const me = data?.employees.find(e => e.id === meId) ?? null;
   const by = me?.id ?? 'anonymous';
 
@@ -171,8 +175,9 @@ export function HRProvider({ companyId, children, online }: { companyId: string;
       setMeId(id);
       try { id ? localStorage.setItem(meKey(companyId), id) : localStorage.removeItem(meKey(companyId)); } catch { /* private mode */ }
     },
-    save: async (collection, item, action, asId) => { await store.put(collection, item, asId ?? by, action); await load(); },
-    remove: async (collection, id, action) => { await store.remove(collection, id, by, action); await load(); },
+    // an Admin's delete, pay change, payroll close/reopen or clock-in edit asks the Super admin for the PIN, then goes through
+    save: async (collection, item, action, asId) => { await guard(() => store.put(collection, item, asId ?? by, action)); await load(); },
+    remove: async (collection, id, action) => { await guard(() => store.remove(collection, id, by, action)); await load(); },
     notify: async (userIds, text, link) => {
       for (const userId of new Set(userIds)) {
         await store.put<Notification>('notifications', { id: uid(), companyId, userId, text, at: new Date().toISOString(), read: false, link }, by, 'notify');

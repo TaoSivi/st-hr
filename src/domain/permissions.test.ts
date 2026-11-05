@@ -30,7 +30,8 @@ const PAGES_SPEC: Record<ManagerPage, boolean[]> = {
   pay: [false, false, true, true, true],
   access: [false, false, false, true, true], // who has which role and who approves what: the owner sets it, the auditor reads it
   settings: [false, false, false, true, true],
-  audit: [false, false, false, true, true]
+  audit: [false, false, false, true, true],
+  records: [false, false, false, true, false] // editing and deleting records: Admin and Super admin only, not even the auditor
 };
 const ACTIONS_SPEC: Record<Action, boolean[]> = {
   'scan.review': [false, true, false, true, false],

@@ -387,3 +387,7 @@ table.t td.num, table.t th.num { text-align: right; }
 /* the few big numbers at the top of a page sit two by two on a phone instead of one tall column */
 .grid.stats { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 @media (max-width: 760px) { .grid.stats { gap: 10px; } .grid.stats > .card { padding: 14px 16px; } }
+
+/* manage records: one tidy line per record */
+.rec-row { padding: 10px 12px; border: 1px solid var(--line); border-radius: 14px; }
+.rec-row:hover { background: #f8fbfb; }

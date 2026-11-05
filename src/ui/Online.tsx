@@ -6,6 +6,7 @@ import {
   activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
 } from '../data/server';
 import type { SheetCard } from '../data/sheets';
+import { askSuperApproval } from './SuperApproval';
 import { newCompanyRecords } from '../data/seed';
 import { newCompany, validateCompanyName, type Company } from '../domain/company';
 import { ONLINE_PIN_LEN, pinProblem } from '../domain/pin';
@@ -265,7 +266,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     createLogin: async (e: Employee, pin: string) => { await createLogin(id!, e.id, e.code, pin); await refreshLogins(); },
     resetPin: async (e: Employee, pin: string) => { await resetPin(e.id, pin); },
     changeOwnPin,
-    ...(canApprove() ? { approve: approveWith, runApproved, revealPin: (e: Employee) => revealPin(e.id) } : {}),
+    ...(canApprove() ? { approve: approveWith, runApproved, revealPin: (e: Employee) => revealPin(e.id), approveSuper: askSuperApproval } : {}),
     joinLink: () => joinLink(readServerConfig()!, id!)
   }), [id, logins, refreshLogins]);
 

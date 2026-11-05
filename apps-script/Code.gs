@@ -439,7 +439,7 @@ function headCovers(c, emp) {
  * What each role may do, as rights (the same lists as src/domain/rights.ts; a test keeps them equal). The owner has every right; the Super admin may
  * replace a role's list (settings.roleRights) and Admin may tick single rights on a person (employee.perm). Everything below asks for a right.
  */
-var PAGE_KEYS = ['overview', 'review', 'approvals', 'time', 'reports', 'map', 'leave', 'staff', 'pay', 'access', 'settings', 'audit'];
+var PAGE_KEYS = ['overview', 'review', 'approvals', 'time', 'reports', 'map', 'leave', 'staff', 'pay', 'access', 'settings', 'audit', 'records'];
 var ACTION_KEYS = ['scan.review', 'ot.preapprove', 'advance.decide', 'staff.edit', 'staff.change.decide', 'payroll.prepare', 'payroll.lock', 'payroll.confirmLate', 'payroll.items', 'payroll.items.decide', 'settings.edit'];
 var SCOPE_KEYS = ['dataAll', 'dataDept', 'writeAll', 'userMng', 'override'];
 var ALL_RIGHTS = PAGE_KEYS.map(function (p) { return 'p.' + p; }).concat(ACTION_KEYS, SCOPE_KEYS);
@@ -502,7 +502,7 @@ function canWrite(c, coll, rid, d, op) {
     case 'payrollRuns': return RAny(c, ['payroll.prepare', 'payroll.lock', 'payroll.confirmLate']);
     case 'payItems': return RAny(c, ['payroll.items', 'payroll.items.decide']);
     case 'payslips': return RAny(c, ['payroll.prepare', 'payroll.lock']);
-    case 'employees': return op !== 'delete' && (R(c, 'staff.edit') || rid === c.me || (op === 'update' && headCovers(c, rid)));
+    case 'employees': return op === 'delete' ? R(c, 'userMng') : (R(c, 'staff.edit') || rid === c.me || (op === 'update' && headCovers(c, rid)));
     case 'employeeSecret': return rid === c.me || (op === 'delete' && R(c, 'userMng'));
     case 'exports': return op === 'insert' && R(c, 'p.reports');
     case 'notifications': return op === 'insert' || who === c.me;
@@ -599,11 +599,50 @@ function upsert(c, coll, id, data) {
   if (!canWrite(c, coll, id, data, op) || (old && !canWrite(c, coll, id, old, op))) throw fail('ບໍ່ມີສິດບັນທຶກຂໍ້ມູນນີ້');
   if (coll === 'employees') guardEmployee(c, id, old, data);
   if (coll === 'settings') guardSettings(c, old, data);
+  guardUpsert(c, coll, old, data);
   writeRow(s, row, [id, new Date().toISOString(), by(c)].concat(chunks(JSON.stringify(data))));
   collectionChanged(coll);
   if (coll === 'employees') { syncRoles(id, data); REQ.emps = undefined; c.rights = undefined; }
   if (coll === 'settings') { REQ.settings = undefined; c.rights = undefined; }
   return true;
+}
+
+var SCAN_FIXED = ['kind', 'deviceTime', 'branchId', 'employeeId'];
+/** The Super admin gate for the writes that are not deletes. Other fields of a clock-in (status, review note, a purged photo) change in normal work. */
+function guardUpsert(c, coll, old, data) {
+  if (coll === 'employeePay' && old && JSON.stringify(old) !== JSON.stringify(data)) superGate(c, 'ແກ້ເງິນເດືອນ / ເລກບັນຊີ');
+  if (coll === 'payrollRuns') {
+    var was = old && old.status === 'locked', will = data.status === 'locked';
+    if (was !== will) superGate(c, will ? 'ປິດງວດເງິນເດືອນ' : 'ເປີດງວດເງິນເດືອນ');
+  }
+  if (coll === 'scans' && old && SCAN_FIXED.some(function (k) { return JSON.stringify(old[k]) !== JSON.stringify(data[k]); })) superGate(c, 'ແກ້ການລົງເວລາຍ້ອນຫຼັງ');
+}
+
+/** Things that are not records of work, so removing them is routine and needs no approval. */
+var DELETE_FREE = ['notifications', 'employeeSecret', 'exports'];
+var HISTORY = ['scans', 'leaves', 'advances', 'payItems', 'requests', 'ots', 'overrides', 'changes', 'payslips'];
+
+/** A person leaves the roster for good only when nothing was ever recorded for them; otherwise the old records would point at nobody (use closing the account instead). */
+function guardDeleteEmployee(c, id, rec) {
+  if (id === c.me) throw fail('ລຶບບັນຊີຂອງຕົນເອງບໍ່ໄດ້');
+  var login = null, all = userRows();
+  for (var i = 0; i < all.length; i++) if (all[i].employeeId === id) login = all[i];
+  var roles = (rec.roles || []).concat(login ? login.roles : []);
+  guardTarget(c, id, roles);
+  var found = HISTORY.filter(function (coll) { return recordRows(coll).some(function (r) { return r.data && String(recEmp(coll, r.id, r.data)) === id; }); });
+  if (found.length) throw fail('ພະນັກງານຄົນນີ້ມີປະຫວັດ (' + found.join(', ') + ') — ລຶບບໍ່ໄດ້ ເພາະບັນທຶກເກົ່າຈະບໍ່ມີເຈົ້າຂອງ. ໃຊ້ "ປິດບັນຊີ" ແທນ');
+}
+
+/** The person's own rows and sign-in go with them. */
+function dropEmployeeRows(id) {
+  ['employeePay', 'employeeSecret'].forEach(function (coll) {
+    var t = tabIfAny(PREFIX + coll), row = t ? findRow(t, id) : 0;
+    if (row) { t.deleteRow(row); collectionChanged(coll); }
+  });
+  var all = userRows();
+  for (var k = 0; k < all.length; k++) if (all[k].employeeId === id) { usersTab().deleteRow(all[k].row); usersChanged(); break; }
+  var st = sessionsTab(), rows = readTable(st);
+  for (var j = rows.length - 1; j >= 0; j--) if (rows[j].updatedAt === id) st.deleteRow(rows[j].row);
 }
 
 function del(c, coll, id) {
@@ -613,9 +652,17 @@ function del(c, coll, id) {
   if (!row) return true;
   var r = s.getRange(row, 1, 1, s.getLastColumn()).getValues()[0], json = '';
   for (var i = 3; i < r.length; i++) { if (r[i] === '') break; json += String(r[i]); }
-  if (!canWrite(c, coll, id, JSON.parse(json || '{}'), 'delete')) throw fail('ບໍ່ມີສິດລຶບຂໍ້ມູນນີ້');
+  var rec = JSON.parse(json || '{}');
+  if (!canWrite(c, coll, id, rec, 'delete')) throw fail('ບໍ່ມີສິດລຶບຂໍ້ມູນນີ້');
+  if (DELETE_FREE.indexOf(coll) < 0) superGate(c, 'ລຶບຂໍ້ມູນຖາວອນ');
+  if (coll === 'employees') guardDeleteEmployee(c, id, rec);
+  if (DELETE_FREE.indexOf(coll) < 0) { // the whole record stays in the log, so a deletion can always be looked into
+    var kept = {}, k; for (k in rec) kept[k] = k === 'photo' ? '[ຮູບ]' : rec[k];
+    appendAudit(by(c), 'record-delete', coll, id, kept, null);
+  }
   s.deleteRow(row);
   collectionChanged(coll);
+  if (coll === 'employees') { dropEmployeeRows(id); REQ.emps = undefined; }
   return true;
 }
 
@@ -695,8 +742,18 @@ function approved(c, token) {
   for (k in mine) set[k] = true;
   for (k in lent) if (k !== 'userMng') set[k] = true;
   var out = {}; for (k in c) out[k] = c[k];
-  out.rights = set; out.approver = hit.by;
+  out.rights = set; out.approver = hit.by; out.approverSuper = u.roles.indexOf('superadmin') >= 0;
   return out;
+}
+/**
+ * In a company that has a Super admin, an Admin needs the Super admin's PIN behind these: deleting a record for good, changing a person's pay or
+ * bank account, closing or reopening a payroll month, and changing a clock-in after the fact. The Super admin never needs it.
+ * The app asks for that PIN by itself when the database answers code "needsuper", then repeats the action with the approval attached.
+ */
+function superGate(c, what) {
+  if (!superExists() || isSuper(c) || !has(c, 'owner')) return;
+  if (c.approverSuper) return;
+  throw fail('ຕ້ອງໃຫ້ Super admin ອະນຸມັດ: ' + what, 'needsuper');
 }
 function by(c) { return c.approver ? c.me + ' ← ' + c.approver : c.me; }
 
