@@ -31,6 +31,7 @@ import StaffImport from './StaffImport';
 import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
 import ApproveButton from './ApproveButton';
+import PinDialog from './PinDialog';
 import { PAGE_LABEL } from './rightLabels';
 import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
@@ -399,6 +400,15 @@ function Staff() {
   const [headSel, setHeadSel] = useState<string[]>([]);
   const depts = [...new Set(hr.employees.map(e => e.dept))];
   const canRoles = canGrantRoles(me, hr.settings);
+  // the sign-in account of each person: Admin and above see and set the PIN here, as on the Access page
+  const online = hr.online;
+  const canPins = !!online?.revealPin && (!!me.superAdmin || me.roles.includes('owner'));
+  const pinHidden = (e: Employee) => !me.superAdmin && e.id !== me.id && (!!e.superAdmin || e.roles.includes('owner')) && hr.employees.some(x => x.superAdmin);
+  const [pinFor, setPinFor] = useState<Employee | null>(null);
+  const setPinTo = async (e: Employee, pin: string, mustChange: boolean) => {
+    await (online!.logins.has(e.id) ? online!.resetPin(e, pin) : online!.createLogin(e, pin));
+    await hr.save('employees', { ...e, pinMustChange: mustChange }, 'pin-reset');
+  };
   const [hire, setHire] = useState<Employee | null>(null);
   const [importing, setImporting] = useState(false);
   const [endDate, setEndDate] = useState(ymd(new Date()));
@@ -419,7 +429,7 @@ function Staff() {
     } else {
       await hr.save('employees', clean, 'employee-hire');
       await notifyOwners(`ເພີ່ມພະນັກງານໃໝ່: ${clean.name} (${clean.code}) ເລີ່ມ ${clean.startDate}`);
-      setMsg(`ເພີ່ມ ${clean.name} ແລ້ວ`);
+      setMsg(`ເພີ່ມ ${clean.name} ແລ້ວ${canPins ? ` — ຊື່ຜູ້ໃຊ້ ${clean.code} · ກົດ "ອອກ PIN" ໃນຖັນ ບັນຊີເຂົ້າລະບົບ ເພື່ອໃຫ້ເຂົາເຂົ້າລະບົບໄດ້` : ''}`);
     }
     setHire(null);
   };
@@ -576,6 +586,7 @@ function Staff() {
             setMsg(`ຕັ້ງກະໃຫ້ ${who.length} ຄົນແລ້ວ`); setBulk(null);
           }}>ໃຊ້ກັບ {who.length} ຄົນ</button>
         </div>); })()}
+      {pinFor && <PinDialog person={pinFor} hasLogin={!!online?.logins.has(pinFor.id)} reveal={online?.revealPin} onSet={(pin, must) => setPinTo(pinFor, pin, must)} onClose={() => setPinFor(null)} />}
       {importing && <StaffImport onClose={() => setImporting(false)} onDone={m => { setImporting(false); setMsg(m); }} />}
       {msg && <div className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {changes.filter(c => c.status === 'pending').length > 0 && (
@@ -592,10 +603,17 @@ function Staff() {
               {canDo(me, 'settings.edit', hr.settings) && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
             </div>)}
         </div>)}
-      <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th><th /></tr></thead><tbody>
+      <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th>{canPins && <th>ບັນຊີເຂົ້າລະບົບ</th>}<th /></tr></thead><tbody>
         {hr.employees.map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
           <td className="num">{money(e.baseSalary)}</td><td className="small">{e.payMethod === 'cash' ? 'ເງິນສົດ' : `${e.bankName} ${e.bankAccount ?? ''}`}</td>
           <td>{faceCountOf(e) > 0 ? <span className="pill ok">ລົງທະບຽນແລ້ວ · {faceCountOf(e)} ທ່າ</span> : <span className="pill">ຍັງ</span>}</td>
+          {canPins && <td className="small" style={{ whiteSpace: 'nowrap' }}>
+            <div>ຊື່ຜູ້ໃຊ້: <b>{e.code}</b></div>
+            {!pinHidden(e) ? <div className="row" style={{ gap: 6, marginTop: 4 }}>
+              {online!.logins.has(e.id) ? <span className="pill ok">ມີ PIN</span> : <span className="pill warn">ຍັງບໍ່ມີ PIN</span>}
+              {!(e.endDate && e.endDate < today) ? <button className="btn ghost" style={{ minHeight: 32, padding: '0 10px' }} onClick={() => setPinFor(e)}>{online!.logins.has(e.id) ? 'ເບິ່ງ / ແກ້ PIN' : 'ອອກ PIN'}</button> : null}
+            </div> : <div className="muted small">ສະເພາະ Super admin</div>}
+          </td>}
           <td>{canEdit && !(e.endDate && e.endDate < today) && <button className="btn ghost" onClick={() => { setHire(null); open(e); }}>ແກ້ໄຂ</button>}</td></tr>)}
       </tbody></table></div>
       {edit && (
