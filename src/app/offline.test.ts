@@ -201,3 +201,29 @@ describe('pay does not count an unchecked offline scan', () => {
     expect(summarize(data([lateScan({ offline: false })]), emp, '2026-11', true).lateMin).toBe(30);
   });
 });
+
+describe('pay: late minutes come from the first clock-in of each day', () => {
+  const emp = seedEmployees.find(e => e.id === 'e-kl')!; // morning shift, starts 06:00, grace 5
+  const data = (scans: ScanRecord[]): HRData => ({
+    employees: seedEmployees, branches: seedBranches, scans, leaves: [], ots: [], advances: [], payrollRuns: [], requests: [], overrides: [], notifications: [], payItems: [], shifts, settings: S
+  });
+  const at = (id: string, kind: ScanRecord['kind'], time: string, over: Partial<ScanRecord> = {}) => scan(id, { kind, deviceTime: `2026-11-03T${time}:00`, offline: false, ...over });
+
+  it('on time in, out for a while, back in later: nobody is late', () => {
+    const rows = [at('a', 'in', '06:00'), at('b', 'out', '10:00'), at('c', 'in', '12:00'), at('d', 'out', '14:00')];
+    expect(summarize(data(rows), emp, '2026-11', true)).toMatchObject({ lateMin: 0, lateCount: 0 });
+  });
+  it('late on the first clock-in counts once, however many times they come back', () => {
+    const rows = [at('a', 'in', '06:30'), at('b', 'out', '10:00'), at('c', 'in', '12:00'), at('d', 'out', '14:00')];
+    expect(summarize(data(rows), emp, '2026-11', true)).toMatchObject({ lateMin: 30, lateCount: 1 });
+  });
+  it('each day has its own first clock-in', () => {
+    const next = (id: string, kind: ScanRecord['kind'], time: string) => scan(id, { kind, deviceTime: `2026-11-04T${time}:00`, offline: false });
+    const rows = [at('a', 'in', '06:20'), at('b', 'in', '13:00'), next('c', 'in', '06:10'), next('d', 'in', '11:00')];
+    expect(summarize(data(rows), emp, '2026-11', true)).toMatchObject({ lateMin: 30, lateCount: 2 });
+  });
+  it('a rejected first clock-in is ignored; a waiting one is not skipped for a later one', () => {
+    expect(summarize(data([at('a', 'in', '06:40', { status: 'rejected' }), at('b', 'in', '06:10')]), emp, '2026-11', true).lateMin).toBe(10);
+    expect(summarize(data([at('a', 'in', '06:00', { status: 'pending' }), at('b', 'in', '07:00')]), emp, '2026-11', true).lateMin).toBe(0);
+  });
+});

@@ -1,5 +1,5 @@
 import type { HRData } from './state';
-import type { Employee } from '../domain/types';
+import type { Employee, ScanRecord } from '../domain/types';
 import { isSettled, lateMinutes } from '../domain/attendance';
 import { computePayslip, lateDeductionAmount, type Payslip } from '../domain/payroll';
 import { employedFraction, isActiveOn } from '../domain/hiring';
@@ -73,11 +73,18 @@ export function shiftAllowanceFor(data: HRData, e: Employee, key: string): numbe
 
 export function summarize(data: HRData, e: Employee, key: string, lateConfirmed: boolean): MonthSummary {
   const s = data.settings;
-  // an offline scan whose clock has not been checked by the server yet does not count toward pay
-  const ins = data.scans.filter(x => x.employeeId === e.id && x.kind === 'in' && inMonth(x.deviceTime, key) && (x.status === 'ok' || x.status === 'approved') && isSettled(x));
+  // Lateness is judged on the FIRST clock-in of each day (as in the reports): a later clock-in the same day, after stepping out, is not "late".
+  // An offline scan whose clock has not been checked by the server yet does not count toward pay.
+  const firstInOfDay = new Map<string, ScanRecord>();
+  for (const x of [...data.scans].sort((a, b) => a.deviceTime.localeCompare(b.deviceTime))) {
+    if (x.employeeId !== e.id || x.kind !== 'in' || x.status === 'rejected' || !inMonth(x.deviceTime, key)) continue;
+    const day = ymd(new Date(x.deviceTime));
+    if (!firstInOfDay.has(day)) firstInOfDay.set(day, x);
+  }
   let lateMin = 0, lateCount = 0;
-  for (const x of ins) {
-    const start = lateStartOn(data, e, ymd(new Date(x.deviceTime)));
+  for (const [day, x] of firstInOfDay) {
+    if (!((x.status === 'ok' || x.status === 'approved') && isSettled(x))) continue;
+    const start = lateStartOn(data, e, day);
     const m = start ? lateMinutes(start, new Date(x.deviceTime), s.graceMinutes) : 0;
     if (m > 0) { lateMin += m; lateCount++; }
   }
