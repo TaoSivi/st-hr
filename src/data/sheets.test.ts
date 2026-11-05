@@ -48,7 +48,7 @@ function loadScript() {
   const out = (s: string) => ({ setMimeType() { return this; }, getContent: () => s });
   const ctx: any = {
     SpreadsheetApp: { getActiveSpreadsheet: () => book },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (k: string) => props.get(k) ?? null }) },
+    PropertiesService: { getScriptProperties: () => ({ getProperty: (k: string) => props.get(k) ?? null, setProperty: (k: string, v: string) => { props.set(k, v); } }) },
     CacheService: { getScriptCache: () => ({ get: (k: string) => cache.get(k) ?? null, put: (k: string, v: string) => { cache.set(k, v); }, remove: (k: string) => { cache.delete(k); } }) },
     LockService: { getScriptLock: () => ({ waitLock() {}, releaseLock() {} }) },
     ContentService: { createTextOutput: out, MimeType: { JSON: 'json', TEXT: 'text' } },
@@ -511,5 +511,72 @@ describe('approving with a colleague\'s PIN (Code.gs run against a fake sheet)',
     await head.api.approve('ST-002', '2222');
     const log = await admin.api.backend.listAudit('c1');
     expect(log.find(l => l.action === 'approve-for')).toMatchObject({ by: 'e-acc', entityId: 'e-head' });
+  });
+});
+
+describe('Admin and Super admin look up and set PINs (Code.gs run against a fake sheet)', () => {
+  let t: ReturnType<typeof loadScript>;
+  let sup: ReturnType<typeof phone>, admin: ReturnType<typeof phone>, staff: ReturnType<typeof phone>, head: ReturnType<typeof phone>;
+  const usersGrid = () => [...t.sheets.values()].find(x => x.name === '_users')!.grid;
+  const audit = () => [...t.sheets.values()].find(x => x.name === '_audit')!.grid.slice(1).map((r: any[]) => r[3]);
+  beforeEach(async () => {
+    t = loadScript();
+    sup = phone(t.post);
+    await sup.api.createCompany({ signupCode: 'secret-code', company: { id: 'c1', name: 'ບໍລິສັດຈິງ' } as any, ownerEmployeeId: 'e-admin', ownerCode: 'ST-001', pin: '1111', superAdmin: { employeeId: 'e-super', code: 'ST-000', pin: '9999' } });
+    const put = (e: Employee) => sup.store.put('employees', e, 'e-super', 'seed');
+    await put(emp('e-admin', 'ST-001', { name: 'Admin', roles: ['employee', 'owner'] }));
+    await put(emp('e-super', 'ST-000', { name: 'Super admin', roles: ['employee', 'owner'], superAdmin: true }));
+    await put(emp('e-head', 'ST-003', { name: 'ຫົວໜ້າ', roles: ['employee', 'head'], dept: 'ຂາຍ' }));
+    await put(emp('e-s', 'ST-005', { name: 'ພະນັກງານ', dept: 'ຂາຍ' }));
+    await sup.api.createLogin('e-head', 'ST-003', '3333');
+    await sup.api.createLogin('e-s', 'ST-005', '5555');
+    [admin, head, staff] = [phone(t.post), phone(t.post), phone(t.post)];
+    await admin.api.signIn('ST-001', '1111'); await head.api.signIn('ST-003', '3333'); await staff.api.signIn('ST-005', '5555');
+  });
+
+  it('the Admin and the Super admin read a staff PIN; everyone else is refused', async () => {
+    expect(await admin.api.revealPin('e-s')).toBe('5555');
+    expect(await sup.api.revealPin('e-s')).toBe('5555');
+    await expect(head.api.revealPin('e-s')).rejects.toThrow('Admin');
+    await expect(staff.api.revealPin('e-head')).rejects.toThrow('Admin');
+  });
+
+  it('an Admin cannot read the Super admin PIN, the Super admin reads every PIN', async () => {
+    await expect(admin.api.revealPin('e-super')).rejects.toThrow('Super admin');
+    expect(await sup.api.revealPin('e-admin')).toBe('1111');
+    expect(await sup.api.revealPin('e-super')).toBe('9999');
+  });
+
+  it('a new PIN, set by an Admin or by the person, is the one that shows', async () => {
+    await admin.api.setPin('e-s', '4242');
+    expect(await admin.api.revealPin('e-s')).toBe('4242');
+    await staff.api.signIn('ST-005', '4242');
+    await staff.api.changeOwnPin('7070');
+    expect(await admin.api.revealPin('e-s')).toBe('7070');
+  });
+
+  it('the sheet never holds a PIN in the clear, and the scramble changes with each new PIN', async () => {
+    const cell = () => usersGrid().find((r: any[]) => r[0] === 'e-s')![8] as string;
+    const first = cell();
+    expect(first).toMatch(/^v1:[0-9a-f]{8}$/);
+    expect(first).not.toContain('5555');
+    await admin.api.setPin('e-s', '5555');
+    expect(cell()).not.toBe(first); // same PIN, new salt, new scramble
+    expect(JSON.stringify(usersGrid())).not.toContain('"5555"');
+  });
+
+  it('a PIN made before PINs could be looked up shows after its owner signs in once', async () => {
+    const row = usersGrid().find((r: any[]) => r[0] === 'e-s')!;
+    row[8] = ''; // as in a company made before this feature
+    t.ctx.CacheService.getScriptCache().remove('users');
+    expect(await admin.api.revealPin('e-s')).toBeNull();
+    await staff.api.signIn('ST-005', '5555');
+    expect(await admin.api.revealPin('e-s')).toBe('5555');
+  });
+
+  it('every look is in the log, but looking at your own PIN is not', async () => {
+    await admin.api.revealPin('e-s');
+    await admin.api.revealPin('e-admin');
+    expect(audit().filter(a => a === 'pin-reveal')).toHaveLength(1);
   });
 });

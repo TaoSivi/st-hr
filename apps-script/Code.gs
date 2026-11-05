@@ -39,7 +39,7 @@ function doPost(e) {
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
 }
 
-var WRITES = { approve: 1, create: 1, login: 1, logout: 1, upsert: 1, del: 1, addAudit: 1, createLogin: 1, setPin: 1, changeOwnPin: 1, removeLogin: 1 };
+var WRITES = { approve: 1, create: 1, login: 1, logout: 1, upsert: 1, del: 1, addAudit: 1, createLogin: 1, setPin: 1, changeOwnPin: 1, removeLogin: 1, revealPin: 1 };
 
 function handle(req) {
   if (req.action === 'multi') {
@@ -73,6 +73,7 @@ function dispatch(req, token) {
     case 'setPin': return setPin(session(token), req);
     case 'changeOwnPin': return changeOwnPin(session(token), req);
     case 'removeLogin': return removeLogin(session(token), req);
+    case 'revealPin': return revealPin(session(token), req);
     case 'listLogins': return listLogins(session(token));
   }
   throw fail('unknown action');
@@ -118,6 +119,28 @@ function hashPin(salt, pin) {
   var h = sha256(salt + ':' + pin);
   for (var i = 0; i < KDF_ROUNDS; i++) h = sha256(h + salt + pin);
   return h;
+}
+/**
+ * Admin and Super admin may read a person's PIN. So the PIN is also kept sealed: scrambled with a secret key that lives in Script Properties
+ * (PIN_KEY, made on first use), never in the sheet. Whoever can open the spreadsheet sees only scrambled text; only this script, answering
+ * an Admin or Super admin, can unscramble it, and every look is written to the audit log. The salt changes with every new PIN, so no two scrambles share a pad.
+ */
+function pinKey() {
+  var p = PropertiesService.getScriptProperties(), k = p.getProperty('PIN_KEY');
+  if (!k) { k = newToken(); p.setProperty('PIN_KEY', k); }
+  return k;
+}
+function pinPad(salt) { return sha256('pin|' + pinKey() + '|' + salt); }
+function sealPin(salt, pin) {
+  var pad = pinPad(salt), out = 'v1:', s = String(pin);
+  for (var i = 0; i < 4; i++) out += ('0' + (parseInt(pad.substr(i * 2, 2), 16) ^ s.charCodeAt(i)).toString(16)).slice(-2);
+  return out;
+}
+function openPin(salt, sealed) {
+  if (!sealed || String(sealed).indexOf('v1:') !== 0 || String(sealed).length !== 11) return null;
+  var pad = pinPad(salt), h = String(sealed).slice(3), out = '';
+  for (var i = 0; i < 4; i++) out += String.fromCharCode(parseInt(h.substr(i * 2, 2), 16) ^ parseInt(pad.substr(i * 2, 2), 16));
+  return /^\d{4}$/.test(out) ? out : null;
 }
 function newToken() { return Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, ''); }
 
@@ -210,7 +233,7 @@ function cachePut(key, value, seconds) { try { CacheService.getScriptCache().put
 function cacheDrop(key) { try { CacheService.getScriptCache().remove(key); } catch (e) { /* ignore */ } }
 
 function companyTab() { return tab('_company', ['id', 'name', 'plan', 'data']); }
-function usersTab() { return tab('_users', ['employeeId', 'code', 'salt', 'hash', 'roles', 'fails', 'lockUntil', 'createdAt']); }
+function usersTab() { return tab('_users', ['employeeId', 'code', 'salt', 'hash', 'roles', 'fails', 'lockUntil', 'createdAt', 'pinSealed']); }
 function sessionsTab() { return tab('_sessions', ['tokenHash', 'employeeId', 'expires']); }
 
 function readCompany() {
@@ -259,19 +282,21 @@ function userRows() {
   var vals = usersTab().getDataRange().getValues(), out = [];
   for (var i = 1; i < vals.length; i++) {
     var r = vals[i];
-    out.push({ row: i + 1, employeeId: String(r[0]), code: String(r[1]), salt: String(r[2]), hash: String(r[3]), roles: JSON.parse(String(r[4] || '["employee"]')), fails: Number(r[5] || 0), lockUntil: Number(r[6] || 0) });
+    out.push({ row: i + 1, employeeId: String(r[0]), code: String(r[1]), salt: String(r[2]), hash: String(r[3]), roles: JSON.parse(String(r[4] || '["employee"]')), fails: Number(r[5] || 0), lockUntil: Number(r[6] || 0), sealed: String(r[8] || '') });
   }
   cachePut('users', out);
   return (REQ.users = out);
 }
 function usersChanged() { REQ.users = undefined; cacheDrop('users'); }
 function saveUser(u) {
-  var cells = [u.employeeId, u.code, u.salt, u.hash, JSON.stringify(u.roles), String(u.fails || 0), String(u.lockUntil || 0), u.createdAt || new Date().toISOString()];
+  var cells = [u.employeeId, u.code, u.salt, u.hash, JSON.stringify(u.roles), String(u.fails || 0), String(u.lockUntil || 0), u.createdAt || new Date().toISOString(), u.sealed || ''];
   var s = usersTab(), row = u.row || s.getLastRow() + 1;
   if (row > s.getMaxRows()) s.insertRowsAfter(s.getMaxRows(), 50);
-  var rng = s.getRange(row, 1, 1, 8);
+  if (s.getMaxColumns() < 9) s.insertColumnsAfter(s.getMaxColumns(), 9 - s.getMaxColumns());
+  var rng = s.getRange(row, 1, 1, 9);
   rng.setNumberFormat('@');
   rng.setValues([cells]);
+  if (!cacheGet('usersHeader9')) { s.getRange(1, 9, 1, 1).setValues([['pinSealed']]); cachePut('usersHeader9', 1); } // sheets made before the sealed PIN get its column title once
   usersChanged();
 }
 
@@ -294,11 +319,11 @@ function createCompany(req) {
   REQ.company = undefined;
   cacheDrop('company');
   var salt = Utilities.getUuid();
-  saveUser({ employeeId: owner.employeeId, code: String(owner.code).toLowerCase(), salt: salt, hash: hashPin(salt, String(req.pin)), roles: ['employee', 'owner'] });
+  saveUser({ employeeId: owner.employeeId, code: String(owner.code).toLowerCase(), salt: salt, hash: hashPin(salt, String(req.pin)), sealed: sealPin(salt, req.pin), roles: ['employee', 'owner'] });
   appendAudit('system', 'company-create', '_company', co.id, null, { id: co.id, name: co.name });
   if (!sup) return openSession(owner.employeeId, ['employee', 'owner'], co.id);
   var salt2 = Utilities.getUuid(), superRoles = ['employee', 'owner', 'superadmin'];
-  saveUser({ employeeId: sup.employeeId, code: String(sup.code).toLowerCase(), salt: salt2, hash: hashPin(salt2, String(sup.pin)), roles: superRoles });
+  saveUser({ employeeId: sup.employeeId, code: String(sup.code).toLowerCase(), salt: salt2, hash: hashPin(salt2, String(sup.pin)), sealed: sealPin(salt2, sup.pin), roles: superRoles });
   appendAudit('system', 'super-admin-create', '_users', sup.employeeId, null, { code: sup.code });
   return openSession(sup.employeeId, superRoles, co.id); // whoever sets the system up is signed in as the Super admin
 }
@@ -332,7 +357,9 @@ function login(req) {
     saveUser(u);
     throw fail(bad);
   }
-  if (u.fails || u.lockUntil) { u.fails = 0; u.lockUntil = 0; saveUser(u); }
+  // a PIN made before PINs could be looked up becomes lookable the next time its owner signs in (this is the one moment the script knows it)
+  var missing = openPin(u.salt, u.sealed) === null;
+  if (u.fails || u.lockUntil || missing) { u.fails = 0; u.lockUntil = 0; if (missing) u.sealed = sealPin(u.salt, pin); saveUser(u); }
   return openSession(u.employeeId, u.roles, c.id);
 }
 
@@ -692,7 +719,7 @@ function createLogin(c, req) {
   }
   var salt = Utilities.getUuid();
   var u = mine || { employeeId: req.employeeId, roles: ['employee'].concat((emp.roles || []).filter(function (r) { return r !== 'employee'; })) };
-  u.code = code; u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.fails = 0; u.lockUntil = 0;
+  u.code = code; u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.sealed = sealPin(salt, req.pin); u.fails = 0; u.lockUntil = 0;
   saveUser(u);
   return true;
 }
@@ -704,17 +731,30 @@ function setPin(c, req) {
   for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) {
     guardTarget(c, req.employeeId, all[i].roles);
     var u = all[i], salt = Utilities.getUuid();
-    u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.fails = 0; u.lockUntil = 0;
+    u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.sealed = sealPin(salt, req.pin); u.fails = 0; u.lockUntil = 0;
     saveUser(u);
     return true;
   }
   throw fail('ພະນັກງານຄົນນີ້ຍັງບໍ່ມີບັນຊີເຂົ້າລະບົບ');
 }
 
+/** Admin and Super admin read a PIN. An Admin cannot read another Admin's or the Super admin's (same rule as managing them). Every look is logged. */
+function revealPin(c, req) {
+  if (!has(c, 'owner') && !isSuper(c)) throw fail('ສະເພາະ Admin ຂຶ້ນໄປເບິ່ງ PIN ໄດ້');
+  var all = userRows(), u = null;
+  for (var i = 0; i < all.length; i++) if (all[i].employeeId === req.employeeId) u = all[i];
+  if (!u) throw fail('ພະນັກງານຄົນນີ້ຍັງບໍ່ມີບັນຊີເຂົ້າລະບົບ');
+  var top = u.roles.indexOf('owner') >= 0 || u.roles.indexOf('superadmin') >= 0;
+  if (u.employeeId !== c.me && top && superExists() && !isSuper(c)) throw fail('ສະເພາະ Super admin ເບິ່ງ PIN ຂອງ Admin ໄດ້');
+  var pin = openPin(u.salt, u.sealed);
+  if (u.employeeId !== c.me) appendAudit(by(c), 'pin-reveal', '_users', u.employeeId, null, { found: pin !== null });
+  return { pin: pin };
+}
+
 function changeOwnPin(c, req) {
   checkPin(req.pin);
   var u = c.user, salt = Utilities.getUuid();
-  u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.fails = 0; u.lockUntil = 0;
+  u.salt = salt; u.hash = hashPin(salt, String(req.pin)); u.sealed = sealPin(salt, req.pin); u.fails = 0; u.lockUntil = 0;
   saveUser(u);
   return true;
 }

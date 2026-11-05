@@ -25,3 +25,11 @@ Sheet 1 ໃບ = 1 ບໍລິສັດ. `Code.gs` ເປັນຜູ້ເຝ�
 - ເງິນເດືອນ/ໃບໜ້າ/ສະລິບ ເຫັນສະເພາະຄົນທີ່ກ່ຽວຂ້ອງ; ບົດບາດປ່ຽນໄດ້ສະເພາະເຈົ້າຂອງ; PIN ຜິດ 5 ເທື່ອ ລັອກ 5 ນາທີ.
 - ຊ້າກວ່າ Supabase (~1–3 ວິນາທີ/ຄຳສັ່ງ, ຂໍ້ມູນໃໝ່ຂຶ້ນພາຍໃນ ~45 ວິນາທີ) ແລະ ມີໂຄຕ້າ Google. ເໝາະບໍລິສັດນ້ອຍ (≤ ~50 ຄົນ).
 - ຢ່າແກ້/ລຶບແຖວໃນ Sheet ດ້ວຍມື.
+
+## Looking up PINs (Admin and Super admin)
+
+An Admin or Super admin can look at a person's PIN and set a new one (Access page → "ເບິ່ງ / ແກ້ PIN"). To make that possible a PIN is also kept **sealed** next to its hash: scrambled with a secret key, `PIN_KEY`, that the script makes on first use and keeps in **Script Properties** (never in the sheet). Anyone who can open the spreadsheet sees only scrambled text in the `pinSealed` column; only this script can unscramble it, and only for an Admin or Super admin. An Admin cannot look at another Admin's or the Super admin's PIN. Every look at someone else's PIN is written to the audit log (`pin-reveal`).
+
+- A PIN set before this feature has no sealed copy; it becomes viewable the next time its owner signs in, or when an Admin sets a new PIN.
+- Whoever can edit the Apps Script project or its Script Properties can read `PIN_KEY` and so unscramble PINs. Keep that access to the company owner.
+- Deleting `PIN_KEY` makes every sealed PIN unreadable (people still sign in normally; sealed copies are made again at their next sign-in).

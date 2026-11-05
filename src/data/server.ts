@@ -186,7 +186,9 @@ export async function resetPin(employeeId: string, pin: string): Promise<void> {
 }
 /** Approving with someone else's PIN works on a Google Sheet company only. */
 export const canApprove = () => serverKind() === 'sheets';
-export const approveWith = (code: string, pin: string) => sheets().approve(code, pin);
+/** Looking up a PIN works on a Google Sheet company only (the Admin's PIN page then offers it). */
+export const revealPin = (employeeId: string) => sheets().revealPin(employeeId);
+export const approveWith =(code: string, pin: string) => sheets().approve(code, pin);
 export const runApproved = <T,>(token: string, run: () => Promise<T>) => sheets().withApproval(token, run);
 
 export async function changeOwnPin(pin: string): Promise<void> {

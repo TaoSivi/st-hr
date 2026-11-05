@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles.css';
 import { installPress } from './ui/press';
+import BusyOverlay from './ui/BusyOverlay';
 
 // open the app even with no internet (production build only; the dev server must not be cached)
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
@@ -11,4 +12,4 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
 
 installPress();
 
-createRoot(document.getElementById('root')!).render(<StrictMode><App /></StrictMode>);
+createRoot(document.getElementById('root')!).render(<StrictMode><App /><BusyOverlay /></StrictMode>);

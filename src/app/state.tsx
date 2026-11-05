@@ -71,6 +71,8 @@ export interface OnlineApi {
   createLogin: (e: Employee, pin: string) => Promise<void>;
   resetPin: (e: Employee, pin: string) => Promise<void>;
   changeOwnPin: (pin: string) => Promise<void>;
+  /** Admin and Super admin look up a person's PIN (Google Sheet only). Resolves to null when it is not known yet. */
+  revealPin?: (e: Employee) => Promise<string | null>;
   joinLink: () => string;
   /** Approving with a colleague's PIN (Google Sheet only): check the PIN, then run the action with the approval attached. */
   approve?: (code: string, pin: string) => Promise<{ approval: string; approverId: string; approverName: string }>;

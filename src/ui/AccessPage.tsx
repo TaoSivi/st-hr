@@ -9,6 +9,7 @@ import { validateSettings } from '../domain/settingsCheck';
 import { ONLINE_PIN_LEN, pinFields, tempPin } from '../domain/pin';
 import { isActiveOn } from '../domain/hiring';
 import { ROLE_NAMES, ymd } from './format';
+import PinDialog from './PinDialog';
 
 /** Approval rows in the order people think of them. 'leave' is the leave approvers setting; the rest are request kinds or actions. */
 const ROWS: [ApprovalKey | 'leave', string][] = [
@@ -38,6 +39,8 @@ export default function AccessPage() {
   const canRoles = canGrantRoles(me, hr.settings);
   const isSuper = !!me.superAdmin;
   const hasSuper = hr.employees.some(x => x.superAdmin);
+  const canSeePins = !!hr.online?.revealPin && (isSuper || me.roles.includes('owner')); // Admin and above look at and set PINs
+  const [pinFor, setPinFor] = useState<Employee | null>(null);
   // what each role gives is the Super admin's to change (the Admin's, in a company that has no Super admin)
   const canEditRoleRights = !readOnly && (isSuper || (!hasSuper && me.roles.includes('owner')));
   const mine = rightsOf(me, hr.settings);
@@ -141,6 +144,10 @@ export default function AccessPage() {
     setIssued(out);
     setMsg(`ອອກ PIN ຊົ່ວຄາວ ${out.length} ຄົນ — ໃຫ້ແຕ່ລະຄົນ ແລ້ວເຂົາຕ້ອງຕັ້ງ PIN ເອງຕອນເຂົ້າເທື່ອທຳອິດ`);
   };
+  const setPinTo = async (e: Employee, pin: string, mustChange: boolean) => {
+    await (hr.online!.logins.has(e.id) ? hr.online!.resetPin(e, pin) : hr.online!.createLogin(e, pin));
+    await hr.save('employees', { ...e, pinMustChange: mustChange }, 'pin-reset');
+  };
   const hasLogin = (e: Employee) => (hr.online ? hr.online.logins.has(e.id) : !!e.pinHash);
   const noPin = people.filter(e => !hasLogin(e) && e.id !== me.id && !superOnly(e));
   const pinState = (e: Employee) => (!hasLogin(e) ? <span className="pill warn">ຍັງບໍ່ມີ PIN</span> : e.pinMustChange ? <span className="pill info">PIN ຊົ່ວຄາວ</span> : <span className="pill ok">ມີ PIN</span>);
@@ -148,6 +155,7 @@ export default function AccessPage() {
   return (
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ສະເພາະເຈົ້າຂອງ ປ່ຽນໄດ້ · ທຸກການປ່ຽນມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ'}</span><h1>ສິດ & ການອະນຸມັດ</h1></div>
+      {pinFor && <PinDialog person={pinFor} hasLogin={hasLogin(pinFor)} reveal={hr.online?.revealPin} onSet={(pin, must) => setPinTo(pinFor, pin, must)} onClose={() => setPinFor(null)} />}
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
 
       {hr.online && canRoles && (
@@ -180,6 +188,7 @@ export default function AccessPage() {
             <td className="row" style={{ gap: 6 }}>{canRoles && superOnly(e) && <span className="muted small">ສະເພາະ Super admin</span>}{canRoles && e.id !== me.id && !superOnly(e) && <>
               <button className="btn ghost" onClick={() => { setTicks(null); setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] }); }}>ບົດບາດ</button>
               <button className="btn ghost" onClick={() => { setEditing(null); startTicks(e); }}>ສິດ{e.perm && Object.keys(e.perm).length > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>ປັບແລ້ວ</span>}</button>
+              {canSeePins && <button className="btn ghost" onClick={() => setPinFor(e)}>ເບິ່ງ / ແກ້ PIN</button>}
               <button className="btn ghost" onClick={() => { if (confirm(`ຕັ້ງ PIN ຊົ່ວຄາວໃໝ່ໃຫ້ ${e.name}? PIN ເກົ່າຈະໃຊ້ບໍ່ໄດ້.`)) resetPins([e]); }}>ຕັ້ງ PIN ໃໝ່</button></>}
               {e.id === me.id && <span className="muted small">ປ່ຽນ PIN ຂອງຕົນເອງໃນ ຕັ້ງຄ່າ</span>}</td>
           </tr>)}

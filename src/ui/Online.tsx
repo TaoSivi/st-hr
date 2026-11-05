@@ -3,7 +3,7 @@ import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
 import { RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
 import {
   approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
-  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, type Member
+  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
 } from '../data/server';
 import type { SheetCard } from '../data/sheets';
 import { newCompanyRecords } from '../data/seed';
@@ -265,7 +265,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     createLogin: async (e: Employee, pin: string) => { await createLogin(id!, e.id, e.code, pin); await refreshLogins(); },
     resetPin: async (e: Employee, pin: string) => { await resetPin(e.id, pin); },
     changeOwnPin,
-    ...(canApprove() ? { approve: approveWith, runApproved } : {}),
+    ...(canApprove() ? { approve: approveWith, runApproved, revealPin: (e: Employee) => revealPin(e.id) } : {}),
     joinLink: () => joinLink(readServerConfig()!, id!)
   }), [id, logins, refreshLogins]);
 

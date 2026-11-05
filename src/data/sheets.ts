@@ -26,6 +26,25 @@ const store = {
   set: (t: string | null) => { try { t ? localStorage.setItem(TOKEN, t) : localStorage.removeItem(TOKEN); } catch { /* private mode: signs in again next time */ } }
 };
 
+/** What to say while each kind of call is on its way. Calls not listed here (reads, the sign-in list, the refresh in the background) never bring up the waiting card. */
+const WAIT_LABEL: Record<string, string> = {
+  login: 'ກຳລັງເຂົ້າລະບົບ', logout: 'ກຳລັງອອກຈາກລະບົບ', create: 'ກຳລັງສ້າງບໍລິສັດ', approve: 'ກຳລັງກວດ PIN ຜູ້ອະນຸມັດ',
+  upsert: 'ກຳລັງບັນທຶກ', del: 'ກຳລັງລຶບ', addAudit: 'ກຳລັງບັນທຶກ', createLogin: 'ກຳລັງຕັ້ງ PIN', setPin: 'ກຳລັງຕັ້ງ PIN',
+  changeOwnPin: 'ກຳລັງປ່ຽນ PIN', removeLogin: 'ກຳລັງປິດບັນຊີ', revealPin: 'ກຳລັງເປີດ PIN'
+};
+type Waiting = { id: number; label: string };
+let waitingNow: Waiting[] = [];
+let waitingSeq = 0;
+const waitingListeners = new Set<(w: readonly Waiting[]) => void>();
+function startWaiting(label: string): () => void {
+  const w = { id: ++waitingSeq, label };
+  waitingNow = [...waitingNow, w];
+  waitingListeners.forEach(f => f(waitingNow));
+  return () => { waitingNow = waitingNow.filter(x => x !== w); waitingListeners.forEach(f => f(waitingNow)); };
+}
+/** The screen listens here to know when someone is waiting on the sheet and for what (the newest call's wording is last). */
+export function onSheetsWaiting(f: (w: readonly Waiting[]) => void): () => void { waitingListeners.add(f); f(waitingNow); return () => { waitingListeners.delete(f); }; }
+
 /** Apps Script's own answer when the address is wrong or the web app is not shared with "Anyone". */
 const looksLikeLoginPage = (s: string) => /<html|<!doctype/i.test(s.slice(0, 200));
 
@@ -37,7 +56,13 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
 
   let approval: string | null = null; // set only while an action approved with someone else's PIN is running
 
+  /** Calls a person is waiting on (a tap, then the answer) are announced, so the screen can say "one moment" nicely; quiet reads and the background refresh are not. */
   async function post<T>(body: Record<string, unknown>): Promise<T> {
+    const waited = typeof body.action === 'string' && WAIT_LABEL[body.action];
+    const done = waited ? startWaiting(waited) : null;
+    try { return await send<T>(body); } finally { done?.(); }
+  }
+  async function send<T>(body: Record<string, unknown>): Promise<T> {
     const res = await doFetch(url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, token: tokens.get() ?? undefined, approval: approval ?? undefined }), redirect: 'follow' });
     const text = await res.text();
     if (looksLikeLoginPage(text)) throw new SheetError('ເຊື່ອມຕໍ່ Google Sheet ບໍ່ໄດ້ — ກວດລິ້ງ Web app ແລະ ການແບ່ງປັນ "ທຸກຄົນ (Anyone)"');
@@ -124,6 +149,8 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     setPin: (employeeId: string, pin: string) => post<true>({ action: 'setPin', employeeId, pin }),
     changeOwnPin: (pin: string) => post<true>({ action: 'changeOwnPin', pin }),
     removeLogin: (employeeId: string) => post<true>({ action: 'removeLogin', employeeId }),
+    /** An Admin or Super admin looks up a person's PIN (null when it is not known yet: it becomes known the next time that person signs in, or when a PIN is set). */
+    revealPin: async (employeeId: string) => (await post<{ pin: string | null }>({ action: 'revealPin', employeeId })).pin,
     listLogins: async () => new Set(await post<string[]>({ action: 'listLogins' }))
   };
 }
