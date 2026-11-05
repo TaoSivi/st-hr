@@ -123,6 +123,13 @@ export async function signIn(companyId: string, code: string, pin: string): Prom
   if (!m || m.companyId !== companyId) { await db().auth.signOut(); throw new Error('ບັນຊີນີ້ບໍ່ໄດ້ຢູ່ໃນບໍລິສັດນີ້'); }
   return m;
 }
+/** No signal: a person who signed in on this phone before gets in with their PIN. Only the Google Sheet kind supports it. */
+export async function signInOffline(companyId: string, code: string, pin: string): Promise<Member> {
+  if (serverKind() !== 'sheets') throw new Error('ຕ້ອງມີເນັດເພື່ອເຂົ້າລະບົບ');
+  const m = await sheets().signInOffline(code, pin);
+  if (m.companyId !== companyId) throw new Error('ບັນຊີນີ້ບໍ່ໄດ້ຢູ່ໃນບໍລິສັດນີ້');
+  return m;
+}
 export const signOut = async () => { if (serverKind() === 'sheets') return sheets().signOut(); await db().auth.signOut(); };
 
 /** A Google Sheet holds exactly one company, so its id comes from the sheet rather than from the person typing it. */

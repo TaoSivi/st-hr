@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
-import { RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
-import { clearLocalCache, localCache } from '../data/offlineCache';
+import { isOffline, RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
+import { localCache } from '../data/offlineCache';
 import {
   approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
-  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
+  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signInOffline, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
 } from '../data/server';
 import type { SheetCard } from '../data/sheets';
 import { askSuperApproval } from './SuperApproval';
@@ -38,7 +38,7 @@ const roleLabel = (role: string) => (role === 'superadmin' ? 'Super admin' : rol
  * Sign in to an online company, as in ST POS: tap your name, then the 4 digits of your PIN on the pad.
  * A server that cannot list its people (Supabase), or someone not on the list, uses the employee code instead.
  */
-function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member) => void; onBack?: () => void; onOther: () => void }) {
+function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; onIn: (m: Member, offline?: { code: string; pin: string }) => void; onBack?: () => void; onOther: () => void }) {
   const seed = useMemo(() => peekSignIn(companyId), [companyId]); // what this device saw last time: on screen at once, refreshed behind it
   const [name, setName] = useState<string | null | undefined>(seed ? seed.name : undefined);
   const [cards, setCards] = useState<SheetCard[] | null>(seed ? seed.cards : null);
@@ -54,7 +54,11 @@ function ServerLogin({ companyId, onIn, onBack, onOther }: { companyId: string; 
 
   const go = async (who: string, digits: string) => {
     setErr(''); setBusy(true);
-    try { onIn(await signIn(companyId, who, digits)); return; } catch (e: any) { setErr(friendly(e, 'ເຂົ້າບໍ່ໄດ້')); setPin(''); setShake(true); setTimeout(() => setShake(false), 400); }
+    try { onIn(await signIn(companyId, who, digits)); return; } catch (e: any) {
+      // no signal: someone who has signed in on this phone before gets in with their PIN; the real sign-in is repeated when the signal returns
+      if (isOffline(e)) { try { onIn(await signInOffline(companyId, who, digits), { code: who, pin: digits }); return; } catch (e2) { e = e2; } }
+      setErr(friendly(e, 'ເຂົ້າບໍ່ໄດ້')); setPin(''); setShake(true); setTimeout(() => setShake(false), 400);
+    }
     setBusy(false);
   };
   const showCards = !!cards && cards.length > 0 && !manual;
@@ -255,12 +259,27 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
     loadCompany(id).then(setCompany).catch(e => setErr(e?.message || 'ໂຫຼດບໍລິສັດບໍ່ໄດ້'));
   }, [member, id]);
 
-  const store = useMemo(() => (id ? new RemoteStore(activeBackend(), id, outboxFor(id), localCache(id)) : null), [id]);
+  const store = useMemo(() => (id && member ? new RemoteStore(activeBackend(), id, outboxFor(id), localCache(id, member.employeeId)) : null), [id, member?.employeeId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Let in with no signal: the PIN stays in memory only, to sign in for real the moment the signal is back (until then nothing can be read or sent)
+  const [offlineIn, setOfflineIn] = useState<{ code: string; pin: string } | null>(null);
+  useEffect(() => {
+    if (!offlineIn || !id) return;
+    let stop = false;
+    const recover = async () => {
+      if (!navigator.onLine) return;
+      try { const m = await signIn(id, offlineIn.code, offlineIn.pin); if (!stop) { setOfflineIn(null); setMember(m); } }
+      catch (e) { if (!isOffline(e) && !stop) { setOfflineIn(null); setMember(null); } } // refused (PIN changed, account closed): sign in again from the start
+    };
+    window.addEventListener('online', recover);
+    const t = setInterval(recover, 15_000);
+    return () => { stop = true; window.removeEventListener('online', recover); clearInterval(t); };
+  }, [offlineIn, id]);
   const owner = !!member?.roles.includes('owner');
   const refreshLogins = useCallback(async () => { if (id && owner) setLogins(await listLogins(id)); }, [id, owner]);
   useEffect(() => { refreshLogins().catch(() => { /* the list is only for the owner's PIN page */ }); }, [refreshLogins]);
 
-  const leave = async () => { await signOut().catch(() => { /* already out */ }); clearLocalCache(); setMember(null); };
+  const leave = async () => { await signOut().catch(() => { /* already out */ }); setOfflineIn(null); setMember(null); };
   const api: OnlineApi = useMemo(() => ({
     logins,
     refreshLogins,
@@ -274,7 +293,7 @@ export default function OnlineApp({ companyId, onLeave, children }: { companyId:
   if (probing) return <div className="empty">ກຳລັງເຊື່ອມຕໍ່… <div className="small muted">ລໍສັກຄູ່</div></div>;
   if (!readServerConfig() || !id) return <Connect onDone={nid => { setId(nid); setMember(undefined); }} onBack={onLeave} />;
   if (member === undefined) return <div className="empty">ກຳລັງກວດ…</div>;
-  if (!member) return <ServerLogin companyId={id} onIn={m => { clearLocalCache(); setMember(m); }}onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
+  if (!member) return <ServerLogin companyId={id} onIn={(m, off) => { setOfflineIn(off ?? null); setMember(m); }}onBack={onLeave} onOther={() => { setOnlineCompany(null); setId(null); }} />;
   if (err) return <div className="phone"><div className="screen"><div className="error" role="alert">{err}</div><button className="btn" onClick={leave}>ອອກ</button></div></div>;
   if (!company || !store) return <div className="empty">ກຳລັງໂຫຼດຂໍ້ມູນ… <div className="small muted">ລໍສັກຄູ່ ກຳລັງດຶງຂໍ້ມູນຈາກເຊີບເວີ</div></div>;
   return <>{children({ companyId: id, online: { store, company, meId: member.employeeId, onSignOut: leave, api, pollMs: serverKind() === 'sheets' ? 45_000 : undefined } })}</>;

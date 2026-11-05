@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { RemoteStore, type Backend, type Row } from './remote';
-import { clearLocalCache, localCache } from './offlineCache';
+import { localCache as cacheOf } from './offlineCache';
+const localCache = (c: string, e = 'e1') => cacheOf(c, e);
 import { sheetsApi } from './sheets';
 
 const memory = () => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v), removeItem: (k: string) => void m.delete(k), key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size; }, keys: () => [...m.keys()] }; };
@@ -58,18 +59,16 @@ describe('opening the app with no signal', () => {
     const outbox = { read: () => box, write: (q: any[]) => { box = q; } };
     const s = new RemoteStore(be, 'c1', outbox, localCache('c1'));
     await s.list('scans');
-    expect(localStorage.getItem('sthr-cache:c1:scans')).not.toContain('base64');
+    expect(localStorage.getItem('sthr-cache:c1:e1:scans')).not.toContain('base64');
     be.down = true;
     const again = new RemoteStore(be, 'c1', outbox, localCache('c1'));
     await again.put('scans', { id: 's2', employeeId: 'e1', kind: 'out' }, 'e1', 'clock-out'); // no signal → outbox
     expect((await again.list<any>('scans')).map(x => x.id)).toEqual(['s1', 's2']);
   });
-  it('sign-out wipes what was kept, but not the clock-ins still waiting to be sent', () => {
-    localCache('c1').write('branches', [{ id: 'b', data: {} }]);
-    localStorage.setItem('sthr-outbox:c1', '[{"x":1}]');
-    clearLocalCache();
-    expect(localCache('c1').read('branches')).toBeNull();
-    expect(localStorage.getItem('sthr-outbox:c1')).toBe('[{"x":1}]');
+  it('each person on the phone has their own copy', () => {
+    localCache('c1', 'e1').write('branches', [{ id: 'b', data: {} }]);
+    expect(localCache('c1', 'e1').read('branches')).toHaveLength(1);
+    expect(localCache('c1', 'e2').read('branches')).toBeNull();
   });
   it('a full phone does not break reading', async () => {
     const be = new Net();
@@ -120,5 +119,63 @@ describe('Google Sheet: staying signed in with no signal', () => {
   it('without a token it never claims a person', async () => {
     down = true;
     expect(await sheetsApi('https://x/exec', fakeFetch, tokens).currentMember()).toBeNull();
+  });
+});
+
+describe('Google Sheet: signing in with no signal', () => {
+  let down: boolean, logins: number, kind: 'ok' | 'wrong';
+  const member = { userId: 'u1', companyId: 'c1', employeeId: 'e1', roles: ['employee'] };
+  const company = { id: 'c1', name: 'KKK' } as any;
+  const fakeFetch = (async (_u: string, init: any) => {
+    if (down) throw new TypeError('Failed to fetch');
+    const b = JSON.parse(init.body);
+    if (b.action === 'login') { logins++; return kind === 'ok' ? new Response(JSON.stringify({ ok: true, data: { token: 't', member, company } })) : new Response(JSON.stringify({ ok: false, error: 'ລະຫັດ ຫຼື PIN ບໍ່ຖືກ', code: 'login' })); }
+    return new Response(JSON.stringify({ ok: true, data: true }));
+  }) as any;
+  let tok: string | null;
+  const tokens = { get: () => tok, set: (t: string | null) => { tok = t; } };
+  const api = () => sheetsApi('https://x/exec', fakeFetch, tokens);
+  beforeEach(() => { down = false; logins = 0; kind = 'ok'; tok = null; });
+
+  it('someone who signed in here before gets in with the right PIN, and the PIN itself is never stored', async () => {
+    await api().signIn('ST-001', '1234');
+    down = true;
+    expect(await api().signInOffline('st-001', '1234')).toEqual(member);
+    expect(JSON.stringify(Object.fromEntries(Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])))).not.toContain('1234');
+  });
+  it('the company comes with them', async () => {
+    await api().signIn('ST-001', '1234');
+    const a = api(); await a.signInOffline('ST-001', '1234');
+    expect(await a.loadCompany()).toEqual(company);
+  });
+  it('a wrong PIN is refused, and five in a row make it wait', async () => {
+    await api().signIn('ST-001', '1234');
+    const a = api();
+    for (let i = 0; i < 5; i++) await expect(a.signInOffline('ST-001', '9999')).rejects.toThrow('PIN ບໍ່ຖືກ');
+    await expect(a.signInOffline('ST-001', '1234')).rejects.toThrow('ລໍ 1 ນາທີ');
+  });
+  it('someone who never signed in on this phone must have the signal the first time', async () => {
+    await expect(api().signInOffline('ST-009', '1234')).rejects.toThrow('ຄັ້ງທຳອິດ');
+  });
+  it('a PIN changed while online replaces the old one for offline use', async () => {
+    const a = api();
+    await a.signIn('ST-001', '1234');
+    await a.changeOwnPin('5678');
+    await expect(a.signInOffline('ST-001', '1234')).rejects.toThrow('PIN ບໍ່ຖືກ');
+    expect(await a.signInOffline('ST-001', '5678')).toEqual(member);
+  });
+  it('when the server later refuses a PIN the phone still accepted, the phone forgets it', async () => {
+    await api().signIn('ST-001', '1234');
+    kind = 'wrong';
+    await expect(api().signIn('ST-001', '1234')).rejects.toThrow('PIN ບໍ່ຖືກ');
+    down = true;
+    await expect(api().signInOffline('ST-001', '1234')).rejects.toThrow('ຄັ້ງທຳອິດ');
+  });
+  it('signing out does not stop the same person getting in offline later', async () => {
+    const a = api();
+    await a.signIn('ST-001', '1234');
+    await a.signOut();
+    down = true;
+    expect(await api().signInOffline('ST-001', '1234')).toEqual(member);
   });
 });

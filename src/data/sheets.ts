@@ -30,6 +30,31 @@ function keepMe(member: SheetMember | null, company?: Company) {
   try { member ? localStorage.setItem(ME, JSON.stringify({ member, company })) : localStorage.removeItem(ME); } catch { /* private mode: needs the signal to open */ }
 }
 
+/**
+ * Signing in with no signal: a person who has signed in on this phone before can type their PIN and get in, as they were.
+ * The phone keeps only a salted, slow hash of the PIN (never the PIN) and who they are; it is checked here, and the real sign-in
+ * is repeated by the app (with the PIN it still holds in memory) as soon as the signal is back. Refreshed at every online sign-in.
+ */
+const LOGINS = 'sthr-sheets-logins';
+interface KeptLogin { code: string; employeeId: string; salt: string; hash: string; member: SheetMember; company?: Company }
+const same = (a: string, b: string) => a.trim().toUpperCase() === b.trim().toUpperCase();
+const peekLogins = (): KeptLogin[] => { try { const v = JSON.parse(localStorage.getItem(LOGINS) || '[]'); return Array.isArray(v) ? v : []; } catch { return []; } };
+const saveLogins = (l: KeptLogin[]) => { try { localStorage.setItem(LOGINS, JSON.stringify(l)); } catch { /* private mode: needs the signal each time */ } };
+const hex = (b: ArrayBuffer) => [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
+async function hashPin(pin: string, salt: string): Promise<string | null> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) return null;
+  const key = await subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  return hex(await subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: new TextEncoder().encode(salt), iterations: 60_000 }, key, 256));
+}
+async function rememberLogin(code: string, pin: string, member: SheetMember, company?: Company) {
+  const salt = hex(globalThis.crypto.getRandomValues(new Uint8Array(12)).buffer);
+  const hash = await hashPin(pin, salt);
+  if (!hash) return;
+  saveLogins([...peekLogins().filter(l => !same(l.code, code)), { code: code.trim(), employeeId: member.employeeId, salt, hash, member, ...(company ? { company } : {}) }]);
+}
+const matches = async (l: KeptLogin, pin: string) => (await hashPin(pin, l.salt)) === l.hash;
+
 const TOKEN = 'sthr-sheets-token';
 const store = {
   get: () => { try { return localStorage.getItem(TOKEN); } catch { return null; } },
@@ -117,6 +142,7 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
 
   // sign-in and `me` bring the company along, so opening the app takes one trip fewer
   let firstCompany: Company | undefined;
+  let offlineFails = 0, lockedUntil = 0; // too many wrong PINs with no signal: wait a minute
   type Info = SheetInfo;
   let infoTrip: { at: number; p: Promise<Info> } | null = null;
   // the connect step and the sign-in screen both ask: one trip to the sheet serves both for a short while
@@ -149,7 +175,30 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
         throw e;
       }
     },
-    async signIn(code: string, pin: string) { return asMember(await post({ action: 'login', code, pin })); },
+    async signIn(code: string, pin: string) {
+      let r: { token: string; member: SheetMember; company?: Company };
+      try { r = await post({ action: 'login', code, pin }); } catch (e) {
+        // the server refused this PIN: a copy kept on the phone that still accepts it is out of date (PIN reset, account closed)
+        if (!isOffline(e)) { const kept = peekLogins().find(l => same(l.code, code)); if (kept && await matches(kept, pin).catch(() => false)) saveLogins(peekLogins().filter(l => l !== kept && !same(l.code, code))); }
+        throw e;
+      }
+      const m = asMember(r);
+      await rememberLogin(code, pin, m, r.company).catch(() => { /* works without; just needs the signal next time */ });
+      return m;
+    },
+    /** No signal: let in someone who has signed in on this phone before, if the PIN is right. Gives no server session (the app signs in for real when the signal returns). */
+    async signInOffline(code: string, pin: string): Promise<SheetMember> {
+      if (Date.now() < lockedUntil) throw new SheetError('ໃສ່ PIN ຜິດຫຼາຍເທື່ອ — ລໍ 1 ນາທີ ແລ້ວລອງໃໝ່');
+      const kept = peekLogins().find(l => same(l.code, code));
+      if (!kept) throw new SheetError('ເຂົ້າລະບົບຕອນບໍ່ມີເນັດໄດ້ສະເພາະຄົນທີ່ເຄີຍເຂົ້າໃນເຄື່ອງນີ້ມາກ່ອນ — ຕ້ອງມີເນັດຄັ້ງທຳອິດ');
+      if (!(await matches(kept, pin).catch(() => false))) {
+        if (++offlineFails >= 5) { lockedUntil = Date.now() + 60_000; offlineFails = 0; }
+        throw new SheetError('PIN ບໍ່ຖືກ');
+      }
+      offlineFails = 0;
+      firstCompany = kept.company;
+      return kept.member;
+    },
     async signOut() { try { await post({ action: 'logout' }); } finally { tokens.set(null); keepMe(null); } },
     async loadCompany(): Promise<Company> {
       const c = firstCompany;
@@ -169,7 +218,12 @@ export function sheetsApi(url: string, fetchImpl?: Fetch, tokens = store) {
     async withApproval<T>(token: string, run: () => Promise<T>): Promise<T> { approval = token; try { return await run(); } finally { approval = null; } },
     createLogin: (employeeId: string, code: string, pin: string) => post<true>({ action: 'createLogin', employeeId, code, pin }),
     setPin: (employeeId: string, pin: string) => post<true>({ action: 'setPin', employeeId, pin }),
-    changeOwnPin: (pin: string) => post<true>({ action: 'changeOwnPin', pin }),
+    changeOwnPin: async (pin: string) => {
+      await post<true>({ action: 'changeOwnPin', pin });
+      const me = peekMe()?.member.employeeId, kept = peekLogins().find(l => l.employeeId === me);
+      if (kept) await rememberLogin(kept.code, pin, kept.member, kept.company).catch(() => saveLogins(peekLogins().filter(l => l !== kept))); // the old PIN must not keep working offline
+      return true as const;
+    },
     removeLogin: (employeeId: string) => post<true>({ action: 'removeLogin', employeeId }),
     /** An Admin or Super admin looks up a person's PIN (null when it is not known yet: it becomes known the next time that person signs in, or when a PIN is set). */
     revealPin: async (employeeId: string) => (await post<{ pin: string | null }>({ action: 'revealPin', employeeId })).pin,
