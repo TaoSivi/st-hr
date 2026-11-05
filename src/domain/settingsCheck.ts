@@ -76,7 +76,7 @@ export function validateShifts(shifts: { id: string; name: string; start: string
     const span = rel(s.end);
     if (span === 0) e.push(`ກະ ${label}: ເວລາເລີ່ມ ແລະ ເວລາເລີກຕ້ອງບໍ່ເທົ່າກັນ`);
     else if (span > MAX_SHIFT_MIN) e.push(`ກະ ${label}: ຍາວເກີນ 16 ຊົ່ວໂມງ (ກວດເວລາອີກຄັ້ງ)`);
-    else if (!(rel(s.breakStart) < rel(s.breakEnd) && rel(s.breakEnd) <= span)) e.push(`ກະ ${label}: ເວລາພັກຕ້ອງຢູ່ໃນກະ`);
+    else if (!(rel(s.breakStart) < rel(s.breakEnd) && rel(s.breakEnd) <= span)) e.push(`ກະ ${label}: ເວລາພັກຕ້ອງຢູ່ໃນກະ — ພັກ ${s.breakStart}–${s.breakEnd} ແຕ່ກະແມ່ນ ${s.start}–${s.end} (ກວດ AM/PM: 12:00 AM ແມ່ນທ່ຽງຄືນ, ທ່ຽງມື້ແມ່ນ 12:00 PM)`);
   }
   if (new Set(shifts.map(s => s.name?.trim())).size !== shifts.length) e.push('ຊື່ກະຊ້ຳກັນ');
   return e;

@@ -66,11 +66,11 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
       <nav aria-label="ເມນູ HR">
         <div className="brand"><span className="logo">ST</span><div className="col" style={{ gap: 0 }}><b style={{ color: '#fff', fontSize: 17 }}>ST HR</b><span className="small" style={{ color: '#7fbdb9' }}>{me.name} · {me.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ')}</span></div></div>
         {pages.map(p => (
-          <button key={p} aria-current={page === p ? 'page' : undefined} onClick={() => setPage(p)}>
+          <button key={p} aria-current={page === p ? 'page' : undefined} onClick={e => { setPage(p); e.currentTarget.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }}>
             <span className="nav-l"><Icon name={PAGE_ICON[p]} size={20} />{PAGE_LABEL[p]}</span>{!!badge[p] && <span className="badge">{badge[p]}</span>}
           </button>
         ))}
-        <div style={{ height: 12 }} />
+        <div className="nav-gap" />
         <button onClick={onEmployeeView}>‹ ກັບໜ້າລົງເວລາ</button>
         <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
       </nav>
@@ -123,7 +123,7 @@ function Overview() {
   return (
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">{laoDate(now)}</span><h1>ພາບລວມພະນັກງານ</h1></div>
-      <div className="grid">
+      <div className="grid stats">
         {k('ມາວຽກມື້ນີ້', `${present.size} / ${staff.length}`, 'dark')}
         {k('ມາຊ້າ', late)}
         {k('ລາພັກມື້ນີ້', onLeave)}
@@ -800,7 +800,7 @@ function Payroll() {
             <div className="row"><button className="btn ghost" onClick={() => setPi(null)}>ຍົກເລີກ</button><button className="btn" onClick={addItem}>{hr.settings.makerChecker ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
           </div>)}
       </div>
-      <div className="grid"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num">{money(total)} ₭</div></div>
+      <div className="grid stats"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num">{money(total)} ₭</div></div>
         <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.socialSecurity, 0))}</div></div>
         <div className="card"><span className="muted small">ອາກອນ</span><div className="big-num">{money(rows.reduce((a, r) => a + r.slip.tax, 0))}</div></div></div>
       <div className="card scroll-x"><table className="t"><thead><tr><th>ພະນັກງານ</th><th className="num">ພື້ນຖານ</th><th className="num">OT</th><th>ມາຊ້າ (ຢືນຢັນ?)</th><th className="num">ປະກັນ</th><th className="num">ອາກອນ</th><th className="num">ເບີກ</th><th className="num">ສຸດທິ</th><th /></tr></thead><tbody>
@@ -945,14 +945,16 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
       {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {tab === 'places' && <div className="card col"><h2>ສາຂາ & GPS</h2>
         <span className="muted small">ພະນັກງານລົງເວລາໄດ້ເມື່ອຢູ່ໃນລັດສະໝີຂອງສາຂາ. ຢືນຢູ່ສາຂາແລ້ວກົດ 'ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້' ປຸ່ມດຽວຕັ້ງຈຸດໃຫ້ເລີຍ, ຫຼື ກົດ 'ແກ້ຊື່ / ພິກັດ' ເພື່ອຄົ້ນຫາຊື່ບ່ອນ.</span>
-        {hr.branches.map(b => <div key={b.id} className="row wrap"><b className="grow">{b.name}</b><span className="muted small">{b.lat.toFixed(5)}, {b.lng.toFixed(5)}</span>
-          <label className="row small">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
+        {hr.branches.map(b => <div key={b.id} className="branch-row"><div className="col branch-info" style={{ gap: 2 }}><b>{b.name}</b><span className="muted small">{b.lat.toFixed(5)}, {b.lng.toFixed(5)}</span></div>
+          <label className="row small branch-radius">ລັດສະໝີ (ມ.)<input className="input" style={{ width: 90 }} type="number" disabled={readOnly} value={Number.isFinite(radii[b.id]) ? radii[b.id] : ''} aria-label={`ລັດສະໝີ ${b.name}`}
             onChange={e => setRadii({ ...radii, [b.id]: e.target.value === '' ? NaN : Number(e.target.value) })} /></label>
-          {!readOnly && <button className="btn ghost" onClick={() => useHere(b.id)}>ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>}
-          {!readOnly && <button className="btn ghost" onClick={() => setBEdit({ id: b.id, name: b.name, lat: String(b.lat), lng: String(b.lng) })}>ແກ້ຊື່ / ພິກັດ</button>}
-          {!readOnly && <button className="btn danger" aria-label={`ລຶບສາຂາ ${b.name}`} onClick={() => removeBranch(b)}>🗑 ລຶບ</button>}
+          {!readOnly && <div className="row wrap branch-actions">
+            <button className="btn ghost" onClick={() => useHere(b.id)}>📍 ໃຊ້ຕຳແໜ່ງຂ້ອຍຕອນນີ້</button>
+            <button className="btn ghost" onClick={() => setBEdit({ id: b.id, name: b.name, lat: String(b.lat), lng: String(b.lng) })}>ແກ້ຊື່ / ພິກັດ</button>
+            <button className="btn danger" aria-label={`ລຶບສາຂາ ${b.name}`} onClick={() => removeBranch(b)}>🗑 ລຶບ</button>
+          </div>}
           {bEdit?.id === b.id && (
-            <div className="col" style={{ width: '100%', border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
+            <div className="col branch-edit">
               <label className="field">ຊື່ສາຂາ<input className="input" value={bEdit.name} onChange={e => setBEdit({ ...bEdit, name: e.target.value })} /></label>
               <PlacePicker lat={bEdit.lat} lng={bEdit.lng} onPick={(p, note) => { setBEdit(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v)); setMsg(`${note} — ກົດ "ບັນທຶກສາຂາ" ເພື່ອເກັບ`); }} />
               <div className="row wrap"><label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={bEdit.lat} onChange={e => setBEdit({ ...bEdit, lat: e.target.value })} /></label>
@@ -977,15 +979,19 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
         <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ. ກະຢືດຢຸ່ນ: ເຂົ້າ-ອອກເວລາໃດກໍໄດ້ ບໍ່ຄິດມາຊ້າ</span>
         {hr.shifts.some(s => s.personal) && <span className="muted small">ມີ {hr.shifts.filter(s => s.personal && hr.employees.some(e => e.shiftId === s.id)).length} ຄົນ ທີ່ໃຊ້ເວລາເຂົ້າ-ອອກສະເພາະຕົວ (ແກ້ໃນ ພະນັກງານ → ແກ້ໄຂ).</span>}
         {shiftRows.filter(sh => !sh.personal).map(sh => (
-          <div key={sh.id} className="row wrap" style={{ alignItems: 'flex-end' }}>
-            <label className="field grow" style={{ minWidth: 120 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
+          <div key={sh.id} className="shift-row">
+            <div className="row wrap shift-head">
+            <label className="field grow" style={{ minWidth: 160 }}>ຊື່ກະ<input className="input" disabled={readOnly} value={sh.name} onChange={e => setShift(sh.id, { name: e.target.value })} /></label>
             <label className="row" style={{ minHeight: 48 }}><input type="checkbox" disabled={readOnly} checked={!!sh.flexible} aria-label={`${sh.name} ຢືດຢຸ່ນ`} onChange={e => setShift(sh.id, { flexible: e.target.checked, dailyHours: sh.dailyHours ?? 8 })} />ຢືດຢຸ່ນ (ບໍ່ກຳນົດເວລາ)</label>
+            {!readOnly && <button className="btn danger" aria-label={`ລຶບກະ ${sh.name}`} title="ລຶບກະນີ້" onClick={() => removeShift(sh)} style={{ minHeight: 48 }}>🗑 ລຶບ</button>}
+            </div>
+            <div className="row wrap shift-times">
             {sh.flexible
               ? <label className="field" style={{ width: 130 }}>ຊົ່ວໂມງ/ມື້<input className="input" inputMode="decimal" disabled={readOnly} value={Number.isFinite(sh.dailyHours) ? sh.dailyHours : ''} aria-label={`${sh.name} ຊົ່ວໂມງຕໍ່ມື້`} onChange={e => setShift(sh.id, { dailyHours: e.target.value === '' ? NaN : Number(e.target.value.replace(/[^\d.]/g, '')) })} /></label>
               : ([['start', 'ເລີ່ມ'], ['end', 'ເລີກ'], ['breakStart', 'ເລີ່ມພັກ'], ['breakEnd', 'ເສັດພັກ']] as const).map(([k, l]) => (
                 <label key={k} className="field">{l}<input className="input" type="time" disabled={readOnly} value={sh[k]} aria-label={`${sh.name} ${l}`} onChange={e => setShift(sh.id, { [k]: e.target.value })} /></label>))}
             <label className="field" style={{ width: 130 }}>ເບ້ຍລ້ຽງ/ກະ (ກີບ)<input className="input" inputMode="numeric" disabled={readOnly} value={sh.allowance ?? ''} aria-label={`${sh.name} ເບ້ຍລ້ຽງຕໍ່ກະ`} onChange={e => setShift(sh.id, { allowance: e.target.value === '' ? undefined : Number(e.target.value.replace(/\D/g, '')) })} /></label>
-            {!readOnly && <button className="btn danger" aria-label={`ລຶບກະ ${sh.name}`} title="ລຶບກະນີ້" onClick={() => removeShift(sh)} style={{ minHeight: 48 }}>🗑 ລຶບ</button>}
+            </div>
           </div>))}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '22:00', end: '06:00', breakStart: '01:00', breakEnd: '01:30' }])}>+ ເພີ່ມກະ</button>}
         {!readOnly && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShiftRows(rows => [...rows, { id: 'sh-' + uid().slice(0, 6), name: '', start: '08:00', end: '17:00', breakStart: '12:00', breakEnd: '13:00', flexible: true, dailyHours: 8 }])}>+ ເພີ່ມກະຢືດຢຸ່ນ (ອອຟຟິດ)</button>}
