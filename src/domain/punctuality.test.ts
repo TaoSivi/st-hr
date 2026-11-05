@@ -39,10 +39,28 @@ describe('what to say after clocking out', () => {
   });
 });
 
+describe('a flexible (office) shift is judged on hours', () => {
+  const flex = { ...day, flexible: true, dailyHours: 8 };
+  it('nobody is late on clock-in', () => expect(punctualityNote({ ...base, kind: 'in', at: at('11:00'), shift: flex })).toBeNull());
+  it('leaving with fewer hours than the day needs: how many minutes short', () => {
+    const n = punctualityNote({ ...base, kind: 'out', at: at('16:31'), shift: flex, workedMinutes: 451 })!;
+    expect(n).toMatchObject({ tone: 'early', minutes: 29 });
+    expect(n.text).toContain('ອອກກ່ອນຄົບເວລາ 29 ນາທີ');
+    expect(n.text).toContain('7 ຊົ່ວໂມງ 31 ນາທີ');
+  });
+  it('a full day or more: nothing', () => {
+    expect(punctualityNote({ ...base, kind: 'out', at: at('17:00'), shift: flex, workedMinutes: 480 })).toBeNull();
+    expect(punctualityNote({ ...base, kind: 'out', at: at('18:00'), shift: flex, workedMinutes: 540 })).toBeNull();
+  });
+  it('no worked time known, or an approved afternoon leave: nothing', () => {
+    expect(punctualityNote({ ...base, kind: 'out', at: at('12:00'), shift: flex })).toBeNull();
+    expect(punctualityNote({ ...base, kind: 'out', at: at('13:00'), shift: flex, workedMinutes: 300, leaves: [{ part: 'pm', status: 'approved' }] })).toBeNull();
+  });
+});
+
 describe('when there is nothing to compare with', () => {
-  it('no shift (day off), a flexible shift, or a break scan: nothing', () => {
+  it('no shift (day off) or a break scan: nothing', () => {
     expect(punctualityNote({ ...base, kind: 'in', at: at('10:00'), shift: null })).toBeNull();
-    expect(punctualityNote({ ...base, kind: 'out', at: at('10:00'), shift: { ...day, flexible: true } })).toBeNull();
     expect(punctualityNote({ ...base, kind: 'breakStart', at: at('12:00'), shift: day })).toBeNull();
   });
 });

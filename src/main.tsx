@@ -10,7 +10,10 @@ import ToastHost from './ui/Toast';
 
 // open the app even with no internet (production build only; the dev server must not be cached)
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(() => { /* app still works online */ }); });
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => { /* app still works online */ });
+    navigator.storage?.persist?.().catch(() => { /* the browser decides; the saved copy may be cleared after long disuse */ });
+  });
 }
 
 installPress();

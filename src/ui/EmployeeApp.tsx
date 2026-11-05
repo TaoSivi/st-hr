@@ -33,7 +33,7 @@ import { compBalanceFor, lateStartOn } from '../app/payrun';
 import { leaveRequestBlock, leaveSpan, partialDays, PART_LABEL, shiftPaidHours, type LeavePart } from '../domain/leavePart';
 import { closesAtFor } from '../domain/missedOut';
 import { punctualityNote } from '../domain/punctuality';
-import { activeSession, actionsNow, scansOn, toSessions } from '../domain/sessions';
+import { activeSession, actionsNow, scansOn, toSessions, workedMinutesOf } from '../domain/sessions';
 import { About, CertificateView, Directory, EmpSettings, Notifications, Privacy, Profile, Reports, SchedulePage, TeamMap } from './Pages';
 import { hhmm, initials, laoDate, laoMonth, LEAVE_TYPES, money, retentionLabel, ROLE_NAMES, ymd } from './format';
 
@@ -715,7 +715,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
     const workDate = session?.workDate ?? ymd(new Date(result.deviceTime));
     const sid = effectiveShift(me, workDate, overrides);
     return punctualityNote({
-      kind: result.kind, at: new Date(result.deviceTime), workDate, shift: sid ? shifts.find(x => x.id === sid) : null,
+      kind: result.kind, at: new Date(result.deviceTime), workDate, shift: sid ? shifts.find(x => x.id === sid) : null, workedMinutes: session ? workedMinutesOf(session.scans) : undefined,
       leaves: leaves.filter(l => l.employeeId === me.id && l.from <= workDate && l.to >= workDate), graceMinutes: settings.graceMinutes
     });
   }, [result]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -810,7 +810,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
             <span className="circle" style={{ background: '#fff', color }}><Tick size={84} /></span>
             <span className="t1" role="status" style={{ marginTop: 18 }}>{KIND_LABEL[kind]}ແລ້ວ!</span>
             <span className="t2">{hhmm(result.deviceTime)}</span>
-            {note && <span className="pill" role="status" style={{ background: '#fff', color, height: 'auto', padding: '8px 18px', fontSize: 18, fontWeight: 700 }}>{note.text}</span>}
+            {note && <span className="pill" role="status" style={{ background: '#fff', color, height: 'auto', padding: '8px 18px', fontSize: 18, fontWeight: 700, whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.5 }}>{note.text}</span>}
             <span style={{ fontSize: 18 }}>{kind === 'in' ? 'ສູ້ໆ ມື້ນີ້!' : kind === 'out' ? 'ພັກຜ່ອນໃຫ້ດີ ພົບກັນມື້ອື່ນ' : ''}</span>
             {result.offline && <span className="pill" style={{ background: 'rgba(255,255,255,.2)', color: '#fff', height: 'auto', padding: '8px 14px', whiteSpace: 'normal', fontSize: 15 }}>ບໍ່ມີເນັດ — ບັນທຶກໄວ້ໃນເຄື່ອງແລ້ວ ຈະສົ່ງເມື່ອມີເນັດ</span>}
           </div>
@@ -827,7 +827,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
           <span className="t1" role="status" style={{ marginTop: 18 }}>ບັນທຶກແລ້ວ</span>
           <b style={{ fontSize: 22 }}>ລໍຫົວໜ້າກວດ</b>
           <div className="row wrap" style={{ justifyContent: 'center' }}>{result.reasons.map(r => <span key={r} className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 36, fontSize: 15 }}>{r}</span>)}</div>
-          {note && <span className="pill" role="status" style={{ background: 'var(--warn)', color: '#fff', height: 'auto', padding: '8px 18px', fontSize: 18, fontWeight: 700 }}>{note.text}</span>}
+          {note && <span className="pill" role="status" style={{ background: 'var(--warn)', color: '#fff', height: 'auto', padding: '8px 18px', fontSize: 18, fontWeight: 700, whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.5 }}>{note.text}</span>}
           <span style={{ fontSize: 18 }}>ບໍ່ຕ້ອງເປັນຫ່ວງ<br />ເວລາ {hhmm(result.deviceTime)} ຂອງເຈົ້າຖືກບັນທຶກໄວ້ແລ້ວ</span>
           {hint && <span style={{ fontSize: 16 }}>ເທື່ອຕໍ່ໄປ: {hint}</span>}
           {result.offline && <span className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 'auto', padding: '8px 14px', whiteSpace: 'normal', fontSize: 15 }}>ບໍ່ມີເນັດ — ຈະສົ່ງເມື່ອມີເນັດ</span>}

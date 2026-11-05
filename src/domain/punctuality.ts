@@ -15,19 +15,29 @@ export function minutesText(m: number): string {
  * What to tell a person right after a clock-in or clock-out about the time, or null when there is nothing to say:
  * - clock-in later than the shift start (past the grace minutes) → "ມາຊ້າ N ນາທີ"
  * - clock-out before the shift ends → "ອອກກ່ອນເວລາ N ນາທີ"
- * On time, early in, or out at / after the end of the shift: nothing. Flexible shifts and days off have no fixed times, so nothing either.
+ * On time, early in, or out at / after the end of the shift: nothing.
+ * A flexible (office) shift has no fixed start or end, so nobody is late; at clock-out it is judged on hours instead: fewer than the shift's daily hours worked → "ອອກກ່ອນຄົບເວລາ N ນາທີ".
+ * A day off has no shift, so nothing.
  * A half-day or hourly leave in the afternoon makes an early clock-out expected, so it is not mentioned.
  */
 export function punctualityNote(a: {
   kind: ScanKind;
   at: Date;
   workDate: string;
-  shift?: { start: string; end: string; breakEnd: string; flexible?: boolean } | null;
+  shift?: { start: string; end: string; breakEnd: string; flexible?: boolean; dailyHours?: number } | null;
+  workedMinutes?: number; // this work day so far, up to this clock-out (flexible shifts are judged on it)
   leaves: Pick<LeaveRequest, 'part' | 'status'>[]; // the person's leave covering the work date
   graceMinutes: number;
 }): PunctualityNote | null {
   const { shift } = a;
-  if (!shift || shift.flexible) return null;
+  if (!shift) return null;
+  if (shift.flexible) {
+    if (a.kind !== 'out' || a.workedMinutes == null) return null;
+    if (a.leaves.some(l => l.status === 'approved' && (l.part === 'pm' || l.part === 'hours'))) return null;
+    const hours = shift.dailyHours ?? 8;
+    const short = Math.round(hours * 60 - a.workedMinutes);
+    return short >= 1 ? { tone: 'early', minutes: short, text: `ອອກກ່ອນຄົບເວລາ ${minutesText(short)} (ເຮັດໄດ້ ${minutesText(a.workedMinutes)} ຈາກ ${hours} ຊົ່ວໂມງ)` } : null;
+  }
   if (a.kind === 'in') {
     const start = lateStartFor(shift, a.leaves);
     const late = start ? lateMinutes(start, a.at, a.graceMinutes) : 0;
