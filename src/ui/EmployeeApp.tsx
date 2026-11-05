@@ -285,7 +285,7 @@ function ClockTab() {
       </div>
       {todays.some(s => s.status === 'pending') && <div className="pill warn" style={{ height: 'auto', padding: '8px 12px', whiteSpace: 'normal' }}>ມີການລົງເວລາທີ່ລໍຫົວໜ້າກວດ</div>}
       <h2 style={{ marginTop: 6 }}>ເວລາເຂົ້າ-ອອກວຽກ {todaysShift ? <span className="pill ok">{shift.name}</span> : <span className="pill info">ມື້ນີ້ເປັນວັນພັກ</span>}</h2>
-      <TimeCard date={new Date(workDay.date + 'T12:00:00')} scans={todays} shift={shift} />
+      <TimeCard date={new Date(workDay.date + 'T12:00:00')} scans={todays} shift={shift} dayOff={!todaysShift} />
       {flow?.enroll && <Enroll onDone={() => setFlow({ kind: flow.kind, enroll: false })} onSkip={() => setFlow({ kind: flow.kind, enroll: false })} onCancel={() => setFlow(null)} />}
       {flow && !flow.enroll && <ScanFlow kind={flow.kind} manualBranch={manual} onClose={() => setFlow(null)} />}
     </div>
@@ -293,12 +293,14 @@ function ClockTab() {
 }
 
 /** Expected vs actual for one day, in two halves like a punch card. */
-function TimeCard({ date, scans, shift }: { date: Date; scans: ScanRecord[]; shift: { start: string; end: string; breakStart: string; breakEnd: string; name: string; flexible?: boolean } }) {
-  const { settings } = useHR();
+function TimeCard({ date, scans, shift, dayOff = false }: { date: Date; scans: ScanRecord[]; shift: { start: string; end: string; breakStart: string; breakEnd: string; name: string; flexible?: boolean }; dayOff?: boolean }) {
+  const hr = useHR();
+  const { settings } = hr;
+  const lateFrom = lateStartOn(hr, hr.me!, ymd(date)); // the same start time the calendar and the pay use (null: day off or flexible)
   const first = (k: ScanKind) => scans.find(s => s.kind === k && s.status !== 'rejected');
   const last = (k: ScanKind) => [...scans].reverse().find(s => s.kind === k && s.status !== 'rejected');
   const cell = (label: string, expected: string, s: ScanRecord | undefined, brkLabel: string, brkExpected: string, brk: ScanRecord | undefined, lateCheck: boolean) => {
-    const late = lateCheck && !shift.flexible && s && (new Date(s.deviceTime).getHours() * 60 + new Date(s.deviceTime).getMinutes()) - (+expected.slice(0, 2) * 60 + +expected.slice(3)) > settings.graceMinutes;
+    const late = lateCheck && !!lateFrom && !dayOff && s && (new Date(s.deviceTime).getHours() * 60 + new Date(s.deviceTime).getMinutes()) - (+lateFrom.slice(0, 2) * 60 + +lateFrom.slice(3)) > settings.graceMinutes;
     const tone = !s ? 'none' : s.status === 'pending' ? 'warn' : late ? 'late' : 'ok';
     return (
       <div className="tc-half">
@@ -311,8 +313,8 @@ function TimeCard({ date, scans, shift }: { date: Date; scans: ScanRecord[]; shi
   };
   return (
     <div className="card timecard">
-      {cell('ເຂົ້າວຽກ', shift.flexible ? 'ຢືດຢຸ່ນ' : shift.start, first('in'), 'ເລີ່ມພັກ', shift.flexible ? '—' : shift.breakStart, first('breakStart'), true)}
-      {cell('ອອກວຽກ', shift.flexible ? 'ຢືດຢຸ່ນ' : shift.end, last('out'), 'ເສັດພັກ', shift.flexible ? '—' : shift.breakEnd, last('breakEnd'), false)}
+      {cell('ເຂົ້າວຽກ', dayOff ? 'ວັນພັກ' : shift.flexible ? 'ຢືດຢຸ່ນ' : shift.start, first('in'), 'ເລີ່ມພັກ', dayOff || shift.flexible ? '—' : shift.breakStart, first('breakStart'), true)}
+      {cell('ອອກວຽກ', dayOff ? 'ວັນພັກ' : shift.flexible ? 'ຢືດຢຸ່ນ' : shift.end, last('out'), 'ເສັດພັກ', dayOff || shift.flexible ? '—' : shift.breakEnd, last('breakEnd'), false)}
     </div>
   );
 }
@@ -339,7 +341,9 @@ function CalendarTab() {
   const dayHead = useRef<HTMLDivElement>(null);
   const pick = (date: string) => { setSel(date); setTimeout(() => dayHead.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); }; // bring the chosen day and its actions into view
   const [doing, setDoing] = useState<DayAction | null>(null); // the request being made from the selected day
-  const shift = shifts.find(s => s.id === me!.shiftId)!;
+  // the shift of the day picked (a swap or a changed schedule for that day counts), not only the one on the person's profile
+  const selShiftId = effectiveShift(me!, sel, hr.overrides);
+  const shift = shifts.find(s => s.id === (selShiftId ?? me!.shiftId)) ?? shifts[0];
   const mine = scans.filter(s => s.employeeId === me!.id);
   const myLeaves = leaves.filter(l => l.employeeId === me!.id);
   // a night shift's after-midnight scans belong to the day it started
@@ -396,7 +400,8 @@ function CalendarTab() {
         <h2 className="grow">{laoDate(selDate)}</h2>
         {DAY_STYLE[selStatus] && <span className={`status-pill ${DAY_STYLE[selStatus]!.cls}`}>{DAY_STYLE[selStatus]!.label}</span>}
       </div>
-      <TimeCard date={selDate} scans={selScans} shift={shift} />
+      <div className="row" style={{ gap: 8 }}>{selShiftId ? <span className="pill ok">{shift.name}</span> : <span className="pill info">ວັນພັກ</span>}</div>
+      <TimeCard date={selDate} scans={selScans} shift={shift} dayOff={!selShiftId} />
       {actions.length > 0 && (
         <div className="card col" style={{ gap: 4, padding: '14px 10px' }}>
           <b style={{ padding: '0 10px 6px' }}>ເຮັດຫຍັງໄດ້ໃນມື້ນີ້</b>
