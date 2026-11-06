@@ -33,6 +33,7 @@ import AccessPage from './AccessPage';
 import ApproveButton from './ApproveButton';
 import PinDialog from './PinDialog';
 import Modal from './Modal';
+import Avatar from './Avatar';
 import PlacePicker from './PlacePicker';
 import RecordsPage from './RecordsPage';
 import { PAGE_LABEL } from './rightLabels';
@@ -40,7 +41,7 @@ import { profileProblems, type ProfileEdit } from '../domain/hiring';
 import { bulkTargets, makePersonalShift, personalShiftId, personalShiftProblems, sharedShifts, shiftDeleteBlock, type Hours } from '../domain/personalShift';
 import { recordChanges, RULE_LABEL, ruleChanges, rulesSummary, type RulesTab } from '../domain/rules';
 import { downloadText,hhmm, LEAVE_TYPES, laoDate, laoMonth, money, ROLE_NAMES, sameDay, ymd } from './format';
-import { CountUp, Ring } from './motion';
+import { CountUp } from './motion';
 
 type Page = ManagerPage;
 const PAGE_ORDER = Object.keys(PAGE_LABEL) as Page[];
@@ -64,38 +65,56 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const reqCount = (['shift', 'schedule', 'ot', 'expense', 'certificate', 'leaveCancel', 'device', 'face', 'scan'] as ApprovalSection[]).reduce((a, s) => a + (s === 'scan' ? hr.requests.filter(r => r.kind === 'clockFix' && r.status === 'pending').length : actionableCount(hr, s)), 0);
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
+  const roleText = me.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ');
+  const firstName = me.name.trim().split(/\s+/)[0] || me.name;
   return (
     <div className="mgr">
-      <nav aria-label="ເມນູ HR">
-        <div className="brand"><span className="logo">ST</span><div className="col" style={{ gap: 0 }}><b style={{ color: '#fff', fontSize: 17 }}>ST HR</b><span className="small" style={{ color: '#7fbdb9' }}>{me.name} · {me.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ')}</span></div></div>
-        {pages.map(p => (
-          <button key={p} aria-current={page === p ? 'page' : undefined} onClick={e => { setPage(p); e.currentTarget.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }}>
-            <span className="nav-l"><Icon name={PAGE_ICON[p]} size={20} />{PAGE_LABEL[p]}</span>{!!badge[p] && <span className="badge">{badge[p]}</span>}
-          </button>
-        ))}
-        <div className="nav-gap" />
-        <button onClick={onEmployeeView}>‹ ກັບໜ້າລົງເວລາ</button>
-        <button onClick={onSwitch}>ປ່ຽນຜູ້ໃຊ້</button>
-      </nav>
-      <main key={page}>
-        {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ{me.roles.includes('auditor') ? ' (ຜູ້ກວດສອບ)' : ''}</div>}
-        {!canViewPage(me, page, hr.settings) && <NoAccess />}
-        {canViewPage(me, page, hr.settings) && <>
-          {page === 'overview' && <Overview />}
-          {page === 'review' && <Review readOnly={!canDoIn(me, 'scan.review', hr.settings)} />}
-          {page === 'approvals' && <ApprovalsHub />}
-          {page === 'time' && <TimeToday />}
-          {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
-          {page === 'map' && <><h1>ແຜນທີ່ການສະແກນມື້ນີ້</h1><TeamMap /></>}
-          {page === 'leave' && <Leaves />}
-          {page === 'staff' && <Staff />}
-          {page === 'pay' && <Payroll />}
-          {page === 'access' && <AccessPage />}
-          {page === 'settings' && <SettingsPage readOnly={!canDo(me, 'settings.edit', hr.settings)} />}
-          {page === 'audit' && <Audit />}
-          {page === 'records' && <RecordsPage />}
-        </>}
-      </main>
+      <div className="frame">
+        <nav aria-label="ເມນູ HR">
+          <div className="brand"><span className="logo">ST</span><b>ST HR</b></div>
+          <div className="greet-big">
+            <span>ສະບາຍດີ 👋</span>
+            <h1>{firstName}</h1>
+            <small>{roleText || 'ພະນັກງານ'}</small>
+          </div>
+          <div className="nav-cap"><span>ເມນູ</span></div>
+          {pages.map(p => (
+            <button key={p} aria-current={page === p ? 'page' : undefined} onClick={e => { setPage(p); e.currentTarget.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }}>
+              <span className="nav-l"><Icon name={PAGE_ICON[p]} size={20} />{PAGE_LABEL[p]}</span>
+              {!!badge[p] && <span className="badge">{badge[p]}</span>}
+              <span className="nav-go" aria-hidden="true">↗</span>
+            </button>
+          ))}
+        </nav>
+        <div className="mgr-right">
+          <header className="topbar">
+            <span className="date-chip"><Icon name="schedule" size={18} />{laoDate(new Date())}</span>
+            <span className="grow" />
+            <button className="round-btn" title="ກັບໜ້າລົງເວລາ" aria-label="ກັບໜ້າລົງເວລາ" onClick={onEmployeeView}><Icon name="clock" size={20} /></button>
+            <button className="round-btn" title="ປ່ຽນຜູ້ໃຊ້" aria-label="ປ່ຽນຜູ້ໃຊ້" onClick={onSwitch}><Icon name="logout" size={20} /></button>
+            <span className="me-chip"><Avatar e={me} size={36} /><span className="col" style={{ gap: 0 }}><b>{me.name}</b><small>{roleText || 'ພະນັກງານ'}</small></span></span>
+          </header>
+          <main key={page}>
+            {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ{me.roles.includes('auditor') ? ' (ຜູ້ກວດສອບ)' : ''}</div>}
+            {!canViewPage(me, page, hr.settings) && <NoAccess />}
+            {canViewPage(me, page, hr.settings) && <>
+              {page === 'overview' && <Overview />}
+              {page === 'review' && <Review readOnly={!canDoIn(me, 'scan.review', hr.settings)} />}
+              {page === 'approvals' && <ApprovalsHub />}
+              {page === 'time' && <TimeToday />}
+              {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
+              {page === 'map' && <><h1>ແຜນທີ່ການສະແກນມື້ນີ້</h1><TeamMap /></>}
+              {page === 'leave' && <Leaves />}
+              {page === 'staff' && <Staff />}
+              {page === 'pay' && <Payroll />}
+              {page === 'access' && <AccessPage />}
+              {page === 'settings' && <SettingsPage readOnly={!canDo(me, 'settings.edit', hr.settings)} />}
+              {page === 'audit' && <Audit />}
+              {page === 'records' && <RecordsPage />}
+            </>}
+          </main>
+        </div>
+      </div>
     </div>
   );
 }
@@ -123,25 +142,55 @@ function Overview() {
     const start = first && lateStartOn(hr, e, wd.date);
     if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) late++;
   }
-  const k = (label: string, v: number, tone = '') => <div className={`card ${tone}`}><span className={tone ? 'small' : 'muted small'} style={tone ? { color: '#9fd8d4' } : undefined}>{label}</span><div className="big-num"><CountUp to={v} /></div></div>;
+  const pct = staff.length ? Math.round((present.size / staff.length) * 100) : 0;
+  const pendingCount = hr.scans.filter(s => s.status === 'pending').length;
+  const k = (label: string, v: number, icon: IconName, hint?: string) => (
+    <div className="card stat">
+      <div className="row"><span className="stat-ico"><Icon name={icon} size={20} /></span><span className="muted small grow">{label}</span></div>
+      <div className="big-num"><CountUp to={v} /></div>
+      {hint && <span className="muted small">{hint}</span>}
+    </div>
+  );
+  // the last 7 days: how many of the staff clocked in each day (today is the dark bar)
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(now); d.setDate(now.getDate() - (6 - i));
+    const key = ymd(d);
+    const ids = new Set(hr.scans.filter(s => s.kind === 'in' && sameDay(s.deviceTime, d)).map(s => s.employeeId));
+    return { key, day: d.getDate(), n: ids.size, share: staff.length ? Math.min(1, ids.size / staff.length) : 0, today: i === 6 };
+  });
   return (
     <>
-      <div className="col" style={{ gap: 0 }}><span className="muted">{laoDate(now)}</span><h1>ພາບລວມພະນັກງານ</h1></div>
+      <div className="page-head"><span className="muted">{laoDate(now)}</span><h1>ພາບລວມພະນັກງານ</h1></div>
       <div className="grid stats">
-        <div className="card dark row" style={{ justifyContent: 'space-between' }}>
-          <div className="col" style={{ gap: 2 }}><span className="small" style={{ color: '#9fd8d4' }}>ມາວຽກມື້ນີ້</span><div className="big-num"><CountUp to={present.size} /> <span style={{ fontSize: 18, opacity: .8 }}>/ {staff.length}</span></div></div>
-          <Ring share={staff.length ? present.size / staff.length : 0} size={62} stroke={7} color="var(--mint-ink)" label={`ມາວຽກ ${present.size} ຈາກ ${staff.length}`}><b style={{ fontSize: 14 }}>{staff.length ? Math.round((present.size / staff.length) * 100) : 0}%</b></Ring>
+        <div className="card stat">
+          <div className="row"><span className="stat-ico"><Icon name="directory" size={20} /></span><span className="muted small grow">ມາວຽກມື້ນີ້</span></div>
+          <div className="row" style={{ justifyContent: 'space-between' }}><div className="big-num"><CountUp to={present.size} /> <span className="of">/ {staff.length}</span></div><span className="pill ok">{pct}%</span></div>
+          <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`ມາວຽກ ${present.size} ຈາກ ${staff.length}`}><i style={{ width: `${pct}%` }} /></div>
         </div>
-        {k('ມາຊ້າ', late)}
-        {k('ລາພັກມື້ນີ້', onLeave)}
-        {k('ລໍກວດ', hr.scans.filter(s => s.status === 'pending').length)}
+        {k('ມາຊ້າ', late, 'clockFix')}
+        {k('ລາພັກມື້ນີ້', onLeave, 'leave')}
+        {k('ລໍກວດ', pendingCount, 'scan')}
       </div>
-      <div className="card col">
-        <h2>ການລົງເວລາລ່າສຸດ</h2>
-        {today.length === 0 ? <div className="empty">ມື້ນີ້ຍັງບໍ່ມີໃຜສະແກນ</div> :
-          <div className="scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ພະນັກງານ</th><th>ປະເພດ</th><th>ສະຖານະ</th></tr></thead><tbody>
-            {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
-          </tbody></table></div>}
+      <div className="split">
+        <div className="card col">
+          <div className="row"><h2 className="grow">ການລົງເວລາລ່າສຸດ</h2><span className="muted small">ມື້ນີ້</span></div>
+          {today.length === 0 ? <div className="empty">ມື້ນີ້ຍັງບໍ່ມີໃຜສະແກນ</div> :
+            <div className="scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ພະນັກງານ</th><th>ປະເພດ</th><th>ສະຖານະ</th></tr></thead><tbody>
+              {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
+            </tbody></table></div>}
+        </div>
+        <div className="card col">
+          <div className="row"><h2 className="grow">ມາວຽກ 7 ມື້ຜ່ານມາ</h2></div>
+          <div className="wk" role="img" aria-label={`ຈຳນວນຄົນມາວຽກ 7 ມື້ຜ່ານມາ: ${week.map(w => `${w.day} = ${w.n}`).join(', ')}`}>
+            {week.map(w => (
+              <div key={w.key} className={`wk-col${w.today ? ' now' : ''}`}>
+                <em>{w.n}</em>
+                <div className="wk-bar"><i style={{ height: `${Math.max(w.n ? 8 : 0, Math.round(w.share * 100))}%` }} /></div>
+                <span>{w.day}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </>
   );
