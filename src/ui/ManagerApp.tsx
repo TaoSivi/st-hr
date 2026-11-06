@@ -57,6 +57,7 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const me = hr.me!;
   const pages = PAGE_ORDER.filter(p => canViewPage(me, p, hr.settings));
   const [page, setPage] = useState<Page>(pages[0]);
+  const [q, setQ] = useState(''); // the search box in the top bar: filters the staff list
   const readOnly = isReadOnly(me, hr.settings);
   // badges count only what this person could decide: a head's own departments
   const inScope = (id: string, roles: Role[]) => inMyScope(me, hr.employees, id, roles);
@@ -66,18 +67,22 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
   const badge: Partial<Record<Page, number>> = { review: pendingScans, leave: pendingLeave, approvals: reqCount };
 
   const roleText = me.roles.filter(r => r !== 'employee').map(r => ROLE_NAMES[r]).join(', ');
-  const firstName = me.name.trim().split(/\s+/)[0] || me.name;
+  // who is on duty right now: the last scan of each person today decides the dot (in = green, break = orange, out = grey)
+  const nowD = new Date();
+  const lastBy = new Map<string, ScanRecord>();
+  for (const sc of hr.scans.filter(x => sameDay(x.deviceTime, nowD)).sort((x, y) => x.deviceTime.localeCompare(y.deviceTime))) lastBy.set(sc.employeeId, sc);
+  const crew = [...lastBy.values()].reverse();
+  const lastTwo = hr.scans.filter(x => sameDay(x.deviceTime, nowD)).sort((x, y) => y.deviceTime.localeCompare(x.deviceTime)).slice(0, 2).reverse();
+  const canSearch = pages.includes('staff');
+  const bellTotal = (badge.review ?? 0) + (badge.leave ?? 0) + (badge.approvals ?? 0);
+  const bellTo: Page | undefined = (['approvals', 'review', 'leave'] as Page[]).find(p => pages.includes(p) && badge[p]);
   return (
     <div className="mgr">
       <div className="frame">
         <nav aria-label="ເມນູ HR">
           <div className="brand"><span className="logo">ST</span><b>ST HR</b></div>
-          <div className="greet-big">
-            <span>ສະບາຍດີ 👋</span>
-            <h1>{firstName}</h1>
-            <small>{roleText || 'ພະນັກງານ'}</small>
-          </div>
-          <div className="nav-cap"><span>ເມນູ</span></div>
+          <div className="greet-big"><h1>ເລີ່ມມື້ໃໝ່ ແລະ ເຮັດວຽກໃຫ້ສຳເລັດ ✌</h1></div>
+          <div className="nav-cap"><span>ເມນູ</span><span aria-hidden="true">⌃</span></div>
           {pages.map(p => (
             <button key={p} aria-current={page === p ? 'page' : undefined} onClick={e => { setPage(p); e.currentTarget.scrollIntoView?.({ inline: 'center', block: 'nearest', behavior: 'smooth' }); }}>
               <span className="nav-l"><Icon name={PAGE_ICON[p]} size={20} />{PAGE_LABEL[p]}</span>
@@ -85,27 +90,49 @@ export default function ManagerApp({ onSwitch, onEmployeeView }: { onSwitch: () 
               <span className="nav-go" aria-hidden="true">↗</span>
             </button>
           ))}
+          <div className="nav-extra">
+            <div className="crew" aria-label="ຄົນທີ່ລົງເວລາມື້ນີ້">
+              {crew.slice(0, 4).map(sc => {
+                const e = hr.employees.find(x => x.id === sc.employeeId);
+                return e ? <span key={e.id} className="crew-av" title={`${e.name} · ${KIND_LABEL[sc.kind]}`}><Avatar e={e} size={44} /><i className={sc.kind === 'out' ? 'off' : sc.kind === 'breakStart' ? 'brk' : 'on'} /></span> : null;
+              })}
+              {crew.length > 4 && <span className="crew-more">{crew.length - 4}+</span>}
+              {crew.length === 0 && <span className="muted small">ມື້ນີ້ຍັງບໍ່ມີໃຜລົງເວລາ</span>}
+            </div>
+            <div className="chat-card">
+              <div className="row"><b className="grow">ການລົງເວລາລ່າສຸດ</b>{crew.length > 0 && <span className="pill ok">{crew.length}</span>}</div>
+              {lastTwo.length === 0 ? <span className="muted small">ລໍຖ້າການສະແກນ…</span> : lastTwo.map((sc, i) => (
+                <div key={sc.id} className={`bubble${i === lastTwo.length - 1 ? ' last' : ''}`}>
+                  <span>{nameOf(hr.employees, sc.employeeId)} · {KIND_LABEL[sc.kind]}</span><small>{hhmm(sc.deviceTime)}</small>
+                </div>
+              ))}
+            </div>
+          </div>
         </nav>
         <div className="mgr-right">
           <header className="topbar">
-            <span className="date-chip"><Icon name="schedule" size={18} />{laoDate(new Date())}</span>
-            <span className="grow" />
+            <span className="date-chip"><Icon name="schedule" size={18} />{laoDate(nowD)}</span>
+            {canSearch
+              ? <label className="search"><Icon name="directory" size={20} /><input value={q} onChange={e => { setQ(e.target.value); if (e.target.value.trim()) setPage('staff'); }} placeholder="ຄົ້ນຫາພະນັກງານ…" aria-label="ຄົ້ນຫາພະນັກງານ" />{q && <button type="button" className="search-x" aria-label="ລ້າງ" onClick={() => setQ('')}>✕</button>}</label>
+              : <span className="grow" />}
+            <button className="round-btn hide-sm" title="ແຈ້ງເຕືອນ" aria-label={`ແຈ້ງເຕືອນ ${bellTotal}`} disabled={!bellTo} onClick={() => bellTo && setPage(bellTo)}><Icon name="bell" size={20} />{bellTotal > 0 && <i className="bell-dot" />}</button>
+            {pages.includes('settings') && <button className="round-btn hide-sm" title="ຕັ້ງຄ່າ" aria-label="ຕັ້ງຄ່າ" onClick={() => setPage('settings')}><Icon name="settings" size={20} /></button>}
             <button className="round-btn" title="ກັບໜ້າລົງເວລາ" aria-label="ກັບໜ້າລົງເວລາ" onClick={onEmployeeView}><Icon name="clock" size={20} /></button>
             <button className="round-btn" title="ປ່ຽນຜູ້ໃຊ້" aria-label="ປ່ຽນຜູ້ໃຊ້" onClick={onSwitch}><Icon name="logout" size={20} /></button>
-            <span className="me-chip"><Avatar e={me} size={36} /><span className="col" style={{ gap: 0 }}><b>{me.name}</b><small>{roleText || 'ພະນັກງານ'}</small></span></span>
+            <span className="me-chip"><Avatar e={me} size={40} /><span className="col" style={{ gap: 0 }}><b>{me.name}</b><small>{roleText || 'ພະນັກງານ'}</small></span><span className="caret" aria-hidden="true">⌄</span></span>
           </header>
           <main key={page}>
             {readOnly && <div className="pill info" style={{ alignSelf: 'flex-start' }}>ໂໝດອ່ານຢ່າງດຽວ{me.roles.includes('auditor') ? ' (ຜູ້ກວດສອບ)' : ''}</div>}
             {!canViewPage(me, page, hr.settings) && <NoAccess />}
             {canViewPage(me, page, hr.settings) && <>
-              {page === 'overview' && <Overview />}
+              {page === 'overview' && <Overview go={setPage} />}
               {page === 'review' && <Review readOnly={!canDoIn(me, 'scan.review', hr.settings)} />}
               {page === 'approvals' && <ApprovalsHub />}
               {page === 'time' && <TimeToday />}
               {page === 'reports' && <><h1>ລາຍງານທີມ</h1><Reports team /></>}
               {page === 'map' && <><h1>ແຜນທີ່ການສະແກນມື້ນີ້</h1><TeamMap /></>}
               {page === 'leave' && <Leaves />}
-              {page === 'staff' && <Staff />}
+              {page === 'staff' && <Staff query={q} onClearQuery={() => setQ('')} />}
               {page === 'pay' && <Payroll />}
               {page === 'access' && <AccessPage />}
               {page === 'settings' && <SettingsPage readOnly={!canDo(me, 'settings.edit', hr.settings)} />}
@@ -127,70 +154,164 @@ function workDayOf(hr: ReturnType<typeof useHR>, e: Employee, now: Date) {
   return { date, scans: scansOn(sessions, date) };
 }
 
-function Overview() {
+const WEEK_LAO = ['ອາ', 'ຈ', 'ຄ', 'ພ', 'ຫ', 'ສຸ', 'ສ'];
+const toMin = (hm: string) => { const [h, m] = hm.split(':').map(Number); return h * 60 + (m || 0); };
+
+/** A row of overlapping round photos with "+N" for the rest. */
+function AvatarStack({ list, max = 4 }: { list: Employee[]; max?: number }) {
+  return (
+    <span className="av-stack">
+      {list.slice(0, max).map(e => <Avatar key={e.id} e={e} size={34} />)}
+      {list.length > max && <span className="av-more">{list.length - max}+</span>}
+      {list.length === 0 && <span className="muted small">—</span>}
+    </span>
+  );
+}
+
+function Overview({ go }: { go: (p: Page) => void }) {
   const hr = useHR();
   const now = new Date();
+  const todayKey = ymd(now);
   const today = hr.scans.filter(s => sameDay(s.deviceTime, now));
-  const staff = hr.employees.filter(e => isActiveOn(e, ymd(now)) && e.baseSalary > 0);
+  const staff = hr.employees.filter(e => isActiveOn(e, todayKey) && e.baseSalary > 0);
   // someone still on a night shift that began yesterday is present today too
-  const present = new Set(staff.filter(e => workDayOf(hr, e, now).scans.some(s => s.kind === 'in')).map(e => e.id));
-  const onLeave = hr.leaves.filter(l => l.status === 'approved' && !l.part && l.from <= ymd(now) && l.to >= ymd(now)).length;
-  let late = 0;
+  const present = staff.filter(e => workDayOf(hr, e, now).scans.some(s => s.kind === 'in'));
+  const onLeave = staff.filter(e => hr.leaves.some(l => l.employeeId === e.id && l.status === 'approved' && !l.part && l.from <= todayKey && l.to >= todayKey));
+  const lateList: Employee[] = [];
   for (const e of staff) {
     const wd = workDayOf(hr, e, now);
     const first = wd.scans.find(s => s.kind === 'in');
     const start = first && lateStartOn(hr, e, wd.date);
-    if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) late++;
+    if (first && start && lateMinutes(start, new Date(first.deviceTime), hr.settings.graceMinutes) > 0) lateList.push(e);
   }
-  const pct = staff.length ? Math.round((present.size / staff.length) * 100) : 0;
-  const pendingCount = hr.scans.filter(s => s.status === 'pending').length;
-  const k = (label: string, v: number, icon: IconName, hint?: string) => (
-    <div className="card stat">
-      <div className="row"><span className="stat-ico"><Icon name={icon} size={20} /></span><span className="muted small grow">{label}</span></div>
-      <div className="big-num"><CountUp to={v} /></div>
-      {hint && <span className="muted small">{hint}</span>}
-    </div>
-  );
-  // the last 7 days: how many of the staff clocked in each day (today is the dark bar)
+  const share = (n: number, of: number) => (of ? Math.round((n / of) * 100) : 0);
+  const pct = share(present.length, staff.length);
+  const pendingCount = hr.scans.filter(s => s.status === 'pending').length + hr.leaves.filter(l => l.status === 'pending').length;
+  const [banner, setBanner] = useState(true);
+
+  // attendance per calendar day (people who clocked in) for the month grid and the 7-day chart
+  const perDay = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const s of hr.scans) {
+      if (s.kind !== 'in') continue;
+      const k = ymd(new Date(s.deviceTime));
+      const set = m.get(k) ?? new Set<string>();
+      set.add(s.employeeId);
+      m.set(k, set);
+    }
+    return m;
+  }, [hr.scans]);
   const week = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(now); d.setDate(now.getDate() - (6 - i));
-    const key = ymd(d);
-    const ids = new Set(hr.scans.filter(s => s.kind === 'in' && sameDay(s.deviceTime, d)).map(s => s.employeeId));
-    return { key, day: d.getDate(), n: ids.size, share: staff.length ? Math.min(1, ids.size / staff.length) : 0, today: i === 6 };
+    const n = perDay.get(ymd(d))?.size ?? 0;
+    return { key: ymd(d), day: d.getDate(), n, pct: share(Math.min(n, staff.length), staff.length), today: i === 6 };
   });
+
+  // month calendar
+  const [mo, setMo] = useState(() => now.getFullYear() * 12 + now.getMonth());
+  const y = Math.floor(mo / 12), m = mo % 12;
+  const lead = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+  const cells: (number | null)[] = [...Array<null>(lead).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+
+  // shifts as bars on a clock axis, with a line for "now"
+  const shown = hr.shifts.filter(s => !s.personal).slice(0, 6);
+  const spans = shown.map(s => { const a = toMin(s.start); let b = toMin(s.end); if (b <= a) b += 24 * 60; return { s, a, b }; });
+  const lo = spans.length ? Math.floor(Math.min(...spans.map(x => x.a)) / 60) * 60 : 6 * 60;
+  const hi = spans.length ? Math.max(lo + 6 * 60, Math.ceil(Math.max(...spans.map(x => x.b)) / 60) * 60) : 18 * 60;
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const nowAt = [nowMin, nowMin + 24 * 60].find(v => v >= lo && v <= hi);
+  const pos = (v: number) => `${((v - lo) / (hi - lo)) * 100}%`;
+  const step = (hi - lo) / 60 > 12 ? 3 : (hi - lo) / 60 > 7 ? 2 : 1;
+  const ticks: number[] = [];
+  for (let t = lo; t <= hi; t += step * 60) ticks.push(t);
+  const COLORS = ['var(--out)', 'var(--primary)', 'var(--dark)', 'var(--accent)', '#e0a100', '#5b7473'];
+
+  const sub = (title: string, text: string, list: Employee[], value: number, of: number, tone: string) => (
+    <div className="sub-card">
+      <div className="row"><b className="grow">{title}</b><span className="pill" style={{ background: '#fff' }}>{value}/{of}</span></div>
+      <span className="muted small">{text}</span>
+      <AvatarStack list={list} />
+      <div className="bar-lbl"><span className="muted small">ສັດສ່ວນ</span><b className="small">{share(value, of)}%</b></div>
+      <div className={`bar ${tone}`} role="progressbar" aria-valuenow={share(value, of)} aria-valuemin={0} aria-valuemax={100} aria-label={title}><i style={{ width: `${share(value, of)}%` }} /></div>
+    </div>
+  );
+
   return (
     <>
       <div className="page-head"><span className="muted">{laoDate(now)}</span><h1>ພາບລວມພະນັກງານ</h1></div>
-      <div className="grid stats">
-        <div className="card stat">
-          <div className="row"><span className="stat-ico"><Icon name="directory" size={20} /></span><span className="muted small grow">ມາວຽກມື້ນີ້</span></div>
-          <div className="row" style={{ justifyContent: 'space-between' }}><div className="big-num"><CountUp to={present.size} /> <span className="of">/ {staff.length}</span></div><span className="pill ok">{pct}%</span></div>
-          <div className="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`ມາວຽກ ${present.size} ຈາກ ${staff.length}`}><i style={{ width: `${pct}%` }} /></div>
+      <div className="dash">
+        <div className="dash-col">
+          <div className="card col">
+            <div className="card-head"><span className="stat-ico"><Icon name="clock" size={20} /></span><h2 className="grow">ການລົງເວລາມື້ນີ້</h2><button className="btn ghost small-btn" onClick={() => go('time')}>ເບິ່ງທັງໝົດ ›</button></div>
+            <div className="subs">
+              {sub('ມາວຽກ', `ມາແລ້ວ ${present.length} ຈາກ ${staff.length} ຄົນ`, present, present.length, staff.length, '')}
+              {sub('ມາຊ້າ', lateList.length ? 'ເກີນເວລາອະນຸໂລມ' : 'ມື້ນີ້ບໍ່ມີຄົນມາຊ້າ', lateList, lateList.length, present.length, 'warn')}
+              {sub('ລາພັກ', 'ລາທັງມື້ທີ່ອະນຸມັດແລ້ວ', onLeave, onLeave.length, staff.length, 'dark')}
+            </div>
+          </div>
+          {banner && (
+            <div className="toast-bar" role="status">
+              <span className="tb-ico"><Icon name="bell" size={22} /></span>
+              <span className="grow">{pendingCount ? `ມີ ${pendingCount} ລາຍການລໍກວດ/ອະນຸມັດ — ສູ້ໆ 💪` : `ມາວຽກແລ້ວ ${pct}% — ບໍ່ມີລາຍການຄ້າງ ✌`}</span>
+              <button className="tb-x" aria-label="ປິດ" onClick={() => setBanner(false)}>✕</button>
+            </div>
+          )}
         </div>
-        {k('ມາຊ້າ', late, 'clockFix')}
-        {k('ລາພັກມື້ນີ້', onLeave, 'leave')}
-        {k('ລໍກວດ', pendingCount, 'scan')}
-      </div>
-      <div className="split">
+
         <div className="card col">
-          <div className="row"><h2 className="grow">ການລົງເວລາລ່າສຸດ</h2><span className="muted small">ມື້ນີ້</span></div>
-          {today.length === 0 ? <div className="empty">ມື້ນີ້ຍັງບໍ່ມີໃຜສະແກນ</div> :
-            <div className="scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ພະນັກງານ</th><th>ປະເພດ</th><th>ສະຖານະ</th></tr></thead><tbody>
-              {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
-            </tbody></table></div>}
+          <div className="card-head"><span className="stat-ico"><Icon name="schedule" size={20} /></span><h2 className="grow">ປະຕິທິນ</h2>
+            <span className="month-nav"><button aria-label="ເດືອນກ່ອນ" onClick={() => setMo(v => v - 1)}>‹</button><b>{laoMonth(y, m)}</b><button aria-label="ເດືອນຕໍ່ໄປ" onClick={() => setMo(v => v + 1)}>›</button></span></div>
+          <div className="mcal" role="grid" aria-label={laoMonth(y, m)}>
+            {WEEK_LAO.map((w, i) => <span key={i} className="mcal-h">{w}</span>)}
+            {cells.map((d, i) => {
+              if (d === null) return <span key={`b${i}`} className="mcal-d blank" />;
+              const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+              const n = perDay.get(key)?.size ?? 0;
+              const cls = key === todayKey ? 'now' : hr.settings.holidays.includes(key) ? 'hol' : n > 0 ? 'has' : new Date(y, m, d).getDay() === 0 ? 'sun' : '';
+              return <span key={key} className={`mcal-d ${cls}`} title={n ? `${n} ຄົນມາວຽກ` : undefined}>{d}</span>;
+            })}
+          </div>
+          <div className="legend-row"><span><i className="lg has" />ມີການລົງເວລາ</span><span><i className="lg now" />ມື້ນີ້</span><span><i className="lg hol" />ວັນພັກ</span></div>
         </div>
+
         <div className="card col">
-          <div className="row"><h2 className="grow">ມາວຽກ 7 ມື້ຜ່ານມາ</h2></div>
+          <div className="card-head"><span className="stat-ico"><Icon name="reports" size={20} /></span><h2 className="grow">ການມາວຽກ 7 ມື້</h2></div>
           <div className="wk" role="img" aria-label={`ຈຳນວນຄົນມາວຽກ 7 ມື້ຜ່ານມາ: ${week.map(w => `${w.day} = ${w.n}`).join(', ')}`}>
-            {week.map(w => (
-              <div key={w.key} className={`wk-col${w.today ? ' now' : ''}`}>
-                <em>{w.n}</em>
-                <div className="wk-bar"><i style={{ height: `${Math.max(w.n ? 8 : 0, Math.round(w.share * 100))}%` }} /></div>
-                <span>{w.day}</span>
-              </div>
-            ))}
+            {week.map((w, i) => {
+              const prev = i ? week[i - 1] : null;
+              const delta = prev && (prev.n || w.n) ? w.pct - prev.pct : null;
+              return (
+                <div key={w.key} className={`wk-col${w.today ? ' now' : ''}`}>
+                  {w.today ? <em className="wk-tip">{w.pct}%</em> : <em className={`wk-chip ${delta === null || delta === 0 ? '' : delta > 0 ? 'up' : 'down'}`}>{delta === null ? `${w.n}` : `${delta > 0 ? '+' : ''}${delta}%`}</em>}
+                  <div className="wk-bar"><i style={{ height: `${Math.max(w.n ? 8 : 0, w.pct)}%` }} /></div>
+                  <span>{w.day}</span>
+                </div>
+              );
+            })}
           </div>
         </div>
+
+        <div className="card col">
+          <div className="card-head"><span className="stat-ico"><Icon name="shift" size={20} /></span><h2 className="grow">ເວລາຂອງກະວຽກ</h2></div>
+          {spans.length === 0 ? <div className="empty">ຍັງບໍ່ມີກະວຽກ</div> : (
+            <div className="tl" role="img" aria-label={spans.map(x => `${x.s.name} ${x.s.start}-${x.s.end}`).join(', ')}>
+              <div className="tl-grid">{ticks.map(t => <i key={t} style={{ left: pos(t) }} />)}</div>
+              {nowAt !== undefined && <div className="tl-now" style={{ left: pos(nowAt) }}><b>{hhmm(now.toISOString())}</b></div>}
+              {spans.map((x, i) => (
+                <div key={x.s.id} className="tl-row"><span className="tl-bar" style={{ left: pos(x.a), width: `${((x.b - x.a) / (hi - lo)) * 100}%`, background: COLORS[i % COLORS.length] }}>{x.s.name}</span></div>
+              ))}
+              <div className="tl-axis">{ticks.map(t => <span key={t} style={{ left: pos(t) }}>{String(Math.floor(t / 60) % 24).padStart(2, '0')}</span>)}</div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="card col">
+        <div className="card-head"><span className="stat-ico"><Icon name="scan" size={20} /></span><h2 className="grow">ການລົງເວລາລ່າສຸດ</h2><span className="muted small">ມື້ນີ້</span></div>
+        {today.length === 0 ? <div className="empty">ມື້ນີ້ຍັງບໍ່ມີໃຜສະແກນ</div> :
+          <div className="scroll-x"><table className="t"><thead><tr><th>ເວລາ</th><th>ພະນັກງານ</th><th>ປະເພດ</th><th>ສະຖານະ</th></tr></thead><tbody>
+            {[...today].reverse().slice(0, 12).map(s => <tr key={s.id}><td>{hhmm(s.deviceTime)}</td><td>{nameOf(hr.employees, s.employeeId)}</td><td>{KIND_LABEL[s.kind]}</td><td><StatusPill s={s} /></td></tr>)}
+          </tbody></table></div>}
       </div>
     </>
   );
@@ -457,7 +578,7 @@ function changeText(c: ChangeRequest, emps: Employee[]) {
   return <><b>{nameOf(emps, c.employeeId)}</b> · {c.field === 'baseSalary' ? 'ເງິນເດືອນ' : c.field === 'allowance' ? 'ເງິນອຸດໜູນ' : 'ເລກບັນຊີ'}: {num ? `${money(+c.from)} → ${money(+c.to)}` : `${c.from || '—'} → ${c.to}`}</>;
 }
 
-function Staff() {
+function Staff({ query = '', onClearQuery }: { query?: string; onClearQuery?: () => void }) {
   const hr = useHR();
   const me = hr.me!;
   const [edit, setEdit] = useState<Employee | null>(null);
@@ -683,8 +804,9 @@ function Staff() {
               {canDo(me, 'settings.edit', hr.settings) && <button className="btn" onClick={async () => { await hr.save('settings', { ...hr.settings, makerChecker: false, id: hr.settings.companyId }, 'settings-update'); setMsg('ປິດການກວດ 2 ຄົນແລ້ວ — ກົດ "ນຳໃຊ້ເລີຍ" ໄດ້'); }}>ປິດການກວດ 2 ຄົນ</button>}
             </div>)}
         </div>)}
+      {query.trim() && <div className="row"><span className="pill info">ຄົ້ນຫາ: {query.trim()}</span><button className="btn ghost" style={{ minHeight: 34, padding: '0 14px' }} onClick={onClearQuery}>ລ້າງການຄົ້ນຫາ</button></div>}
       <div className="card scroll-x"><table className="t"><thead><tr><th>ລະຫັດ</th><th>ຊື່</th><th>ພະແນກ</th><th>ບົດບາດ</th><th className="num">ເງິນເດືອນ</th><th>ຮັບເງິນ</th><th>ໃບໜ້າ</th>{canPins && <th>ບັນຊີເຂົ້າລະບົບ</th>}<th /></tr></thead><tbody>
-        {hr.employees.map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
+        {hr.employees.filter(e => !query.trim() || [e.name, e.code, e.dept, e.position].some(v => (v ?? '').toLowerCase().includes(query.trim().toLowerCase()))).map(e => <tr key={e.id}><td>{e.code}</td><td><b>{e.name}</b> {!isActiveOn(e, today) && <span className="pill">{e.endDate && e.startDate <= today ? `ສິ້ນສຸດ ${e.endDate}` : `ເລີ່ມ ${e.startDate}`}</span>}<div className="muted small">{e.position}</div></td><td>{e.dept}</td><td className="small">{e.roles.map(r => ROLE_NAMES[r]).join(', ')}</td>
           <td className="num">{money(e.baseSalary)}</td><td className="small">{e.payMethod === 'cash' ? 'ເງິນສົດ' : `${e.bankName} ${e.bankAccount ?? ''}`}</td>
           <td>{faceCountOf(e) > 0 ? <span className="pill ok">ລົງທະບຽນແລ້ວ · {faceCountOf(e)} ທ່າ</span> : <span className="pill">ຍັງ</span>}</td>
           {canPins && <td className="small" style={{ whiteSpace: 'nowrap' }}>
