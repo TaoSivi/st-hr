@@ -32,6 +32,7 @@ import BackupCard from './BackupCard';
 import AccessPage from './AccessPage';
 import ApproveButton from './ApproveButton';
 import PinDialog from './PinDialog';
+import Modal from './Modal';
 import PlacePicker from './PlacePicker';
 import RecordsPage from './RecordsPage';
 import { PAGE_LABEL } from './rightLabels';
@@ -601,8 +602,13 @@ function Staff() {
       <div className="row wrap"><h1 className="grow">ພະນັກງານ</h1>{canEdit && <button className="btn ghost" onClick={() => { setHire(null); setEdit(null); setImporting(true); }}>⬆ ນຳເຂົ້າຈາກ Excel</button>}{canEdit && <button className="btn" onClick={() => { setImporting(false); startHire(); }}>+ ເພີ່ມພະນັກງານ</button>}</div>
       {canEdit && !bulk && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => { setEdit(null); setHire(null); setBulk({ dept: '*', shiftId: sharedShifts(hr.shifts)[0]?.id ?? '', dayOff: null }); }}>🕘 ຕັ້ງເວລາເຂົ້າ-ອອກໃຫ້ຫຼາຍຄົນ</button>}
       {bulk && (() => { const who = bulkTargets(hr.employees, bulk.dept, today); return (
-        <div className="card col">
-          <div className="row"><h2 className="grow">ຕັ້ງກະ / ເວລາເຂົ້າ-ອອກ ໃຫ້ຫຼາຍຄົນພ້ອມກັນ</h2><button className="btn ghost" onClick={() => setBulk(null)}>ປິດ</button></div>
+        <Modal title="ຕັ້ງກະ / ເວລາເຂົ້າ-ອອກ ໃຫ້ຫຼາຍຄົນພ້ອມກັນ" onClose={() => setBulk(null)} footer={<>
+          <button className="btn ghost" onClick={() => setBulk(null)}>ຍົກເລີກ</button>
+          <button className="btn" disabled={!who.length || !bulk.shiftId} onClick={async () => {
+            if (!confirm(`ຕັ້ງກະນີ້ໃຫ້ ${who.length} ຄົນ?`)) return;
+            for (const e of who) await hr.save('employees', { ...e, shiftId: bulk.shiftId, ...(bulk.dayOff ? { dayOff: bulk.dayOff } : {}) }, 'shift-bulk');
+            setMsg(`ຕັ້ງກະໃຫ້ ${who.length} ຄົນແລ້ວ`); setBulk(null);
+          }}>ໃຊ້ກັບ {who.length} ຄົນ</button></>}>
           <span className="muted small">ໃຊ້ກະດຽວກັນກັບທັງອົງກອນ ຫຼື ທັງພະແນກ. ຢາກປ່ຽນເວລາຂອງກະເອງ (ເຊັ່ນ 08:00 → 07:30) ໃຫ້ແກ້ໃນ ກົດເກນ & ຕັ້ງຄ່າ → ກະວຽກ — ທຸກຄົນໃນກະນັ້ນປ່ຽນຕາມ. ຄົນທີ່ມີເວລາສະເພາະ ຈະຖືກຍ້າຍມາໃຊ້ກະນີ້.</span>
           <div className="row wrap">
             <label className="field">ໃຜ<select className="input" value={bulk.dept} onChange={e => setBulk({ ...bulk, dept: e.target.value })}><option value="*">ທຸກຄົນ</option>{depts.map(d => <option key={d} value={d}>ພະແນກ {d}</option>)}</select></label>
@@ -610,15 +616,10 @@ function Staff() {
           </div>
           <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={bulk.dayOff !== null} onChange={e => setBulk({ ...bulk, dayOff: e.target.checked ? [0] : null })} />ປ່ຽນວັນພັກປະຈຳອາທິດນຳ</label>
           {bulk.dayOff && <div className="row wrap">{['ອາ', 'ຈ', 'ອ', 'ພ', 'ພຫ', 'ສຸ', 'ເສ'].map((d, i) => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={bulk.dayOff!.includes(i)} onChange={() => setBulk({ ...bulk, dayOff: bulk.dayOff!.includes(i) ? bulk.dayOff!.filter(x => x !== i) : [...bulk.dayOff!, i] })} />{d}</label>)}</div>}
-          <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={!who.length || !bulk.shiftId} onClick={async () => {
-            if (!confirm(`ຕັ້ງກະນີ້ໃຫ້ ${who.length} ຄົນ?`)) return;
-            for (const e of who) await hr.save('employees', { ...e, shiftId: bulk.shiftId, ...(bulk.dayOff ? { dayOff: bulk.dayOff } : {}) }, 'shift-bulk');
-            setMsg(`ຕັ້ງກະໃຫ້ ${who.length} ຄົນແລ້ວ`); setBulk(null);
-          }}>ໃຊ້ກັບ {who.length} ຄົນ</button>
-        </div>); })()}
+        </Modal>); })()}
       {pinFor && <PinDialog person={pinFor} hasLogin={!!online?.logins.has(pinFor.id)} reveal={online?.revealPin} onSet={(pin, must) => setPinTo(pinFor, pin, must)} onClose={() => setPinFor(null)} />}
       {importing && <StaffImport onClose={() => setImporting(false)} onDone={m => { setImporting(false); setMsg(m); }} />}
-      {msg && <div className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
+      {msg && !edit && !hire && <div className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{msg}</div>}
       {changes.filter(c => c.status === 'pending').length > 0 && (
         <div className="card col"><div className="row wrap"><h2 className="grow">ຄຳຂໍປ່ຽນແປງ ລໍອະນຸມັດ (ກວດ 2 ຄົນ)</h2>
           {canDecideChange && pendingHires.length > 1 && <button className="btn" disabled={approvingAll} onClick={approveAllHires}>{approvingAll ? 'ກຳລັງອະນຸມັດ…' : `ອະນຸມັດການຈ້າງທັງໝົດ (${pendingHires.length})`}</button>}</div>
@@ -647,8 +648,10 @@ function Staff() {
           <td>{canEdit && !(e.endDate && e.endDate < today) && <button className="btn ghost" onClick={() => { setHire(null); open(e); }}>ແກ້ໄຂ</button>}</td></tr>)}
       </tbody></table></div>
       {edit && (
-        <div className="card col" style={{ maxWidth: 480 }}>
-          <h2>ແກ້ໄຂ: {edit.name}</h2>
+        <Modal title={`ແກ້ໄຂ: ${edit.name}`} onClose={() => setEdit(null)} footer={<>
+          <button className="btn ghost" onClick={() => setEdit(null)}>ຍົກເລີກ</button>
+          <button className="btn" onClick={submit}>{(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></>}>
+          {msg && <div className="error" role="alert">{msg}</div>}
           {prof && <>
             <div className="row wrap">
               <label className="field grow">ຊື່ ແລະ ນາມສະກຸນ<input className="input" value={prof.name} onChange={e => setProf({ ...prof, name: e.target.value })} /></label>
@@ -685,7 +688,6 @@ function Staff() {
           {canRoles && rolesSel.includes('head') && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ຫົວໜ້າດູແລພະແນກ (ອະນຸມັດໄດ້ສະເພາະພະແນກເຫຼົ່ານີ້)</legend>
             <div className="row wrap"><label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={headSel.includes('*')} onChange={() => setHeadSel(headSel.includes('*') ? [edit.dept] : ['*'])} />ທຸກພະແນກ</label>
               {depts.map(d => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={headSel.includes('*')} checked={headSel.includes('*') || headSel.includes(d)} onChange={() => setHeadSel(headSel.includes(d) ? headSel.filter(x => x !== d) : [...headSel, d])} />{d}</label>)}</div></fieldset>}
-          <div className="row"><button className="btn ghost" onClick={() => setEdit(null)}>ຍົກເລີກ</button><button className="btn" onClick={submit}>{(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
           {edit.deviceId && <div className="row wrap"><span className="grow small muted">ຜູກກັບເຄື່ອງແລ້ວ ({edit.deviceBoundAt?.slice(0, 10)}). ລ້າງເພື່ອໃຫ້ເຄື່ອງທຳອິດທີ່ສະແກນ ຖືກຜູກໃໝ່.</span><button className="btn ghost" onClick={async () => { await hr.save('employees', { ...edit, deviceId: undefined, deviceBoundAt: undefined }, 'device-reset'); setMsg(`ລ້າງເຄື່ອງທີ່ຜູກຂອງ ${edit.name} ແລ້ວ`); setEdit(null); }}>ລ້າງເຄື່ອງທີ່ຜູກ</button></div>}
           {!edit.endDate && <fieldset style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: '6px 12px' }}><legend className="small muted">ລາອອກ / ປິດບັນຊີ</legend>
             <div className="row wrap"><label className="field grow">ວັນສຸດທ້າຍຂອງການເຮັດວຽກ<input className="input" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} /></label>
@@ -701,10 +703,12 @@ function Staff() {
               </>;
             })()}
             <span className="muted small">ເງິນເດືອນເດືອນສຸດທ້າຍຄິດຕາມສັດສ່ວນວັນ · ປະຫວັດການລົງເວລາຍັງຢູ່ຄົບ · ຍອດວັນລາພັກຄ້າງເປັນລາຍການ "ອື່ນໆ" ທີ່ຜ່ານການກວດ 2 ຄົນ</span></fieldset>}
-        </div>)}
+        </Modal>)}
       {hire && (
-        <div className="card col" style={{ maxWidth: 480 }}>
-          <h2>ເພີ່ມພະນັກງານໃໝ່</h2>
+        <Modal title="ເພີ່ມພະນັກງານໃໝ່" onClose={() => setHire(null)} footer={<>
+          <button className="btn ghost" onClick={() => setHire(null)}>ຍົກເລີກ</button>
+          <button className="btn" onClick={submitHire}>{(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></>}>
+          {msg && <div className="error" role="alert">{msg}</div>}
           <label className="field">ລະຫັດ<input className="input" value={hire.code} onChange={e => setH({ code: e.target.value })} /></label>
           <label className="field">ຊື່-ນາມສະກຸນ<input className="input" value={hire.name} onChange={e => setH({ name: e.target.value })} /></label>
           <label className="field">ພະແນກ<input className="input" list="dept-list" value={hire.dept} onChange={e => setH({ dept: e.target.value })} /><datalist id="dept-list">{depts.map(d => <option key={d} value={d} />)}</datalist></label>
@@ -719,8 +723,7 @@ function Staff() {
             <label className="field">ທະນາຄານ<select className="input" value={hire.bankName} onChange={e => setH({ bankName: e.target.value })}>{['LDB', 'JDB', 'ST Bank'].map(b => <option key={b}>{b}</option>)}</select></label>
             <label className="field">ເລກບັນຊີ<input className="input" value={hire.bankAccount ?? ''} onChange={e => setH({ bankAccount: e.target.value })} /></label></>}
           <span className="muted small">ບົດບາດເລີ່ມຕົ້ນເປັນ "ພະນັກງານ" ເທົ່ານັ້ນ — ເຈົ້າຂອງກຳນົດບົດບາດອື່ນພາຍຫຼັງ</span>
-          <div className="row"><button className="btn ghost" onClick={() => setHire(null)}>ຍົກເລີກ</button><button className="btn" onClick={submitHire}>{(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk) ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
-        </div>)}
+        </Modal>)}
     </>
   );
 }
@@ -808,15 +811,18 @@ function Payroll() {
         {!canLock && !me.roles.includes('auditor') && run.status === 'prepared' && <ApproveButton label="ຂໍ PIN ອະນຸມັດ & ລັອກງວດ" onApproved={by => lock(by)} />}
       </div>
       {msg && <div className="error" role="alert">{msg}</div>}
-      <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => itemsGate ? setPiMsg(itemsGate) : setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' })}>+ ເພີ່ມລາຍການ</button>}</div>
-        {piMsg && <span className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{piMsg}</span>}
+      <div className="card col"><div className="row wrap"><h2 className="grow">ໂບນັດ / ຄອມມິດຊັນ / ອື່ນໆ ຂອງເດືອນນີ້</h2>{canItems && !pi && <button className="btn ghost" onClick={() => itemsGate ? setPiMsg(itemsGate) : (setPiMsg(''), setPi({ ...blankItem, employeeId: staff[0]?.id ?? '' }))}>+ ເພີ່ມລາຍການ</button>}</div>
+        {piMsg && !pi && <span className="pill info" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px' }}>{piMsg}</span>}
         {monthItems.length === 0 && !pi && <span className="muted small">ຍັງບໍ່ມີ. ເບ້ຍລ້ຽງຕາມກະ (ຕັ້ງໃນ ຕັ້ງຄ່າ → ກະວຽກ) ຖືກຄິດໃຫ້ເອງຈາກກະທີ່ເຮັດ.</span>}
         {monthItems.map(i => (
           <div key={i.id} className="row wrap"><span className="grow"><b>{nameOf(hr.employees, i.employeeId)}</b> · {PAY_ITEM_LABEL[i.kind]}: {i.label} · {money(i.amount)} ₭{i.taxable ? '' : ' (ບໍ່ເສຍພາສີ)'}{i.salesBase ? ` · ${money(i.salesBase)} × ${i.ratePct}%` : ''} · ໂດຍ {nameOf(hr.employees, i.by)}</span>
             {i.status === 'pending' ? (canDecideItems && (i.by !== me.id || !(changeNeedsSecondPerson(hr.settings) && !hr.approver!.selfOk)) ? <><button className="btn danger" onClick={() => decideItem(i, false)}>ປະຕິເສດ</button><button className="btn" onClick={() => decideItem(i, true)}>ອະນຸມັດ</button></> : <span className="muted small">ລໍຄົນອື່ນອະນຸມັດ</span>)
               : <span className={`pill ${i.status === 'approved' ? 'ok' : 'bad'}`}>{i.status === 'approved' ? 'ອະນຸມັດ' : 'ປະຕິເສດ'}</span>}</div>))}
         {pi && (
-          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
+          <Modal title="ເພີ່ມລາຍການເງິນເດືອນ" onClose={() => setPi(null)} footer={<>
+            <button className="btn ghost" onClick={() => setPi(null)}>ຍົກເລີກ</button>
+            <button className="btn" onClick={addItem}>{hr.settings.makerChecker ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></>}>
+            {piMsg && <div className="error" role="alert">{piMsg}</div>}
             <label className="field">ພະນັກງານ<select className="input" value={pi.employeeId} onChange={e => setPi({ ...pi, employeeId: e.target.value })}>{staff.map(e => <option key={e.id} value={e.id}>{e.name} · {e.code}</option>)}</select></label>
             <div className="row wrap">{(['bonus', 'commission', 'other'] as PayItemKind[]).map(k => <button key={k} className={`btn ${pi.kind === k ? '' : 'ghost'}`} aria-pressed={pi.kind === k} onClick={() => setPi({ ...pi, kind: k })}>{PAY_ITEM_LABEL[k]}</button>)}</div>
             <label className="field">ຊື່ລາຍການ<input className="input" value={pi.label} onChange={e => setPi({ ...pi, label: e.target.value })} placeholder="ເຊັ່ນ: ໂບນັດປີໃໝ່ / ຄອມຍອດຂາຍ" /></label>
@@ -826,8 +832,7 @@ function Payroll() {
               ? <span className="muted small">ຈຳນວນເງິນ = {money(piAmount)} ₭ (ຄິດໃຫ້ອັດຕະໂນມັດ)</span>
               : <label className="field">ຈຳນວນເງິນ (ກີບ)<input className="input" inputMode="numeric" value={pi.amount} onChange={e => setPi({ ...pi, amount: e.target.value.replace(/\D/g, '') })} /></label>}
             <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={pi.taxable} onChange={e => setPi({ ...pi, taxable: e.target.checked })} />ຄິດອາກອນ (ເອົາໄປລວມລາຍໄດ້)</label>
-            <div className="row"><button className="btn ghost" onClick={() => setPi(null)}>ຍົກເລີກ</button><button className="btn" onClick={addItem}>{hr.settings.makerChecker ? 'ສົ່ງໃຫ້ອະນຸມັດ' : 'ບັນທຶກ'}</button></div>
-          </div>)}
+          </Modal>)}
       </div>
       <div className="grid stats"><div className="card dark"><span className="small" style={{ color: '#9fd8d4' }}>ຈ່າຍສຸດທິ · {rows.length} ຄົນ</span><div className="big-num"><CountUp to={total} format={money} /> ₭</div></div>
         <div className="card"><span className="muted small">ປະກັນສັງຄົມ {hr.settings.ssRate * 100}%</span><div className="big-num"><CountUp to={rows.reduce((a, r) => a + r.slip.socialSecurity, 0)} format={money} /></div></div>
@@ -983,17 +988,20 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
             <button className="btn danger" aria-label={`ລຶບສາຂາ ${b.name}`} onClick={() => removeBranch(b)}>🗑 ລຶບ</button>
           </div>}
           {bEdit?.id === b.id && (
-            <div className="col branch-edit">
+            <Modal title={`ແກ້ໄຂສາຂາ: ${b.name}`} onClose={() => setBEdit(null)} footer={<>
+              <button className="btn ghost" onClick={() => setBEdit(null)}>ຍົກເລີກ</button>
+              <button className="btn" onClick={saveBranch}>ບັນທຶກສາຂາ</button></>}>
+              {msg && <div className="pill info" role="status" style={{ height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
               <label className="field">ຊື່ສາຂາ<input className="input" value={bEdit.name} onChange={e => setBEdit({ ...bEdit, name: e.target.value })} /></label>
               <PlacePicker lat={bEdit.lat} lng={bEdit.lng} onPick={(p, note) => { setBEdit(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v)); setMsg(`${note} — ກົດ "ບັນທຶກສາຂາ" ເພື່ອເກັບ`); }} />
               <div className="row wrap"><label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={bEdit.lat} onChange={e => setBEdit({ ...bEdit, lat: e.target.value })} /></label>
                 <label className="field grow">ລອງຈິຈູດ (lng)<input className="input" inputMode="decimal" value={bEdit.lng} onChange={e => setBEdit({ ...bEdit, lng: e.target.value })} /></label></div>
-              <div className="row"><button className="btn ghost" onClick={() => setBEdit(null)}>ຍົກເລີກ</button><button className="btn" onClick={saveBranch}>ບັນທຶກສາຂາ</button></div>
-            </div>)}</div>)}
+            </Modal>)}</div>)}
         {!readOnly && !nb && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setNb({ name: '', lat: '', lng: '', radiusM: '100' })}>+ ເພີ່ມສາຂາ</button>}
         {!readOnly && nb && (
-          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
-            <b>ສາຂາໃໝ່</b>
+          <Modal title="ສາຂາໃໝ່" onClose={() => setNb(null)} footer={<>
+            <button className="btn ghost" onClick={() => setNb(null)}>ຍົກເລີກ</button>
+            <button className="btn" disabled={nbErrors.length > 0} onClick={addBranch}>ເພີ່ມສາຂາ</button></>}>
             <label className="field">ຊື່ສາຂາ<input className="input" value={nb.name} onChange={e => setNb({ ...nb, name: e.target.value })} /></label>
             <div className="row wrap">
               <label className="field grow">ລະຕິຈູດ (lat)<input className="input" inputMode="decimal" value={nb.lat} onChange={e => setNb({ ...nb, lat: e.target.value })} /></label>
@@ -1001,8 +1009,7 @@ function SettingsPage({ readOnly }: { readOnly: boolean }) {
               <label className="field" style={{ width: 110 }}>ລັດສະໝີ (ມ.)<input className="input" inputMode="numeric" value={nb.radiusM} onChange={e => setNb({ ...nb, radiusM: e.target.value })} /></label></div>
             <PlacePicker lat={nb.lat} lng={nb.lng} onPick={(p, note) => { setNb(v => (v ? { ...v, lat: p.lat.toFixed(6), lng: p.lng.toFixed(6) } : v)); setMsg(note); }} />
             {nbErrors.length > 0 && (nb.name || nb.lat || nb.lng) && <span className="small" style={{ color: 'var(--bad, #c0392b)' }}>{nbErrors.join(' · ')}</span>}
-            <div className="row"><button className="btn ghost" onClick={() => setNb(null)}>ຍົກເລີກ</button><button className="btn" disabled={nbErrors.length > 0} onClick={addBranch}>ເພີ່ມສາຂາ</button></div>
-          </div>)}
+          </Modal>)}
       </div>}
       {tab === 'shifts' && <div className="card col"><h2>ກະວຽກ</h2>
         <span className="muted small">ເວລາເລີ່ມຂອງກະ ໃຊ້ຄິດມາຊ້າ. ການປ່ຽນມີຜົນກັບການຄິດມາຊ້າທັງໝົດທີ່ຍັງບໍ່ລັອກງວດ. ກະຂ້າມຄືນ: ໃສ່ເວລາເລີກນ້ອຍກວ່າເວລາເລີ່ມ (ເຊັ່ນ 22:00 → 06:00) ການລົງເວລາຫຼັງທ່ຽງຄືນຈະນັບເປັນມື້ທີ່ເລີ່ມກະ. ກະຢືດຢຸ່ນ: ເຂົ້າ-ອອກເວລາໃດກໍໄດ້ ບໍ່ຄິດມາຊ້າ</span>

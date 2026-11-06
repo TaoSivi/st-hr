@@ -482,3 +482,22 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--primary); widt
 @keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(.9); } to { opacity: 1; transform: none; } }
 @keyframes tick { to { stroke-dashoffset: 0; } }
 @media (min-width: 900px) { .toasts { bottom: 28px; } }
+
+/* ---------- pop-up window for edit forms: title on top, body scrolls, buttons stay at the bottom ---------- */
+@keyframes modalIn { from { opacity: 0; transform: translateY(18px) scale(.98); } to { opacity: 1; transform: none; } }
+.modal-back { position: fixed; inset: 0; z-index: 2100; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(8, 30, 29, .5); backdrop-filter: blur(2px); animation: fadeIn .2s ease-out both; }
+.modal { width: 100%; max-height: min(92vh, 900px); display: flex; flex-direction: column; background: var(--bg); border-radius: 24px; box-shadow: var(--sh-2); overflow: hidden; outline: none; animation: modalIn .28s var(--ease-out) both; }
+.modal-head { display: flex; align-items: center; gap: 10px; padding: 16px 18px 12px 22px; background: #fff; border-bottom: 1px solid var(--line-2); flex-shrink: 0; }
+.modal-head h2 { margin: 0; font-size: 19px; }
+.modal-x { font-size: 18px; border: 1px solid var(--line-2); }
+.modal-body { flex: 1 1 auto; overflow-y: auto; overscroll-behavior: contain; padding: 18px 22px; gap: 14px; }
+.modal-foot { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; padding: 12px 22px calc(12px + env(safe-area-inset-bottom)); background: #fff; border-top: 1px solid var(--line-2); flex-shrink: 0; }
+.modal-foot .btn { min-width: 120px; }
+.modal-fieldset { border: 1.5px solid var(--line-2); border-radius: 14px; padding: 6px 12px; background: #fff; }
+@media (max-width: 600px) {
+  .modal-back { padding: 0; align-items: flex-end; }
+  .modal { max-width: none !important; max-height: 94vh; border-radius: 24px 24px 0 0; animation-name: sheetUp; animation-duration: .35s; }
+  .modal-body { padding: 14px 16px; }
+  .modal-foot { padding-left: 16px; padding-right: 16px; }
+  .modal-foot .btn { flex: 1; }
+}

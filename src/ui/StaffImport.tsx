@@ -8,6 +8,7 @@ import { countedEmployees, limitsOf } from '../domain/company';
 import { changeNeedsSecondPerson } from '../domain/payroll';
 import { downloadBytes, money, ymd } from './format';
 import { sharedShifts } from '../domain/personalShift';
+import Modal from './Modal';
 
 /** Bring a staff list in from Excel: download the template, pick the filled file, check every row, then add the good ones. */
 export default function StaffImport({ onClose, onDone }: { onClose: () => void; onDone: (msg: string) => void }) {
@@ -55,8 +56,9 @@ export default function StaffImport({ onClose, onDone }: { onClose: () => void; 
 
   const bad = res?.rows.filter(r => r.errors.length) ?? [];
   return (
-    <div className="card col">
-      <div className="row"><h2 className="grow">ນຳເຂົ້າລາຍຊື່ພະນັກງານຈາກ Excel</h2><button className="btn ghost" onClick={onClose}>ປິດ</button></div>
+    <Modal title="ນຳເຂົ້າລາຍຊື່ພະນັກງານຈາກ Excel" width={980} busy={busy} onClose={onClose} footer={<>
+      <button className="btn ghost" disabled={busy} onClick={onClose}>ປິດ</button>
+      {res && !res.missingColumns.length && <button className="btn" disabled={busy || !res.ok.length} onClick={go}>{busy ? 'ກຳລັງບັນທຶກ…' : twoPeople ? `ສົ່ງ ${res.ok.length} ຄົນ ໃຫ້ອະນຸມັດ` : `ນຳເຂົ້າ ${res.ok.length} ຄົນ`}</button>}</>}>
       <div className="col" style={{ gap: 6 }}>
         <b>1. ດາວໂຫຼດແບບຟອມ ແລ້ວໃສ່ລາຍຊື່</b>
         <span className="muted small">ໃນແບບຟອມມີແຜ່ນ "ວິທີໃສ່" ບອກທຸກຖັນ ແລະ ຊື່ສາຂາ / ກະທີ່ໃຊ້ໄດ້. ຖັນທີ່ມີ * ຕ້ອງໃສ່. ລຶບແຖວຕົວຢ່າງອອກກ່ອນ.</span>
@@ -87,9 +89,8 @@ export default function StaffImport({ onClose, onDone }: { onClose: () => void; 
               </tr>); })}
           </tbody></table></div>
           <span className="muted small">{twoPeople ? 'ເປີດ "ກວດ 2 ຄົນ" ຢູ່: ການຈ້າງແຕ່ລະຄົນຈະລໍອີກຄົນ (ເຈົ້າຂອງ ຫຼື ບັນຊີ) ອະນຸມັດ ກ່ອນເຂົ້າລາຍຊື່.' : 'ພະນັກງານຈະເຂົ້າລາຍຊື່ທັນທີ ໃນບົດບາດ "ພະນັກງານ". ບົດບາດອື່ນໃຫ້ກຳນົດຕໍ່ໃນ ແກ້ໄຂ.'} ທຸກລາຍການຖືກບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ.</span>
-          <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={busy || !res.ok.length} onClick={go}>{busy ? 'ກຳລັງບັນທຶກ…' : twoPeople ? `ສົ່ງ ${res.ok.length} ຄົນ ໃຫ້ອະນຸມັດ` : `ນຳເຂົ້າ ${res.ok.length} ຄົນ`}</button>
         </>
       )}
-    </div>
+    </Modal>
   );
 }

@@ -10,6 +10,7 @@ import { ONLINE_PIN_LEN, pinFields, tempPin } from '../domain/pin';
 import { isActiveOn } from '../domain/hiring';
 import { ROLE_NAMES, ymd } from './format';
 import PinDialog from './PinDialog';
+import Modal from './Modal';
 
 /** Approval rows in the order people think of them. 'leave' is the leave approvers setting; the rest are request kinds or actions. */
 const ROWS: [ApprovalKey | 'leave', string][] = [
@@ -156,7 +157,7 @@ export default function AccessPage() {
     <>
       <div className="col" style={{ gap: 0 }}><span className="muted">{readOnly ? 'ເບິ່ງໄດ້ຢ່າງດຽວ' : 'ສະເພາະເຈົ້າຂອງ ປ່ຽນໄດ້ · ທຸກການປ່ຽນມີບັນທຶກໃນ ບັນທຶກການແກ້ໄຂ'}</span><h1>ສິດ & ການອະນຸມັດ</h1></div>
       {pinFor && <PinDialog person={pinFor} hasLogin={hasLogin(pinFor)} reveal={hr.online?.revealPin} onSet={(pin, must) => setPinTo(pinFor, pin, must)} onClose={() => setPinFor(null)} />}
-      {msg && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
+      {msg && !editing && !ticks && <div className="pill info" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
 
       {hr.online && canRoles && (
         <div className="card col">
@@ -186,27 +187,31 @@ export default function AccessPage() {
             <td className="small">{e.roles.includes('head') ? ((e.headOf ?? [e.dept]).includes('*') ? 'ທຸກພະແນກ' : (e.headOf ?? [e.dept]).join(', ')) : '—'}</td>
             <td>{pinState(e)}</td>
             <td className="row" style={{ gap: 6 }}>{canRoles && superOnly(e) && <span className="muted small">ສະເພາະ Super admin</span>}{canRoles && e.id !== me.id && !superOnly(e) && <>
-              <button className="btn ghost" onClick={() => { setTicks(null); setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] }); }}>ບົດບາດ</button>
-              <button className="btn ghost" onClick={() => { setEditing(null); startTicks(e); }}>ສິດ{e.perm && Object.keys(e.perm).length > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>ປັບແລ້ວ</span>}</button>
+              <button className="btn ghost" onClick={() => { setMsg(''); setTicks(null); setEditing({ id: e.id, roles: [...e.roles], headOf: e.headOf ?? [e.dept] }); }}>ບົດບາດ</button>
+              <button className="btn ghost" onClick={() => { setMsg(''); setEditing(null); startTicks(e); }}>ສິດ{e.perm && Object.keys(e.perm).length > 0 && <span className="pill warn" style={{ marginLeft: 6 }}>ປັບແລ້ວ</span>}</button>
               {canSeePins && <button className="btn ghost" onClick={() => setPinFor(e)}>ເບິ່ງ / ແກ້ PIN</button>}
               <button className="btn ghost" onClick={() => { if (confirm(`ຕັ້ງ PIN ຊົ່ວຄາວໃໝ່ໃຫ້ ${e.name}? PIN ເກົ່າຈະໃຊ້ບໍ່ໄດ້.`)) resetPins([e]); }}>ຕັ້ງ PIN ໃໝ່</button></>}
               {e.id === me.id && <span className="muted small">ປ່ຽນ PIN ຂອງຕົນເອງໃນ ຕັ້ງຄ່າ</span>}</td>
           </tr>)}
         </tbody></table></div>
         {editing && (() => { const e = hr.employees.find(x => x.id === editing.id)!; return (
-          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
-            <b>ບົດບາດຂອງ {e.name}</b>
+          <Modal title={`ບົດບາດຂອງ ${e.name}`} onClose={() => setEditing(null)} footer={<>
+            <button className="btn ghost" onClick={() => setEditing(null)}>ຍົກເລີກ</button>
+            <button className="btn" onClick={saveRoles}>ບັນທຶກບົດບາດ</button></>}>
+            {msg && <div className="error" role="alert">{msg}</div>}
             <div className="row wrap">{(['head', 'accountant', 'owner', 'auditor'] as Role[]).map(r => <label key={r} className="row" style={{ minHeight: 40 }}>
               <input type="checkbox" disabled={r === 'owner' && !isSuper && hr.employees.some(x => x.superAdmin)} checked={editing.roles.includes(r)} onChange={() => setEditing({ ...editing, roles: editing.roles.includes(r) ? editing.roles.filter(x => x !== r) : [...editing.roles, r] })} />{ROLE_NAMES[r]}</label>)}</div>
             {editing.roles.includes('head') && <div className="row wrap"><span className="muted small">ຫົວໜ້າດູແລ:</span>
               <label className="row" style={{ minHeight: 40 }}><input type="checkbox" checked={editing.headOf.includes('*')} onChange={() => setEditing({ ...editing, headOf: editing.headOf.includes('*') ? [e.dept] : ['*'] })} />ທຸກພະແນກ</label>
               {depts.map(d => <label key={d} className="row" style={{ minHeight: 40 }}><input type="checkbox" disabled={editing.headOf.includes('*')} checked={editing.headOf.includes('*') || editing.headOf.includes(d)}
                 onChange={() => setEditing({ ...editing, headOf: editing.headOf.includes(d) ? editing.headOf.filter(x => x !== d) : [...editing.headOf.filter(x => x !== '*'), d] })} />{d}</label>)}</div>}
-            <div className="row"><button className="btn ghost" onClick={() => setEditing(null)}>ຍົກເລີກ</button><button className="btn" onClick={saveRoles}>ບັນທຶກບົດບາດ</button></div>
-          </div>); })()}
+          </Modal>); })()}
         {ticks && (() => { const e = hr.employees.find(x => x.id === ticks.id)!; const all = hasAllRights(e); const nTicks = Object.keys(ticks.perm).length; return (
-          <div className="col" style={{ border: '1.5px solid var(--line-2)', borderRadius: 14, padding: 12 }}>
-            <div className="row wrap"><b className="grow">ສິດຂອງ {e.name}</b>{nTicks > 0 && <button className="btn ghost" onClick={() => setTicks({ ...ticks, perm: {} })}>ຄືນຄ່າຕາມບົດບາດ</button>}</div>
+          <Modal title={`ສິດຂອງ ${e.name}`} width={720} onClose={() => setTicks(null)} footer={<>
+            <button className="btn ghost" onClick={() => setTicks(null)}>{all ? 'ປິດ' : 'ຍົກເລີກ'}</button>
+            {!all && <button className="btn" onClick={saveTicks}>ບັນທຶກສິດ</button>}</>}>
+            {msg && <div className="error" role="alert">{msg}</div>}
+            {nTicks > 0 && !all && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setTicks({ ...ticks, perm: {} })}>ຄືນຄ່າຕາມບົດບາດ</button>}
             {all ? <span className="muted small">{e.superAdmin ? 'Super admin' : 'Admin'} ມີທຸກສິດສະເໝີ (ປັບບໍ່ໄດ້ ເພື່ອກັນລັອກຕົວເອງອອກ)</span> : <>
               <span className="muted small">{nTicks ? `ປັບຈາກບົດບາດ ${nTicks} ລາຍການ` : 'ຕາມບົດບາດ'} · ຕິກ = ອະນຸຍາດ · ໃຫ້ໄດ້ສະເພາະສິດທີ່ເຈົ້າເອງມີ</span>
               {RIGHT_GROUPS.map(g => <div key={g.title} className="col" style={{ gap: 2 }}>
@@ -218,8 +223,7 @@ export default function AccessPage() {
                   </label>); })}</div>
               </div>)}
             </>}
-            <div className="row"><button className="btn ghost" onClick={() => setTicks(null)}>ປິດ</button>{!all && <button className="btn" onClick={saveTicks}>ບັນທຶກສິດ</button>}</div>
-          </div>); })()}
+          </Modal>); })()}
       </div>
 
       <div className="card col">

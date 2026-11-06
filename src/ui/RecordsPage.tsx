@@ -4,6 +4,7 @@ import { RECORD_KINDS, employeeDeleteBlock, fieldsFor, fromForm, toForm, type Re
 import { PAY_ITEM_LABEL } from '../domain/payItems';
 import { REQUEST_LABEL } from '../domain/requests';
 import { KIND_LABEL } from './labels';
+import Modal from './Modal';
 import { LEAVE_TYPES, hhmm, laoDate, money } from './format';
 
 type Rec = Record<string, any>;
@@ -116,7 +117,7 @@ export default function RecordsPage() {
         {RECORD_KINDS.map(k => <button key={k.id} role="tab" aria-selected={kind === k.id} onClick={() => { setKind(k.id); setEdit(null); setQ(''); setShown(PAGE); setErr(''); setMsg(''); }}>{k.label}</button>)}
       </div>
       {msg && <div className="pill ok" role="status" style={{ alignSelf: 'flex-start', height: 'auto', padding: '6px 12px', whiteSpace: 'normal' }}>{msg}</div>}
-      {err && <div className="error" role="alert">{err}</div>}
+      {err && !edit && <div className="error" role="alert">{err}</div>}
       <div className="card col">
         <div className="row wrap">
           <h2 className="grow">{RECORD_KINDS.find(k => k.id === kind)!.label} <span className="muted small">({list.length})</span></h2>
@@ -138,8 +139,10 @@ export default function RecordsPage() {
         {list.length > shown && <button className="btn ghost" style={{ alignSelf: 'flex-start' }} onClick={() => setShown(n => n + PAGE)}>ສະແດງເພີ່ມ ({list.length - shown})</button>}
       </div>
       {edit && editing && (
-        <div className="card col" style={{ maxWidth: 560 }} role="group" aria-label="ແກ້ໄຂ">
-          <h2>ແກ້ໄຂ · {title(editing)}</h2>
+        <Modal title={`ແກ້ໄຂ · ${title(editing)}`} busy={busy} onClose={() => setEdit(null)} footer={<>
+          <button className="btn ghost" disabled={busy} onClick={() => setEdit(null)}>ຍົກເລີກ</button>
+          <button className="btn" disabled={busy} onClick={save}>ບັນທຶກ</button></>}>
+          {err && <div className="error" role="alert">{err}</div>}
           <div className="grid">
             {fields.map(f => (
               <label key={f.key} className="field">{f.label}{f.optional ? <span className="muted small" style={{ fontWeight: 400 }}> (ບໍ່ບັງຄັບ)</span> : null}
@@ -148,8 +151,7 @@ export default function RecordsPage() {
                   : <input className="input" type={f.kind === 'date' ? 'date' : f.kind === 'datetime' ? 'datetime-local' : 'text'} inputMode={f.kind === 'number' ? 'numeric' : undefined} value={edit.form[f.key] ?? ''} onChange={e => setEdit({ ...edit, form: { ...edit.form, [f.key]: e.target.value } })} />}
               </label>))}
           </div>
-          <div className="row"><button className="btn ghost grow" disabled={busy} onClick={() => setEdit(null)}>ຍົກເລີກ</button><button className="btn grow" disabled={busy} onClick={save}>ບັນທຶກ</button></div>
-        </div>)}
+        </Modal>)}
     </>
   );
 }
