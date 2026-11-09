@@ -501,3 +501,16 @@ input[type='checkbox'], input[type='radio'] { accent-color: var(--primary); widt
   .modal-foot { padding-left: 16px; padding-right: 16px; }
   .modal-foot .btn { flex: 1; }
 }
+
+/* ---------- phone audit fixes ---------- */
+/* calendar days are true circles (the cell is as tall as it is wide), also on a 320 px screen */
+.cal-d { height: auto; }
+/* the Send / Cancel row of a pop-up form stays in view instead of hiding below a long form */
+.sheet > .row:last-child { position: sticky; bottom: -20px; z-index: 2; margin: 4px -18px -20px; padding: 12px 18px calc(12px + env(safe-area-inset-bottom)); background: var(--bg); border-top: 1px solid var(--line); }
+/* the + button floats over the right edge: leave room so the last row is never under it */
+.phone .screen:has(.fab) { padding-bottom: 190px; }
+/* the yearly leave tile is the hero: full width, so its hours line does not wrap */
+.lb-tile.main { grid-column: 1 / -1; }
+/* with the hero tile on its own row, the rest still pair up; a lone last tile spans the row */
+.lb-grid:has(.lb-tile.main:first-child) .lb-tile:last-child:nth-child(odd) { grid-column: auto; }
+.lb-grid:has(.lb-tile.main:first-child) .lb-tile:last-child:nth-child(even) { grid-column: 1 / -1; }

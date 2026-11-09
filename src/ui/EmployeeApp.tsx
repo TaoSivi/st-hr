@@ -98,16 +98,14 @@ export default function EmployeeApp({ onSwitch, onManagerView }: { onSwitch: () 
           <button className="icon-btn" aria-label="ເມນູ" onClick={() => setDrawer(true)} style={{ position: 'relative' }}>
             <Icon name="menu" size={26} />
           </button>
-          <b className="grow" style={{ fontSize: 20 }}>{isMain ? 'ST HR' : title}</b>
+          {!isMain && <button className="icon-btn" aria-label="ກັບໜ້າຫຼັກ" onClick={() => setPage('clock')} style={{ fontSize: 30, paddingBottom: 3 }}>‹</button>}
+          <b className="grow" style={{ fontSize: isMain ? 20 : 18, lineHeight: 1.25, minWidth: 0 }}>{isMain ? 'ST HR' : title}</b>
           <button className="icon-btn" aria-label={`ແຈ້ງເຕືອນ ${unread}`} onClick={() => go('notifications')} style={{ position: 'relative' }}>
             <Icon name="bell" />
             {unread > 0 && <span className="badge red dot-badge">{unread > 99 ? '99' : unread}</span>}
           </button>
         </div>
         {page === 'clock' && <div className="greet"><span>{greeting(new Date())}</span><b>ມື້ນີ້ພ້ອມເຮັດວຽກແລ້ວບໍ?</b></div>}
-        {!isMain && (
-          <div className="appbar-sub"><button className="btn ghost" style={{ minHeight: 44, padding: '0 14px' }} onClick={() => setPage('clock')}>‹ ກັບໜ້າຫຼັກ</button></div>
-        )}
       </header>
       {isMain && (
         <nav className="bottomnav" role="tablist" aria-label="ໜ້າຫຼັກ">
@@ -414,7 +412,7 @@ function CalendarTab() {
         </div>)}
       </div>
       <div className="card col" style={{ gap: 6 }}>
-        <button className="row" style={{ border: 'none', background: 'none', padding: 0, justifyContent: 'space-between' }} onClick={() => setLegend(!legend)} aria-expanded={legend}>
+        <button className="row" style={{ border: 'none', background: 'none', padding: '8px 0', minHeight: 44, justifyContent: 'space-between' }} onClick={() => setLegend(!legend)} aria-expanded={legend}>
           <b>ໝາຍເຫດ</b><span className="muted">{legend ? '▴' : '▾'}</span>
         </button>
         {legend && (
