@@ -98,6 +98,7 @@ export default function Approvals({ section, readOnly: forcedReadOnly = false }:
           {head(s.employeeId, `${KIND_LABEL[s.kind]} · ${hhmm(s.deviceTime)}`, laoDate(new Date(s.deviceTime)), s.status === 'pending' ? null : statusPill(s.status === 'approved' ? 'approved' : 'rejected'))}
           {s.photo && <img src={s.photo} alt="ຮູບຕອນສະແກນ" style={{ width: 120, borderRadius: 12 }} />}
           <div className="row wrap">{s.reasons.map(r => <span key={r} className="pill warn">{r}</span>)}</div>
+          {s.outsideReason && <div className="small" style={{ background: 'var(--warn-bg)', color: 'var(--warn)', borderRadius: 12, padding: '8px 12px' }}>ເຫດຜົນນອກສະຖານທີ່: “{s.outsideReason}”</div>}
           {s.status === 'pending' && actions(s.id, s.employeeId === me.id && !ap.selfOk ? 'ກວດການລົງເວລາຂອງຕົນເອງບໍ່ໄດ້' : !canDoIn(me, 'scan.review', hr.settings) ? 'ບໍ່ມີສິດ' : scopeBlock(me, deptOf(hr.employees, s.employeeId), actionRoles('scan.review', hr.settings)),
             () => hr.save('scans', { ...s, status: 'approved', reviewedBy: me.id }, 'scan-approve'),
             async note => { if (!note.trim()) throw new Error('ຕ້ອງໃສ່ເຫດຜົນເມື່ອບໍ່ອະນຸມັດ'); await hr.save('scans', { ...s, status: 'rejected', reviewedBy: me.id, reviewNote: note }, 'scan-reject'); })}

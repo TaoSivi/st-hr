@@ -710,6 +710,8 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
   const [gpsLabel, setGpsLabel] = useState('ກຳລັງກວດບ່ອນຢູ່…');
   const [hint, setHint] = useState(''); // what to fix when the face is not being found or matched
   const [result, setResult] = useState<ScanRecord | null>(null);
+  const [need, setNeed] = useState<ScanRecord | null>(null); // outside the area: waiting for the person to type why
+  const [why, setWhy] = useState('');
   const color = KIND_COLOR[kind];
 
   // right after the scan: how late (clock-in) or how early (clock-out) against the shift; nothing when on time or past the end
@@ -774,6 +776,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
       // the first phone an account is used on becomes its phone
       if (!me!.deviceId) await save('employees', { ...me!, deviceId: thisDevice, deviceBoundAt: new Date().toISOString() }, 'device-bind');
       pending.current = rec;
+      if (gpsBad) { setNeed(rec); return; } // away from the branch: ask for the reason before saving
       await commit(rec, self);
     })();
     return () => { self.cancelled = true; stopCamera(self.stream); };
@@ -791,6 +794,35 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
       setSaveErr(e?.message || 'ບັນທຶກບໍ່ໄດ້');
     }
   };
+
+  const whyText = why.trim();
+  if (need && !result && !saveErr) {
+    const submit = () => {
+      if (whyText.length < 3) return;
+      const rec = { ...need, outsideReason: whyText };
+      pending.current = rec;
+      setNeed(null);
+      void commit(rec, run.current);
+    };
+    return (
+      <div className={`fullscreen${closing ? ' closing' : ''}`} style={{ background: 'var(--warn-bg)', color: '#3b2600', alignItems: 'center' }}>
+        <div className="col" style={{ width: '100%', maxWidth: 420, gap: 14, marginTop: 24 }}>
+          <span className="pill" style={{ alignSelf: 'center', height: 40, fontSize: 16, padding: '0 16px', background: 'var(--warn)', color: '#fff' }}>{KIND_LABEL[kind]} · {hhmm(need.deviceTime)}</span>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 26, fontWeight: 800 }}>ສະແກນຢູ່ນອກສະຖານທີ່</div>
+            <div style={{ fontSize: 16, marginTop: 4 }}>{gpsLabel}</div>
+          </div>
+          <label className="field" style={{ color: '#3b2600' }}>
+            ກະລຸນາໃສ່ເຫດຜົນ (ຕ້ອງໃສ່)
+            <textarea className="input" rows={4} maxLength={200} autoFocus value={why} onChange={e => setWhy(e.target.value)} placeholder="ເຊັ່ນ: ໄປສົ່ງເຄື່ອງໃຫ້ລູກຄ້າ, ເຮັດວຽກນອກສະຖານທີ່" style={{ background: '#fff', minHeight: 110 }} />
+          </label>
+          <span className="small" style={{ textAlign: 'right' }}>{whyText.length}/200{whyText.length > 0 && whyText.length < 3 ? ' · ຢ່າງໜ້ອຍ 3 ຕົວອັກສອນ' : ''}</span>
+          <button className="btn block" style={{ background: 'var(--warn)' }} disabled={whyText.length < 3} onClick={submit}>ບັນທຶກການສະແກນ</button>
+          <button className="btn block ghost" style={{ color: '#3b2600', borderColor: '#3b2600' }} onClick={onClose}>ຍົກເລີກ (ບໍ່ບັນທຶກ)</button>
+        </div>
+      </div>
+    );
+  }
 
   if (saveErr) {
     return (
@@ -831,6 +863,7 @@ function ScanFlow({ kind, manualBranch, onClose: closeNow }: { kind: ScanKind; m
           </span>
           <span className="t1" role="status" style={{ marginTop: 18 }}>ບັນທຶກແລ້ວ</span>
           <b style={{ fontSize: 22 }}>ລໍຫົວໜ້າກວດ</b>
+          {result.outsideReason && <span className="small" style={{ maxWidth: 360, textAlign: 'center' }}>ເຫດຜົນ: “{result.outsideReason}”</span>}
           <div className="row wrap" style={{ justifyContent: 'center' }}>{result.reasons.map(r => <span key={r} className="pill" style={{ background: '#fff', color: 'var(--warn)', height: 36, fontSize: 15 }}>{r}</span>)}</div>
           {note && <span className="pill" role="status" style={{ background: 'var(--warn)', color: '#fff', height: 'auto', padding: '8px 18px', fontSize: 18, fontWeight: 700, whiteSpace: 'normal', textAlign: 'center', lineHeight: 1.5 }}>{note.text}</span>}
           <span style={{ fontSize: 18 }}>ບໍ່ຕ້ອງເປັນຫ່ວງ<br />ເວລາ {hhmm(result.deviceTime)} ຂອງເຈົ້າຖືກບັນທຶກໄວ້ແລ້ວ</span>

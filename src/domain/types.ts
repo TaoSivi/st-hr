@@ -78,6 +78,7 @@ export interface ScanRecord {
   faceScore?: number; // 0..100
   photo?: string; // data URL in demo; object storage key in production
   manual?: boolean; // branch chosen by hand, so branchId is the employee's claim, not GPS
+  outsideReason?: string; // why the person scanned away from the branch (typed by them; required when the scan is outside the area)
   status: ScanStatus;
   reasons: string[];
   reviewedBy?: string;

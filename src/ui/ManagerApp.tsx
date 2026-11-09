@@ -230,7 +230,7 @@ function Review({ readOnly }: { readOnly: boolean }) {
             {list.map(s => (
               <button key={s.id} className="card row" onClick={() => setSelId(s.id)} style={{ border: `2px solid ${sel?.id === s.id ? 'var(--accent)' : 'transparent'}`, textAlign: 'left' }}>
                 {s.photo ? <img src={s.photo} alt="" width={52} height={52} style={{ borderRadius: 14, objectFit: 'cover' }} /> : <span className="logo" style={{ width: 52, height: 52 }}>?</span>}
-                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b><span className="muted small">{KIND_LABEL[s.kind]} · {tab === 'all' ? `${new Date(s.deviceTime).getDate()}/${new Date(s.deviceTime).getMonth() + 1} ` : ''}{hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
+                <div className="col grow" style={{ gap: 0 }}><b>{nameOf(hr.employees, s.employeeId)}</b>{s.outsideReason && <span className="small" style={{ color: 'var(--warn)' }}>ເຫດຜົນ: {s.outsideReason}</span>}<span className="muted small">{KIND_LABEL[s.kind]} · {tab === 'all' ? `${new Date(s.deviceTime).getDate()}/${new Date(s.deviceTime).getMonth() + 1} ` : ''}{hhmm(s.deviceTime)}{s.offline ? ' · ອອບລາຍ' : ''}</span></div>
                 <div className="col" style={{ alignItems: 'flex-end', gap: 4 }}>
                   {tab === 'all' && <span><StatusPill s={s} />{s.faceScore != null && <span className={`pill ${s.faceScore < hr.settings.faceMinScore ? 'warn' : 'info'}`} style={{ marginLeft: 4 }}>ໜ້າ {s.faceScore}%</span>}</span>}
                   {s.reasons.length ? s.reasons.map(r => <span key={r} className="pill warn">{r}</span>) : tab === 'all' ? null : <span className="pill info">ສຸ່ມກວດ</span>}</div>
@@ -244,6 +244,7 @@ function Review({ readOnly }: { readOnly: boolean }) {
               {sel.photo ? <img src={sel.photo} alt="ຮູບຕອນສະແກນ" style={{ width: '100%', maxWidth: 280, borderRadius: 16, alignSelf: 'center' }} /> : <div className="empty">ບໍ່ມີຮູບ (ກ້ອງບໍ່ໄດ້ເປີດ)</div>}
               <div className="row"><span className="grow muted">ໃບໜ້າກົງກັນ</span><b>{sel.faceScore != null ? sel.faceScore + '%' : '—'}</b></div>
               <div className="row"><span className="grow muted">ໄລຍະຫ່າງຈາກຮ້ານ</span><b>{sel.distanceM != null ? sel.distanceM + ' ມ.' : 'ບໍ່ມີ GPS'}</b></div>
+              {sel.outsideReason && <div className="col" style={{ gap: 2, background: 'var(--warn-bg)', borderRadius: 14, padding: '10px 14px' }}><span className="muted small">ເຫດຜົນທີ່ສະແກນນອກສະຖານທີ່ (ພະນັກງານໃສ່ເອງ)</span><b>{sel.outsideReason}</b></div>}
               <div className="row"><span className="grow muted">ໂມງໂທລະສັບ / server</span><b>{hhmm(sel.deviceTime)} / {sel.serverTime ? hhmm(sel.serverTime) : 'ຍັງບໍ່ sync'}</b></div>
               {sel.reviewedBy && <div className="muted small">ກວດໂດຍ {nameOf(hr.employees, sel.reviewedBy)}{sel.reviewNote ? ` · ${sel.reviewNote}` : ''}</div>}
               {!readOnly && (sel.status === 'pending' || sel.status === 'ok') && (
