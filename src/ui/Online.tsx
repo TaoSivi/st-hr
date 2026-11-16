@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { HRProvider, type OnlineApi, type OnlineSession } from '../app/state';
 import { isOffline, RemoteStore, type Outbox, type QueuedWrite } from '../data/remote';
 import { localCache } from '../data/offlineCache';
@@ -152,6 +152,9 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
     } catch (e: any) { setErr(friendly(e, 'ເຊື່ອມຕໍ່ບໍ່ໄດ້')); }
     setBusy(false);
   };
+  // opened from the platform launcher: the address is known, so go straight to the PIN screen (no extra tap)
+  const auto = useRef(false);
+  useEffect(() => { if (platformCo && !auto.current) { auto.current = true; void enter(); } }, [platformCo]);
   const create = async () => {
     setErr('');
     if (!connect()) return;
