@@ -49,6 +49,31 @@ export function takeJoinLink(): string | null {
   } catch { return null; }
 }
 
+/**
+ * Opened from the platform launcher: `?server=https://<site>/api/t/<company>/hr` points this phone at that company's HR on the platform server.
+ * Only an address of that exact shape (or a local test server) is taken. When it is a different server from before, everything that belonged to
+ * the old one (who was signed in, the remembered company, the cached sign-in cards) is cleared so one company's session is never used on another.
+ */
+const PLATFORM_HR = /^https:\/\/[a-z0-9.-]+(:\d+)?\/api\/t\/[a-z0-9][a-z0-9_-]{1,31}\/hr$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/api\/t\/[a-z0-9][a-z0-9_-]{1,31}\/hr$/i;
+export const isPlatformHrUrl = (u: string) => PLATFORM_HR.test(u.trim());
+const PER_SERVER_KEYS = ['sthr-sheets-info', 'sthr-sheets-me', 'sthr-sheets-logins', 'sthr-sheets-token', ONLINE];
+export function takeServerParam(): string | null {
+  try {
+    const p = new URLSearchParams(location.search), v = (p.get('server') ?? '').trim().replace(/\/+$/, '');
+    if (!v) return null;
+    p.delete('server');
+    const rest = p.toString();
+    history.replaceState(null, '', location.pathname + (rest ? '?' + rest : '') + location.hash);
+    if (!isPlatformHrUrl(v)) return null;
+    const have = readServerConfig();
+    if (have?.kind !== 'sheets' || have.url !== v) {
+      for (const k of PER_SERVER_KEYS) try { localStorage.removeItem(k); } catch { /* private mode */ }
+      saveServerConfig({ kind: 'sheets', url: v, key: '' });
+    }
+    return v;
+  } catch { return null; }
+}
+
 let client: SupabaseClient | null = null;
 export function db(): SupabaseClient {
   if (client) return client;

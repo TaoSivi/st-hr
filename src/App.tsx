@@ -14,7 +14,7 @@ import { IDLE_LOGOUT_MIN, pinFields, pinProblem } from './domain/pin';
 import type { Employee } from './domain/types';
 import Login, { NewPin } from './ui/Login';
 import OnlineApp from './ui/Online';
-import { readOnlineCompany, readServerConfig, setOnlineCompany, takeJoinLink } from './data/server';
+import { readOnlineCompany, readServerConfig, setOnlineCompany, takeJoinLink, takeServerParam } from './data/server';
 
 const ACTIVE_KEY = 'sthr-company';
 const isWideScreen = () => typeof window !== 'undefined' && !!window.matchMedia?.('(min-width: 900px)').matches;
@@ -30,8 +30,9 @@ const demoMode = () => typeof location !== 'undefined' && new URLSearchParams(lo
 export default function App() {
   // a set-up link opened on this phone (…#join=…) takes it straight to its online company
   const [online, setOnline] = useState<boolean>(() => {
+    const fromLauncher = !!takeServerParam(); // opened from the platform launcher: this company's HR on the platform server
     const joined = !!takeJoinLink(); // always read the link, so it is remembered and cleared from the address
-    return joined || !demoMode() || (!!readOnlineCompany() && !!readServerConfig());
+    return fromLauncher || joined || !demoMode() || (!!readOnlineCompany() && !!readServerConfig());
   });
   const goOnline = () => { setOnline(true); };
   const leaveOnline = () => { setOnlineCompany(null); setOnline(false); };

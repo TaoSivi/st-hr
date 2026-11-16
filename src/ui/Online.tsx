@@ -4,7 +4,7 @@ import { isOffline, RemoteStore, type Outbox, type QueuedWrite } from '../data/r
 import { localCache } from '../data/offlineCache';
 import {
   approveWith, canApprove, changeOwnPin, companyName, createCompanyOnline, createLogin, currentMember, joinLink, listLogins, loadCompany, readOnlineCompany, readServerConfig,
-  activeBackend, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signInOffline, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
+  activeBackend, isPlatformHrUrl, resetPin, saveServerConfig, serverKind, runApproved, setOnlineCompany, sheetCompany, signIn, signInInfo, signInOffline, signOut, peekSignIn, peekSheetCompany, revealPin, type Member
 } from '../data/server';
 import type { SheetCard } from '../data/sheets';
 import { askSuperApproval } from './SuperApproval';
@@ -125,10 +125,11 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   const sheets = kind === 'sheets';
+  const platformCo = sheets && isPlatformHrUrl(url) ? /\/api\/t\/([^/]+)\/hr$/i.exec(url.trim())?.[1] ?? null : null; // opened from the platform launcher: the address is already set
 
   const connect = () => {
     if (kind === 'sheets') {
-      if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url.trim())) return setErr('ໃສ່ລິ້ງ Web app ຂອງ Apps Script (ລົງທ້າຍດ້ວຍ /exec)'), false;
+      if (!/^https:\/\/script\.google\.com\/.+\/exec$/.test(url.trim()) && !isPlatformHrUrl(url)) return setErr('ໃສ່ລິ້ງ Web app ຂອງ Apps Script (ລົງທ້າຍດ້ວຍ /exec)'), false;
     } else if (!/^https:\/\/.+/.test(url.trim()) || key.trim().length < 20) return setErr('ໃສ່ Project URL (ເລີ່ມດ້ວຍ https://) ແລະ anon public key ໃຫ້ຖືກ'), false;
     saveServerConfig({ kind, url, key: kind === 'sheets' ? '' : key });
     return true;
@@ -187,6 +188,12 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
   return (
     <div className="phone"><div className="screen">
       <div className="row"><span className="logo">ST</span><div className="col" style={{ gap: 0 }}><b style={{ fontSize: 20 }}>ST HR</b><span className="muted small">ບໍລິສັດອອນລາຍ</span></div></div>
+      {platformCo ? (
+        <div className="card col">
+          <h2>ເຊື່ອມກັບແພລດຟອມ ST</h2>
+          <span className="muted small">ບໍລິສັດ: <b>{platformCo}</b> — ເຊື່ອມຕໍ່ໃຫ້ແລ້ວຈາກ Launcher ບໍ່ຕ້ອງໃສ່ລິ້ງ.</span>
+        </div>
+      ) : (
       <div className="card col">
         <h2>ເຊື່ອມຕໍ່ຖານຂໍ້ມູນ</h2>
         <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
@@ -202,6 +209,7 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
           <label className="field">anon public key<input className="input" value={key} onChange={e => setKey(e.target.value)} /></label>
         </>)}
       </div>
+      )}
       <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
         <button role="tab" aria-selected={mode === 'enter'} onClick={() => setMode('enter')}>ເຂົ້າບໍລິສັດທີ່ມີແລ້ວ</button>
         <button role="tab" aria-selected={mode === 'create'} onClick={() => setMode('create')}>ສ້າງບໍລິສັດໃໝ່</button>
@@ -209,7 +217,7 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
       {mode === 'enter' ? (
         <div className="card col">
           {kind === 'supabase' && <label className="field">ລະຫັດບໍລິສັດ<input className="input" placeholder="ເຊັ່ນ c-ab12cd34" value={companyId} onChange={e => setCompanyId(e.target.value)} /></label>}
-          {kind === 'sheets' && <span className="muted small">Google Sheet ໜຶ່ງໃບ = ໜຶ່ງບໍລິສັດ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.</span>}
+          {kind === 'sheets' && <span className="muted small">{platformCo ? 'ແຕ່ລະບໍລິສັດມີ HR ຂອງຕົນເອງ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.' : 'Google Sheet ໜຶ່ງໃບ = ໜຶ່ງບໍລິສັດ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.'}</span>}
           {err && <div className="error" role="alert">{err}</div>}
           <button className="btn block" disabled={busy} onClick={enter}>{busy ? 'ກຳລັງເຊື່ອມຕໍ່…' : kind === 'sheets' ? 'ເຊື່ອມຕໍ່ ແລະ ເຂົ້າລະບົບ' : 'ຕໍ່ໄປ'}</button>
         </div>
