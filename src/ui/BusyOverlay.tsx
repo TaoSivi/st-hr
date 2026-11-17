@@ -38,7 +38,7 @@ export default function BusyOverlay() {
       <div className="busy-card">
         <div className="busy-ring" aria-hidden="true"><span /></div>
         <b className="busy-title">{label}<span className="busy-dots" aria-hidden="true"><i>.</i><i>.</i><i>.</i></span></b>
-        <span className="busy-sub">ລໍສັກຄູ່ ເຊີບເວີ Google ຕອບຊ້າເລັກນ້ອຍ — ຢ່າປິດໜ້ານີ້</span>
+        <span className="busy-sub">ລໍສັກຄູ່ ເຊີບເວີຕອບຊ້າເລັກນ້ອຍ — ຢ່າປິດໜ້ານີ້</span>
       </div>
     </div>
   );

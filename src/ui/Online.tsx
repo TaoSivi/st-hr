@@ -142,7 +142,7 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
       // a Google Sheet holds one company, so its code comes from the sheet
       const id = kind === 'sheets' ? (await sheetCompany()).companyId ?? '' : companyId.trim();
       if (!id) {
-        if (kind === 'sheets') { setMode('create'); setErr('Google Sheet ນີ້ຍັງບໍ່ມີບໍລິສັດ — ສ້າງໃໝ່ໄດ້ເລີຍ ຢູ່ດ້ານລຸ່ມ'); } else setErr('ໃສ່ລະຫັດບໍລິສັດ');
+        if (platformCo) setErr('ບໍລິສັດນີ້ຍັງບໍ່ໄດ້ເປີດ HR — ຕິດຕໍ່ຜູ້ດູແລລະບົບ'); else if (kind === 'sheets') { setMode('create'); setErr('Google Sheet ນີ້ຍັງບໍ່ມີບໍລິສັດ — ສ້າງໃໝ່ໄດ້ເລີຍ ຢູ່ດ້ານລຸ່ມ'); } else setErr('ໃສ່ລະຫັດບໍລິສັດ');
         setBusy(false);
         return;
       }
@@ -213,11 +213,11 @@ function Connect({ onDone, onBack }: { onDone: (companyId: string) => void; onBa
         </>)}
       </div>
       )}
-      <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
+      {!platformCo && <div className="tabs" role="tablist" style={{ alignSelf: 'flex-start' }}>
         <button role="tab" aria-selected={mode === 'enter'} onClick={() => setMode('enter')}>ເຂົ້າບໍລິສັດທີ່ມີແລ້ວ</button>
         <button role="tab" aria-selected={mode === 'create'} onClick={() => setMode('create')}>ສ້າງບໍລິສັດໃໝ່</button>
-      </div>
-      {mode === 'enter' ? (
+      </div>}
+      {mode === 'enter' || platformCo ? (
         <div className="card col">
           {kind === 'supabase' && <label className="field">ລະຫັດບໍລິສັດ<input className="input" placeholder="ເຊັ່ນ c-ab12cd34" value={companyId} onChange={e => setCompanyId(e.target.value)} /></label>}
           {kind === 'sheets' && <span className="muted small">{platformCo ? 'ແຕ່ລະບໍລິສັດມີ HR ຂອງຕົນເອງ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.' : 'Google Sheet ໜຶ່ງໃບ = ໜຶ່ງບໍລິສັດ ຈຶ່ງບໍ່ຕ້ອງໃສ່ລະຫັດບໍລິສັດ.'}</span>}

@@ -57,6 +57,14 @@ export function takeJoinLink(): string | null {
 const PLATFORM_HR = /^https:\/\/[a-z0-9.-]+(:\d+)?\/api\/t\/[a-z0-9][a-z0-9_-]{1,31}\/hr$|^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\/api\/t\/[a-z0-9][a-z0-9_-]{1,31}\/hr$/i;
 export const isPlatformHrUrl = (u: string) => PLATFORM_HR.test(u.trim());
 const PER_SERVER_KEYS = ['sthr-sheets-info', 'sthr-sheets-me', 'sthr-sheets-logins', 'sthr-sheets-token', ONLINE];
+/** A platform company's HR: keep its address in the address bar, so the page link a person copies and sends opens the same company. */
+export function showPlatformLink(): void {
+  try {
+    const cfg = readServerConfig();
+    if (cfg?.kind !== 'sheets' || !isPlatformHrUrl(cfg.url) || new URLSearchParams(location.search).has('server')) return;
+    history.replaceState(null, '', location.pathname + '?server=' + encodeURIComponent(cfg.url) + location.hash);
+  } catch { /* no address bar */ }
+}
 export function takeServerParam(): string | null {
   try {
     const p = new URLSearchParams(location.search), v = (p.get('server') ?? '').trim().replace(/\/+$/, '');
